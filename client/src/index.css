@@ -29,8 +29,8 @@
   }
 
   ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 5px;
+    height: 5px;
   }
 
   ::-webkit-scrollbar-track {
@@ -38,7 +38,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-surface-300 rounded-full;
+    @apply bg-surface-300/60 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
@@ -46,7 +46,7 @@
   }
 
   .dark ::-webkit-scrollbar-thumb {
-    @apply bg-surface-600;
+    @apply bg-surface-600/60;
   }
 
   .dark ::-webkit-scrollbar-thumb:hover {
@@ -56,46 +56,63 @@
 
 @layer components {
   .page-container {
-    @apply min-h-screen pb-20 md:pb-6 bg-surface-50 dark:bg-surface-950;
+    @apply min-h-screen bg-surface-50 dark:bg-surface-950;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4.5rem);
+  }
+
+  @media (min-width: 768px) {
+    .page-container {
+      padding-bottom: 2rem;
+    }
+  }
+
+  .ai-chat-container {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 50px);
+  }
+
+  @media (min-width: 768px) {
+    .ai-chat-container {
+      padding-bottom: 0;
+    }
   }
 
   .page-header {
-    @apply sticky top-0 z-30 border-b border-surface-100;
-    background-color: rgba(248, 250, 252, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    @apply sticky top-0 z-30;
+    background-color: rgba(248, 250, 252, 0.92);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
   }
 
   .dark .page-header {
-    background-color: rgba(15, 23, 42, 0.95);
-    @apply border-surface-800;
+    background-color: rgba(15, 23, 42, 0.92);
   }
 
   .card {
     @apply bg-white rounded-2xl border;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
-    border-color: rgba(226, 232, 240, 0.8);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.03);
+    border-color: rgba(226, 232, 240, 0.6);
+    transition: box-shadow 0.2s ease;
   }
 
   .dark .card {
     @apply bg-surface-900;
-    border-color: rgba(51, 65, 85, 0.8);
+    border-color: rgba(51, 65, 85, 0.5);
   }
 
   .card-hover {
     @apply bg-white rounded-2xl border cursor-pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
-    border-color: rgba(226, 232, 240, 0.8);
-    transition: box-shadow 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.03);
+    border-color: rgba(226, 232, 240, 0.6);
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
   }
 
   .dark .card-hover {
     @apply bg-surface-900;
-    border-color: rgba(51, 65, 85, 0.8);
+    border-color: rgba(51, 65, 85, 0.5);
   }
 
   .card-hover:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.04);
   }
 
   .card-hover:active {
@@ -103,15 +120,15 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-5 py-2.5 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed;
     background: linear-gradient(to right, #e8941e, #c9553e);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    box-shadow: 0 2px 8px rgba(232, 148, 30, 0.18);
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
     will-change: transform;
   }
 
   .btn-primary:hover {
-    background: linear-gradient(to right, #d4841a, #b54935);
+    box-shadow: 0 4px 16px rgba(232, 148, 30, 0.25);
   }
 
   .btn-primary:active {
@@ -119,7 +136,7 @@
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 bg-surface-100 text-surface-700 font-medium rounded-xl hover:bg-surface-200;
+    @apply inline-flex items-center justify-center px-5 py-2.5 bg-surface-100 text-surface-700 font-medium rounded-xl hover:bg-surface-200;
     transition: transform 0.1s ease, background-color 0.1s ease;
     will-change: transform;
   }
@@ -133,7 +150,7 @@
   }
 
   .input-field {
-    @apply w-full px-3.5 py-2.5 bg-surface-50 border border-surface-200 rounded-xl text-sm placeholder-surface-400 focus:outline-none;
+    @apply w-full px-4 py-3 bg-surface-50 border border-surface-200 rounded-xl text-sm placeholder-surface-400 focus:outline-none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
@@ -142,7 +159,7 @@
   }
 
   .input-field:focus {
-    box-shadow: 0 0 0 2px rgba(232, 148, 30, 0.2);
+    box-shadow: 0 0 0 3px rgba(232, 148, 30, 0.12);
     border-color: #e8941e;
   }
 
@@ -151,7 +168,7 @@
   }
 
   .empty-state {
-    @apply flex flex-col items-center justify-center py-12 px-4 text-center;
+    @apply flex flex-col items-center justify-center py-16 px-6 text-center;
   }
 
   .empty-state-title {
@@ -180,23 +197,23 @@
   }
 
   .gradient-bg-soft {
-    background: linear-gradient(135deg, rgba(232, 148, 30, 0.08), rgba(201, 85, 62, 0.08));
+    background: linear-gradient(135deg, rgba(232, 148, 30, 0.06), rgba(201, 85, 62, 0.06));
   }
 
   .chat-bubble-user {
-    @apply text-white rounded-2xl rounded-br-md;
+    @apply text-white rounded-2xl rounded-br-lg;
     background: linear-gradient(to bottom right, #e8941e, #c9553e);
   }
 
   .chat-bubble-ai {
-    @apply bg-white border text-surface-800 rounded-2xl rounded-bl-md;
-    border-color: #f1f5f9;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
+    @apply bg-white border text-surface-800 rounded-2xl rounded-bl-lg;
+    border-color: rgba(241, 245, 249, 0.8);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.03);
   }
 
   .dark .chat-bubble-ai {
     @apply bg-surface-800 text-surface-100;
-    border-color: rgba(51, 65, 85, 0.8);
+    border-color: rgba(51, 65, 85, 0.5);
   }
 
   .chip {
@@ -207,7 +224,7 @@
   .chip-active {
     @apply text-brand-600;
     background-color: #fef7ed;
-    box-shadow: 0 0 0 1px rgba(232, 148, 30, 0.3);
+    box-shadow: 0 0 0 1px rgba(232, 148, 30, 0.25);
   }
 
   .dark .chip-active {
@@ -231,15 +248,24 @@
   }
 
   .floating-action-btn {
-    @apply fixed bottom-24 right-4 md:bottom-8 md:right-8 z-40 w-14 h-14 text-white rounded-full flex items-center justify-center;
+    @apply fixed z-40 w-14 h-14 text-white rounded-full flex items-center justify-center;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
+    right: 1.25rem;
     background: linear-gradient(to right, #e8941e, #c9553e);
-    box-shadow: 0 8px 30px rgba(232, 148, 30, 0.2);
+    box-shadow: 0 6px 24px rgba(232, 148, 30, 0.25);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     will-change: transform;
   }
 
+  @media (min-width: 768px) {
+    .floating-action-btn {
+      bottom: 2rem;
+      right: 2rem;
+    }
+  }
+
   .floating-action-btn:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 30px rgba(232, 148, 30, 0.3);
     transform: scale(1.05);
   }
 
@@ -248,17 +274,17 @@
   }
 
   .nav-item-active {
-    @apply font-medium rounded-xl;
+    @apply font-medium rounded-2xl;
     color: #e8941e;
     background-color: #fef7ed;
   }
 
   .dark .nav-item-active {
-    background-color: rgba(232, 148, 30, 0.15);
+    background-color: rgba(232, 148, 30, 0.12);
   }
 
   .nav-item-inactive {
-    @apply text-surface-400 hover:text-surface-600 hover:bg-surface-50 font-medium rounded-xl;
+    @apply text-surface-400 hover:text-surface-600 hover:bg-surface-50 font-medium rounded-2xl;
   }
 
   .dark .nav-item-inactive {
@@ -267,7 +293,7 @@
 
   .overlay {
     @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center;
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgba(0, 0, 0, 0.25);
     animation: fadeIn 0.15s ease-out;
   }
 
@@ -310,11 +336,11 @@
   }
 
   .shadow-card {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 2px 8px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.03);
   }
 
   .shadow-card-hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.04);
   }
 
   .fade-in {

@@ -22,6 +22,13 @@ export function getThumbnailUrl(thumbnailPath: string | null): string | null {
   return `/api/files/thumbnails/${filename}`;
 }
 
+export function getOriginalFileUrl(filePath: string | null): string | null {
+  if (!filePath) return null;
+  const parts = filePath.replace(/\\/g, '/').split('/');
+  const filename = parts[parts.length - 1];
+  return `/api/files/originals/${filename}`;
+}
+
 export function getAttachmentDownloadUrl(id: string, inline = false): string {
   const token = useAuthStore.getState().token || '';
   const base = `/api/attachments/${id}/download`;
@@ -52,6 +59,11 @@ export const uploadApi = {
 
   deleteAttachment: async (id: string): Promise<ApiResponse<null>> => {
     const response = await client.delete(`/api/attachments/${id}`);
+    return response.data;
+  },
+
+  batchStatus: async (ids: string[]): Promise<ApiResponse<Array<{ id: string; annotationStatus: string; aiAnnotation: string; originalName: string; fileType: string; thumbnailPath: string | null }>>> => {
+    const response = await client.post('/api/attachments/batch-status', { ids });
     return response.data;
   },
 };

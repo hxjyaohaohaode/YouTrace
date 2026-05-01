@@ -227,11 +227,11 @@ export default function AIPage() {
   const CurrentAgentIcon = agentIcons[selectedAgent] || IconAI;
 
   return (
-    <div className="flex flex-col h-dvh md:h-screen overflow-hidden pb-16 md:pb-0">
-      <header className="flex-shrink-0 border-b border-surface-100 dark:border-surface-800 bg-white/95 dark:bg-surface-900/95 backdrop-blur-md z-10 relative">
-        <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-2.5 flex items-center justify-between safe-top">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-brand-600 rounded-lg flex items-center justify-center text-white">
+    <div className="flex flex-col h-dvh md:h-screen overflow-hidden ai-chat-container">
+      <header className="flex-shrink-0 border-b border-surface-100/60 dark:border-surface-800/60 bg-white/92 dark:bg-surface-900/92 backdrop-blur-xl z-10 relative">
+        <div className="px-5 sm:px-8 lg:px-12 pt-4 pb-3 flex items-center justify-between safe-top">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl flex items-center justify-center text-white shadow-sm">
               <CurrentAgentIcon size={16} className="text-white" />
             </div>
             <div className="min-w-0">
@@ -351,8 +351,8 @@ export default function AIPage() {
         )}
 
         <div className="flex-1 flex flex-col min-h-0" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="max-w-3xl mx-auto w-full space-y-4">
+          <div className="flex-1 overflow-y-auto px-5 sm:px-8 lg:px-12 py-5">
+            <div className="max-w-3xl mx-auto w-full space-y-5">
               {messages.length === 0 && (
                 <div className="empty-state py-12">
                   <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-brand-600 rounded-2xl flex items-center justify-center text-white shadow-card mb-3">
@@ -429,7 +429,7 @@ export default function AIPage() {
           </div>
 
           {error && (
-            <div className="px-4 sm:px-6 lg:px-8 pb-2 flex-shrink-0">
+            <div className="px-5 sm:px-8 lg:px-12 pb-2 flex-shrink-0">
               <div className="max-w-3xl mx-auto">
                 <div className="px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 rounded-xl text-sm text-red-600 dark:text-red-400 flex items-center justify-between">
                   <span>{error}</span>
@@ -441,7 +441,7 @@ export default function AIPage() {
             </div>
           )}
 
-          <div className={`border-t border-surface-100 dark:border-surface-800 bg-white dark:bg-surface-900 px-4 sm:px-6 lg:px-8 py-2.5 flex-shrink-0 transition-colors md:safe-bottom ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
+          <div className={`border-t border-surface-100/60 dark:border-surface-800/60 bg-white dark:bg-surface-900 px-5 sm:px-8 lg:px-12 py-3 flex-shrink-0 transition-colors md:safe-bottom ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
             }`}>
             <div className="max-w-3xl mx-auto">
               {pendingAttachments.length > 0 && (

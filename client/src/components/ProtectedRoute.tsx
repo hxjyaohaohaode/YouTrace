@@ -2,9 +2,9 @@ import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
 
-  if (!token) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 

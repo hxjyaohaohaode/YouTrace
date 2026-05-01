@@ -17,7 +17,7 @@ interface CalendarProps {
     onDateChange: (date: Date) => void;
     onDateClick: (date: Date) => void;
     onEventClick: (eventId: string) => void;
-    diariesByDate: Record<string, { emotionTags: string[] }>;
+    diariesByDate: Record<string, { emotionTags: string[]; imageCount?: number; thumbnailPaths?: string[] }>;
 }
 
 function getWeekDates(date: Date): Date[] {
@@ -102,6 +102,22 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                             )}
                         </div>
                         <div className="mt-0.5 space-y-0.5">
+                            {diaryInfo && diaryInfo.imageCount && diaryInfo.imageCount > 0 && diaryInfo.thumbnailPaths && diaryInfo.thumbnailPaths.length > 0 && (
+                                <div className="flex gap-0.5 mt-0.5">
+                                    {diaryInfo.thumbnailPaths.slice(0, 2).map((thumb, ti) => (
+                                        <img
+                                            key={ti}
+                                            src={`/api/files/${thumb}`}
+                                            alt=""
+                                            className="w-6 h-6 rounded object-cover border border-surface-200"
+                                            loading="lazy"
+                                        />
+                                    ))}
+                                    {diaryInfo.imageCount > 2 && (
+                                        <span className="text-[8px] text-surface-400 flex items-center">+{diaryInfo.imageCount - 2}</span>
+                                    )}
+                                </div>
+                            )}
                             {dayEvents.filter(e => e.isHoliday).map((event) => (
                                 <div
                                     key={event.id}

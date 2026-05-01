@@ -76,7 +76,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
-        include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, aiAnnotation: true } } },
+        include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, aiAnnotation: true, filePath: true } } },
       }),
       prisma.diary.count({ where }),
     ]);

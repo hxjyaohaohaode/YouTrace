@@ -74,6 +74,18 @@ export async function setUserData(user: unknown): Promise<void> {
   localStorage.setItem(USER_KEY, encrypted);
 }
 
+export async function getUserData(): Promise<unknown | null> {
+  const encrypted = localStorage.getItem(USER_KEY);
+  if (!encrypted) return null;
+  const decrypted = await decryptData(encrypted);
+  if (!decrypted) return null;
+  try {
+    return JSON.parse(decrypted);
+  } catch {
+    return null;
+  }
+}
+
 export function clearAuthData(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);

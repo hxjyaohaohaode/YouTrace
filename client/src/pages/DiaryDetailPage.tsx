@@ -2,7 +2,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { aiApi } from '../api/ai';
-import { getThumbnailUrl, getAttachmentDownloadUrl } from '../api/upload';
+import { getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl } from '../api/upload';
 import EmotionTag from '../components/EmotionTag';
 import { formatDateTime } from '../utils/date';
 import { getScoreColor, getEmotionConfig } from '../utils/emotionUtils';
@@ -76,7 +76,7 @@ function DiaryDetailPage() {
 
   if (isLoading && !currentDiary) {
     return (
-      <div className="min-h-screen bg-surface-50 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -84,7 +84,7 @@ function DiaryDetailPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-surface-50 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-500 mb-4">{error}</p>
           <button onClick={() => navigate('/')} className="text-brand-500 hover:text-brand-600 text-sm font-medium">返回列表</button>
@@ -95,7 +95,7 @@ function DiaryDetailPage() {
 
   if (!currentDiary) {
     return (
-      <div className="min-h-screen bg-surface-50 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="text-center">
           <p className="text-surface-400 mb-4">日记不存在</p>
           <button onClick={() => navigate('/')} className="text-brand-500 hover:text-brand-600 text-sm font-medium">返回列表</button>
@@ -111,9 +111,9 @@ function DiaryDetailPage() {
   const docAttachments = currentDiary.attachments?.filter((a) => a.fileType === 'document') || [];
 
   return (
-    <div className="min-h-screen bg-surface-50 pb-8">
+    <div className="page-container">
       <header className="page-header">
-        <div className="max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+        <div className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-3.5 flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
             className="flex items-center gap-1 text-surface-500 hover:text-surface-700 text-sm font-medium"
@@ -141,8 +141,8 @@ function DiaryDetailPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="card p-6 mb-4">
+      <main className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-8">
+        <div className="card p-7 mb-5">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm text-surface-400 font-medium">{formatDateTime(currentDiary.createdAt)}</span>
             <div className="flex items-center gap-2">
@@ -174,8 +174,9 @@ function DiaryDetailPage() {
                 图片
                 <span className="text-xs text-surface-400">({imageAttachments.length})</span>
               </h4>
-              <div className={`grid gap-2 ${imageAttachments.length === 1 ? 'grid-cols-1' : imageAttachments.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+              <div className={`grid gap-2 ${imageAttachments.length === 1 ? 'grid-cols-1' : imageAttachments.length === 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'}`}>
                 {imageAttachments.map((att, idx) => {
+                  const originalUrl = getOriginalFileUrl(att.filePath ?? null);
                   const thumbUrl = getThumbnailUrl(att.thumbnailPath);
                   return (
                     <div
@@ -184,19 +185,26 @@ function DiaryDetailPage() {
                       className={`relative group rounded-xl overflow-hidden bg-surface-100 border border-surface-200 cursor-pointer ${imageAttachments.length === 1 ? 'aspect-video' : 'aspect-square'
                         }`}
                     >
-                      {thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt={att.originalName}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center">
-                          <span className="text-3xl">🖼️</span>
-                          <span className="text-xs text-surface-400 mt-1">{att.originalName}</span>
-                        </div>
-                      )}
+                      <img
+                        src={originalUrl || thumbUrl || ''}
+                        alt={att.originalName}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        loading="lazy"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.src !== thumbUrl && thumbUrl) {
+                            img.src = thumbUrl;
+                          } else {
+                            img.style.display = 'none';
+                            const placeholder = img.nextElementSibling as HTMLElement;
+                            if (placeholder) placeholder.style.display = 'flex';
+                          }
+                        }}
+                      />
+                      <div className="w-full h-full flex-col items-center justify-center" style={{ display: 'none' }}>
+                        <span className="text-3xl">🖼️</span>
+                        <span className="text-xs text-surface-400 mt-1">{att.originalName}</span>
+                      </div>
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                     </div>
                   );
@@ -344,8 +352,8 @@ function DiaryDetailPage() {
           )}
         </div>
 
-        <div className="card p-6 mb-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="card p-7 mb-5">
+          <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl gradient-bg flex items-center justify-center">
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
@@ -380,10 +388,10 @@ function DiaryDetailPage() {
           )}
         </div>
 
-        <div className="card p-6 mb-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="card p-7 mb-5">
+          <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
                 <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
               </div>
               <div>
@@ -481,7 +489,7 @@ function DiaryDetailPage() {
 
           <div className="max-w-[90vw] max-h-[85vh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <img
-              src={getAttachmentDownloadUrl(imageAttachments[lightboxIndex].id, true)}
+              src={getOriginalFileUrl(imageAttachments[lightboxIndex].filePath ?? null) || getAttachmentDownloadUrl(imageAttachments[lightboxIndex].id, true)}
               alt={imageAttachments[lightboxIndex].originalName}
               className="max-w-full max-h-[75vh] object-contain rounded-lg"
             />

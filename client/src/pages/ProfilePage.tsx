@@ -134,7 +134,7 @@ export default function ProfilePage() {
   return (
     <div className="page-container">
       <header className="page-header safe-top">
-        <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 flex items-center justify-between">
           <h1 className="text-lg font-semibold text-surface-800 dark:text-surface-100">用户画像</h1>
           {activeTab === 'profile' && (
             <button
@@ -149,7 +149,7 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+      <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
         <div className="grid grid-cols-5 gap-2 mb-4 md:hidden">
           <button onClick={() => navigate('/goals')} className="card p-3 flex flex-col items-center gap-1.5">
             <div className="w-9 h-9 rounded-xl bg-orange-50 dark:bg-orange-950/30 flex items-center justify-center">

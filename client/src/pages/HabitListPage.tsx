@@ -40,13 +40,13 @@ function HabitListPage() {
 
   if (showForm || editingHabit) {
     return (
-      <div className="min-h-screen bg-surface-50 pb-20 md:pb-6">
+      <div className="page-container">
         <header className="page-header">
-          <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <h1 className="text-lg font-semibold text-surface-800">{editingHabit ? '编辑习惯' : '新建习惯'}</h1>
+          <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
+            <h1 className="text-lg font-semibold text-surface-800 dark:text-surface-100">{editingHabit ? '编辑习惯' : '新建习惯'}</h1>
           </div>
         </header>
-        <main className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-6">
           <HabitForm
             habit={editingHabit || undefined}
             onSubmit={editingHabit ? handleUpdate : handleCreate}
@@ -59,17 +59,17 @@ function HabitListPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 pb-20 md:pb-6">
+    <div className="page-container">
       <header className="page-header">
-        <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-surface-800">习惯</h1>
+            <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">习惯</h1>
             <p className="text-xs text-surface-400 mt-0.5">{habits.length} 个习惯</p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
         {error && (
           <div className="bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/50 text-red-600 dark:text-red-400 rounded-xl p-4 mb-4 text-sm">
             {error}

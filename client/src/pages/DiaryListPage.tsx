@@ -76,12 +76,12 @@ function DiaryListPage() {
     }, [navigate]);
 
     return (
-        <div className="min-h-screen bg-surface-50 dark:bg-surface-950 pb-20 md:pb-6">
+        <div className="page-container">
             <header className="page-header">
-                <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+                <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-5 flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">有记</h1>
-                        <p className="text-xs text-surface-400 mt-0.5">记录每一天的心情变化</p>
+                        <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100 tracking-tight">有记</h1>
+                        <p className="text-xs text-surface-400 mt-1">记录每一天的心情变化</p>
                     </div>
                     <div className="flex items-center gap-1">
                         <button
@@ -106,7 +106,7 @@ function DiaryListPage() {
                     </div>
                 </div>
 
-                <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-4">
+                <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 pb-4">
                     <div className="relative">
                         <input
                             type="text"
@@ -129,15 +129,15 @@ function DiaryListPage() {
                         )}
                     </div>
 
-                    <div className="flex gap-2 mt-3 overflow-x-auto scrollbar-hide pb-1">
+                    <div className="flex gap-2 mt-3.5 overflow-x-auto scrollbar-hide pb-1">
                         {EMOTION_FILTERS.map((filter) => (
                             <button
                                 key={filter.value}
                                 onClick={() => { setEmotionFilter(filter.value); setPage(1); }}
-                                className={`chip px-3 py-1.5 text-xs whitespace-nowrap ${emotionFilter === filter.value ? 'chip-active' : 'chip-inactive'
+                                className={`chip px-3.5 py-1.5 text-xs whitespace-nowrap ${emotionFilter === filter.value ? 'chip-active' : 'chip-inactive'
                                     }`}
                             >
-                                <span className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1.5">
                                     <EmotionIcon emotion={filter.icon} className="w-3 h-3" />
                                     {filter.label}
                                 </span>
@@ -148,11 +148,11 @@ function DiaryListPage() {
             </header>
 
             {(goals.filter(g => g.status === 'ACTIVE').length > 0 || habits.length > 0) && (
-                <section className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <section className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 pt-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {goals.filter(g => g.status === 'ACTIVE').length > 0 && (
-                            <div className="card p-4">
-                                <div className="flex items-center justify-between mb-3">
+                            <div className="card p-5">
+                                <div className="flex items-center justify-between mb-3.5">
                                     <h3 className="text-sm font-medium text-surface-600 flex items-center gap-1.5">
                                         <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
@@ -161,18 +161,18 @@ function DiaryListPage() {
                                     </h3>
                                     <button onClick={() => navigate('/goals')} className="text-xs text-brand-500 hover:text-brand-600">查看全部</button>
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-3">
                                     {goals.filter(g => g.status === 'ACTIVE').slice(0, 3).map(goal => (
-                                        <div key={goal.id} className="flex items-center gap-2.5">
+                                        <div key={goal.id} className="flex items-center gap-3">
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm text-surface-700 truncate">{goal.title}</p>
                                                 {goal.deadline && (
-                                                    <p className="text-2xs text-surface-400">
+                                                    <p className="text-2xs text-surface-400 mt-0.5">
                                                         截止 {new Date(goal.deadline).toLocaleDateString('zh-CN')}
                                                     </p>
                                                 )}
                                             </div>
-                                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            <div className="flex items-center gap-2 flex-shrink-0">
                                                 <div className="w-16 h-1.5 bg-surface-100 rounded-full overflow-hidden">
                                                     <div className="h-full bg-brand-500 rounded-full transition-all" style={{ width: `${Math.min(goal.progress, 100)}%` }} />
                                                 </div>
@@ -185,8 +185,8 @@ function DiaryListPage() {
                         )}
 
                         {habits.length > 0 && (
-                            <div className="card p-4">
-                                <div className="flex items-center justify-between mb-3">
+                            <div className="card p-5">
+                                <div className="flex items-center justify-between mb-3.5">
                                     <h3 className="text-sm font-medium text-surface-600 flex items-center gap-1.5">
                                         <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -195,9 +195,9 @@ function DiaryListPage() {
                                     </h3>
                                     <button onClick={() => navigate('/habits')} className="text-xs text-brand-500 hover:text-brand-600">查看全部</button>
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-3">
                                     {habits.slice(0, 4).map(habit => (
-                                        <div key={habit.id} className="flex items-center gap-2.5">
+                                        <div key={habit.id} className="flex items-center gap-3">
                                             <button
                                                 onClick={() => toggleHabit(habit.id)}
                                                 className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${habit.todayCompleted
@@ -226,9 +226,9 @@ function DiaryListPage() {
                 </section>
             )}
 
-            <main className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-5">
                 {error && (
-                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/50 text-red-600 dark:text-red-400 rounded-xl p-4 mb-4 text-sm">
+                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/50 text-red-600 dark:text-red-400 rounded-xl p-4 mb-5 text-sm">
                         {error}
                     </div>
                 )}
@@ -236,19 +236,19 @@ function DiaryListPage() {
                 {isLoading ? (
                     <div className="space-y-4">
                         {[1, 2, 3].map((i) => (
-                            <div key={i} className="card p-5">
-                                <div className="flex justify-between mb-3">
+                            <div key={i} className="card p-6">
+                                <div className="flex justify-between mb-4">
                                     <div className="skeleton h-3 w-20" />
                                     <div className="skeleton h-3 w-16" />
                                 </div>
-                                <div className="skeleton h-3 w-full mb-2" />
-                                <div className="skeleton h-3 w-4/5 mb-2" />
+                                <div className="skeleton h-3 w-full mb-3" />
+                                <div className="skeleton h-3 w-4/5 mb-3" />
                                 <div className="skeleton h-3 w-3/5" />
                             </div>
                         ))}
                     </div>
                 ) : diaries.length === 0 ? (
-                    <div className="text-center py-20">
+                    <div className="empty-state py-24">
                         <div className="w-16 h-16 mx-auto mb-6 rounded-2xl gradient-bg-soft flex items-center justify-center">
                             <svg className="w-8 h-8 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -271,18 +271,18 @@ function DiaryListPage() {
                     </div>
                 ) : (
                     <>
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             {diaries.map((diary, i) => (
                                 <DiaryCard key={diary.id} diary={diary} index={i} />
                             ))}
                         </div>
 
                         {totalPages > 1 && (
-                            <div className="flex justify-center items-center gap-3 mt-8">
+                            <div className="flex justify-center items-center gap-4 mt-10">
                                 <button
                                     onClick={() => setPage(Math.max(1, page - 1))}
                                     disabled={page === 1}
-                                    className="btn-secondary px-4 py-2 text-sm disabled:opacity-40"
+                                    className="btn-secondary px-5 py-2.5 text-sm disabled:opacity-40"
                                 >
                                     上一页
                                 </button>
@@ -292,7 +292,7 @@ function DiaryListPage() {
                                 <button
                                     onClick={() => setPage(Math.min(totalPages, page + 1))}
                                     disabled={page === totalPages}
-                                    className="btn-secondary px-4 py-2 text-sm disabled:opacity-40"
+                                    className="btn-secondary px-5 py-2.5 text-sm disabled:opacity-40"
                                 >
                                     下一页
                                 </button>

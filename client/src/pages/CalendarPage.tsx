@@ -31,11 +31,17 @@ function CalendarPage() {
   }, [fetchEvents, fetchGoals, fetchDiaries]);
 
   const diariesByDate = useMemo(() => {
-    const map: Record<string, { emotionTags: string[] }> = {};
+    const map: Record<string, { emotionTags: string[]; imageCount?: number; thumbnailPaths?: string[] }> = {};
     diaries.forEach((d) => {
       const dateStr = d.createdAt.slice(0, 10);
       if (!map[dateStr]) {
-        map[dateStr] = { emotionTags: d.emotionTags };
+        const attachments = (d as { attachments?: { fileType: string; thumbnailPath: string | null }[] }).attachments || [];
+        const imageAttachments = attachments.filter((a) => a.fileType === 'image');
+        map[dateStr] = {
+          emotionTags: d.emotionTags,
+          imageCount: imageAttachments.length,
+          thumbnailPaths: imageAttachments.map((a) => a.thumbnailPath).filter(Boolean) as string[],
+        };
       }
     });
     return map;
@@ -126,7 +132,7 @@ function CalendarPage() {
   return (
     <div className="page-container">
       <header className="page-header safe-top">
-        <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 sm:py-5 flex items-center justify-between">
           <div>
             <h1 className="text-lg sm:text-2xl font-bold text-surface-800 dark:text-surface-100">日程</h1>
             <p className="text-xs text-surface-400 mt-0.5">规划你的每一天</p>
@@ -149,7 +155,7 @@ function CalendarPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
         <div className="card p-3 sm:p-5 fade-in">
           <Calendar
             events={events}

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { authApi } from '../api/auth';
-import { setSecureToken, getSecureToken, setUserData, clearAuthData } from '../utils/secureStorage';
+import { setSecureToken, getSecureToken, setUserData, getUserData, clearAuthData } from '../utils/secureStorage';
 import type { User } from '../types';
 import { extractErrorMessage } from '../utils/error';
 
@@ -98,6 +98,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ isAuthenticated: false, user: null, token: null });
       return;
     }
+    const cachedUser = await getUserData();
+    set({ token, isAuthenticated: true, user: (cachedUser as User) || null });
     try {
       const response = await authApi.me();
       if (response.success && response.data) {

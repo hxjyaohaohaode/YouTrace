@@ -155,6 +155,179 @@ const SYSTEM_PROMPT = `你是"有记"App的AI助手——一个极其智能、�
 - 用户长时间未写日记→主动引导记录
 - 用户信息有更新→主动保存到记忆库和画像`;
 
+async function buildUserContext(userId: string, ip: string | undefined, attachmentIds?: string[], longitude?: number, latitude?: number): Promise<string> {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true },
+  });
+
+  const [todayEvents, upcomingEvents, recentDiaries, activeGoals, recentHabits, habitLogs, memoryItems] = await Promise.all([
+    prisma.event.findMany({
+      where: { userId, startTime: { lte: endOfDay }, endTime: { gte: startOfDay } },
+      orderBy: { startTime: 'asc' },
+    }),
+    prisma.event.findMany({
+      where: { userId, startTime: { gte: now.toISOString() } },
+      orderBy: { startTime: 'asc' },
+      take: 5,
+    }),
+    prisma.diary.findMany({
+      where: { userId, isDeleted: false },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: { attachments: { select: { originalName: true, fileType: true, aiAnnotation: true } } },
+    }),
+    prisma.goal.findMany({ where: { userId, status: 'ACTIVE' }, orderBy: { createdAt: 'desc' }, take: 5 }),
+    prisma.habit.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 5 }),
+    prisma.habitLog.findMany({
+      where: { habit: { userId }, logDate: { gte: new Date(now.getTime() - 7 * 86400000) } },
+      orderBy: { logDate: 'desc' },
+      take: 30,
+    }),
+    prisma.memoryItem.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' }, take: 20 }),
+  ]);
+
+  let contextInfo = '';
+  contextInfo += `\n\n当前时间: ${now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' })}`;
+
+  if (user?.profile) {
+    const p = user.profile;
+    const userInfo: string[] = [];
+    if (p.nickname) userInfo.push(`昵称: ${p.nickname}`);
+    if (p.gender) userInfo.push(`性别: ${p.gender}`);
+    if (p.birthday) userInfo.push(`生日: ${p.birthday}`);
+    if (p.occupation) userInfo.push(`职业: ${p.occupation}`);
+    if (p.hobbies) userInfo.push(`爱好: ${p.hobbies}`);
+    if (p.personality) userInfo.push(`性格: ${p.personality}`);
+    if (p.height) userInfo.push(`身高: ${p.height}`);
+    if (p.weight) userInfo.push(`体重: ${p.weight}`);
+    if (p.location) userInfo.push(`所在地: ${p.location}`);
+    if (p.education) userInfo.push(`学历: ${p.education}`);
+    if (p.relationship) userInfo.push(`感情状况: ${p.relationship}`);
+    if (p.healthCondition) userInfo.push(`健康状况: ${p.healthCondition}`);
+    if (p.dietPreference) userInfo.push(`饮食偏好: ${p.dietPreference}`);
+    if (p.sleepSchedule) userInfo.push(`作息: ${p.sleepSchedule}`);
+    if (p.workSchedule) userInfo.push(`工作时间: ${p.workSchedule}`);
+    if (p.favoriteFoods) userInfo.push(`喜欢的食物: ${p.favoriteFoods}`);
+    if (p.dislikedFoods) userInfo.push(`不喜欢的食物: ${p.dislikedFoods}`);
+    if (p.favoriteMusic) userInfo.push(`喜欢的音乐: ${p.favoriteMusic}`);
+    if (p.favoriteSports) userInfo.push(`喜欢的运动: ${p.favoriteSports}`);
+    if (p.lifeGoals) userInfo.push(`人生目标: ${p.lifeGoals}`);
+    if (p.bio) userInfo.push(`自我介绍: ${p.bio}`);
+    if (p.aiMemorySummary) userInfo.push(`AI记忆摘要: ${p.aiMemorySummary}`);
+    if (userInfo.length > 0) {
+      contextInfo += `\n\n用户画像:\n${userInfo.join('\n')}`;
+    }
+  }
+
+  if (memoryItems.length > 0) {
+    const memoryByCategory: Record<string, string[]> = {};
+    for (const item of memoryItems) {
+      if (!memoryByCategory[item.category]) memoryByCategory[item.category] = [];
+      memoryByCategory[item.category].push(`${item.key}: ${item.value}`);
+    }
+    contextInfo += '\n\nAI记忆库:\n' + Object.entries(memoryByCategory)
+      .map(([cat, items]) => `[${cat}]\n${items.join('\n')}`)
+      .join('\n\n');
+  }
+
+  if (todayEvents.length > 0) {
+    contextInfo += '\n\n今日日程:\n' + todayEvents.map((e) =>
+      `- ${e.title} (${e.isAllDay ? '全天' : `${new Date(e.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - ${new Date(e.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`})`
+    ).join('\n');
+  }
+
+  if (upcomingEvents.length > 0) {
+    contextInfo += '\n\n即将到来的日程:\n' + upcomingEvents.map((e) =>
+      `- ${e.title} (${new Date(e.startTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })})`
+    ).join('\n');
+  }
+
+  if (recentDiaries.length > 0) {
+    contextInfo += '\n\n最近日记:\n' + recentDiaries.map((d) => {
+      const tags = JSON.parse(d.emotionTags);
+      const diaryAttachments = (d as { attachments?: Array<{ originalName: string; fileType: string; aiAnnotation: string }> }).attachments || [];
+      const attachmentInfo = diaryAttachments.length > 0
+        ? '\n  附件: ' + diaryAttachments.map((a) => {
+          const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+          return `[${typeLabel}]${a.originalName}: ${a.aiAnnotation.slice(0, 80)}${a.aiAnnotation.length > 80 ? '...' : ''}`;
+        }).join('; ')
+        : '';
+      return `- [${d.createdAt.toLocaleDateString('zh-CN')}] 情绪:${tags.join(',')} "${d.content.slice(0, 150)}${d.content.length > 150 ? '...' : ''}"${attachmentInfo}`;
+    }).join('\n');
+  }
+
+  if (activeGoals.length > 0) {
+    contextInfo += '\n\n进行中的目标:\n' + activeGoals.map((g) =>
+      `- ${g.title} (进度${g.progress}%${g.deadline ? `，截止${new Date(g.deadline).toLocaleDateString('zh-CN')}` : ''})`
+    ).join('\n');
+  }
+
+  if (recentHabits.length > 0) {
+    contextInfo += '\n\n正在坚持的习惯:\n' + recentHabits.map((h) =>
+      `- ${h.title} (连续${h.streakCurrent}天，频率: ${h.frequency})`
+    ).join('\n');
+  }
+
+  if (habitLogs.length > 0) {
+    const recentDates = [...new Set(habitLogs.map((l) => l.logDate.toLocaleDateString('zh-CN')))].slice(0, 7);
+    const habitLogSummary = recentDates.map((date) => {
+      const dayLogs = habitLogs.filter((l) => l.logDate.toLocaleDateString('zh-CN') === date);
+      const completed = dayLogs.filter((l) => l.isCompleted).length;
+      const total = dayLogs.length;
+      return `${date}: ${completed}/${total}完成`;
+    }).join('\n');
+    contextInfo += '\n\n最近7天习惯打卡:\n' + habitLogSummary;
+  }
+
+  try {
+    let locationInfo;
+    if (longitude != null && latitude != null && !isNaN(longitude) && !isNaN(latitude)) {
+      locationInfo = await getLocation(undefined, longitude, latitude);
+    } else {
+      locationInfo = await getLocation(ip);
+    }
+    if (locationInfo.city || locationInfo.province) {
+      contextInfo += `\n\n用户位置: ${locationInfo.province}${locationInfo.city}${locationInfo.district}`;
+      const locationParam = await buildQWeatherLocation(locationInfo.longitude, locationInfo.latitude, locationInfo.city || locationInfo.province);
+      if (locationParam) {
+        try {
+          const weatherData = await getWeatherNow(locationParam);
+          let airData = null;
+          try { airData = await getAirQuality(locationParam); } catch { /* ignore */ }
+          let alertData: Awaited<ReturnType<typeof getWeatherAlerts>> | null = null;
+          try {
+            if (locationInfo.latitude != null && locationInfo.longitude != null) {
+              alertData = await getWeatherAlerts(locationInfo.latitude, locationInfo.longitude);
+            }
+          } catch { /* ignore */ }
+          const weatherSummary = getWeatherSummaryText(weatherData.now, airData?.now || null, alertData?.alerts || []);
+          contextInfo += `\n\n当前天气信息: ${weatherSummary}`;
+        } catch { /* weather unavailable */ }
+      }
+    }
+  } catch { /* location unavailable */ }
+
+  if (attachmentIds && attachmentIds.length > 0) {
+    const attachments = await prisma.attachment.findMany({
+      where: { id: { in: attachmentIds }, userId, annotationStatus: 'completed' },
+      select: { id: true, originalName: true, fileType: true, aiAnnotation: true, mimeType: true },
+    });
+    if (attachments.length > 0) {
+      contextInfo += '\n\n用户上传的附件:\n' + attachments.map((a, i) => {
+        const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+      }).join('\n\n');
+    }
+  }
+
+  return contextInfo;
+}
+
 const aiRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/ai/status', {
     preHandler: authMiddleware,
@@ -387,208 +560,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       take: 20,
     });
 
-    const user = await prisma.user.findUnique({
-      where: { id: request.userId },
-      include: { profile: true },
-    });
-
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
-
-    const [todayEvents, upcomingEvents, recentDiaries, activeGoals, recentHabits, habitLogs, memoryItems] = await Promise.all([
-      prisma.event.findMany({
-        where: {
-          userId: request.userId,
-          startTime: { lte: endOfDay },
-          endTime: { gte: startOfDay },
-        },
-        orderBy: { startTime: 'asc' },
-      }),
-      prisma.event.findMany({
-        where: {
-          userId: request.userId,
-          startTime: { gte: now.toISOString() },
-        },
-        orderBy: { startTime: 'asc' },
-        take: 5,
-      }),
-      prisma.diary.findMany({
-        where: { userId: request.userId, isDeleted: false },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        include: {
-          attachments: {
-            select: { originalName: true, fileType: true, aiAnnotation: true },
-          },
-        },
-      }),
-      prisma.goal.findMany({
-        where: { userId: request.userId, status: 'ACTIVE' },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-      prisma.habit.findMany({
-        where: { userId: request.userId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-      prisma.habitLog.findMany({
-        where: {
-          habit: { userId: request.userId },
-          logDate: { gte: new Date(now.getTime() - 7 * 86400000) },
-        },
-        orderBy: { logDate: 'desc' },
-        take: 30,
-      }),
-      prisma.memoryItem.findMany({
-        where: { userId: request.userId },
-        orderBy: { updatedAt: 'desc' },
-        take: 20,
-      }),
-    ]);
-
-    let contextInfo = '';
-
-    contextInfo += `\n\n当前时间: ${now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' })}`;
-
-    if (user?.profile) {
-      const p = user.profile;
-      const userInfo: string[] = [];
-      if (p.nickname) userInfo.push(`昵称: ${p.nickname}`);
-      if (p.gender) userInfo.push(`性别: ${p.gender}`);
-      if (p.birthday) userInfo.push(`生日: ${p.birthday}`);
-      if (p.occupation) userInfo.push(`职业: ${p.occupation}`);
-      if (p.hobbies) userInfo.push(`爱好: ${p.hobbies}`);
-      if (p.personality) userInfo.push(`性格: ${p.personality}`);
-      if (p.height) userInfo.push(`身高: ${p.height}`);
-      if (p.weight) userInfo.push(`体重: ${p.weight}`);
-      if (p.location) userInfo.push(`所在地: ${p.location}`);
-      if (p.education) userInfo.push(`学历: ${p.education}`);
-      if (p.relationship) userInfo.push(`感情状况: ${p.relationship}`);
-      if (p.healthCondition) userInfo.push(`健康状况: ${p.healthCondition}`);
-      if (p.dietPreference) userInfo.push(`饮食偏好: ${p.dietPreference}`);
-      if (p.sleepSchedule) userInfo.push(`作息: ${p.sleepSchedule}`);
-      if (p.workSchedule) userInfo.push(`工作时间: ${p.workSchedule}`);
-      if (p.favoriteFoods) userInfo.push(`喜欢的食物: ${p.favoriteFoods}`);
-      if (p.dislikedFoods) userInfo.push(`不喜欢的食物: ${p.dislikedFoods}`);
-      if (p.favoriteMusic) userInfo.push(`喜欢的音乐: ${p.favoriteMusic}`);
-      if (p.favoriteSports) userInfo.push(`喜欢的运动: ${p.favoriteSports}`);
-      if (p.lifeGoals) userInfo.push(`人生目标: ${p.lifeGoals}`);
-      if (p.bio) userInfo.push(`自我介绍: ${p.bio}`);
-      if (p.aiMemorySummary) userInfo.push(`AI记忆摘要: ${p.aiMemorySummary}`);
-      if (userInfo.length > 0) {
-        contextInfo += `\n\n用户画像:\n${userInfo.join('\n')}`;
-      }
-    }
-
-    if (memoryItems.length > 0) {
-      const memoryByCategory: Record<string, string[]> = {};
-      for (const item of memoryItems) {
-        if (!memoryByCategory[item.category]) memoryByCategory[item.category] = [];
-        memoryByCategory[item.category].push(`${item.key}: ${item.value}`);
-      }
-      contextInfo += '\n\nAI记忆库:\n' + Object.entries(memoryByCategory)
-        .map(([cat, items]) => `[${cat}]\n${items.join('\n')}`)
-        .join('\n\n');
-    }
-
-    if (todayEvents.length > 0) {
-      contextInfo += '\n\n今日日程:\n' + todayEvents.map((e) =>
-        `- ${e.title} (${e.isAllDay ? '全天' : `${new Date(e.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - ${new Date(e.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`})`
-      ).join('\n');
-    }
-
-    if (upcomingEvents.length > 0) {
-      contextInfo += '\n\n即将到来的日程:\n' + upcomingEvents.map((e) =>
-        `- ${e.title} (${new Date(e.startTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })})`
-      ).join('\n');
-    }
-
-    if (recentDiaries.length > 0) {
-      contextInfo += '\n\n最近日记:\n' + recentDiaries.map((d) => {
-        const tags = JSON.parse(d.emotionTags);
-        const diaryAttachments = (d as { attachments?: Array<{ originalName: string; fileType: string; aiAnnotation: string }> }).attachments || [];
-        const attachmentInfo = diaryAttachments.length > 0
-          ? '\n  附件: ' + diaryAttachments.map((a) => {
-            const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-            return `[${typeLabel}]${a.originalName}: ${a.aiAnnotation.slice(0, 80)}${a.aiAnnotation.length > 80 ? '...' : ''}`;
-          }).join('; ')
-          : '';
-        return `- [${d.createdAt.toLocaleDateString('zh-CN')}] 情绪:${tags.join(',')} "${d.content.slice(0, 150)}${d.content.length > 150 ? '...' : ''}"${attachmentInfo}`;
-      }).join('\n');
-    }
-
-    if (activeGoals.length > 0) {
-      contextInfo += '\n\n进行中的目标:\n' + activeGoals.map((g) =>
-        `- ${g.title} (进度${g.progress}%${g.deadline ? `，截止${new Date(g.deadline).toLocaleDateString('zh-CN')}` : ''})`
-      ).join('\n');
-    }
-
-    if (recentHabits.length > 0) {
-      contextInfo += '\n\n正在坚持的习惯:\n' + recentHabits.map((h) =>
-        `- ${h.title} (连续${h.streakCurrent}天，频率: ${h.frequency})`
-      ).join('\n');
-    }
-
-    if (habitLogs.length > 0) {
-      const recentDates = [...new Set(habitLogs.map((l) => l.logDate.toLocaleDateString('zh-CN')))].slice(0, 7);
-      const habitLogSummary = recentDates.map((date) => {
-        const dayLogs = habitLogs.filter((l) => l.logDate.toLocaleDateString('zh-CN') === date);
-        const completed = dayLogs.filter((l) => l.isCompleted).length;
-        const total = dayLogs.length;
-        return `${date}: ${completed}/${total}完成`;
-      }).join('\n');
-      contextInfo += '\n\n最近7天习惯打卡:\n' + habitLogSummary;
-    }
-
-    try {
-      let locationInfo;
-      if (longitude != null && latitude != null && !isNaN(longitude) && !isNaN(latitude)) {
-        locationInfo = await getLocation(undefined, longitude, latitude);
-      } else {
-        const forwarded = request.headers['x-forwarded-for'];
-        const ip = request.ip || (typeof forwarded === 'string' ? forwarded : Array.isArray(forwarded) ? forwarded[0] : undefined);
-        locationInfo = await getLocation(ip);
-      }
-      if (locationInfo.city || locationInfo.province) {
-        contextInfo += `\n\n用户位置: ${locationInfo.province}${locationInfo.city}${locationInfo.district}`;
-
-        const locationParam = await buildQWeatherLocation(
-          locationInfo.longitude,
-          locationInfo.latitude,
-          locationInfo.city || locationInfo.province,
-        );
-
-        if (locationParam) {
-          try {
-            const weatherData = await getWeatherNow(locationParam);
-            let airData = null;
-            try { airData = await getAirQuality(locationParam); } catch { /* ignore */ }
-            let alertData: Awaited<ReturnType<typeof getWeatherAlerts>> | null = null;
-            try {
-              if (locationInfo.latitude != null && locationInfo.longitude != null) {
-                alertData = await getWeatherAlerts(locationInfo.latitude, locationInfo.longitude);
-              }
-            } catch { /* ignore */ }
-
-            const weatherSummary = getWeatherSummaryText(
-              weatherData.now,
-              airData?.now || null,
-              alertData?.alerts || [],
-            );
-            contextInfo += `\n\n当前天气信息: ${weatherSummary}`;
-          } catch { /* weather unavailable, skip */ }
-        }
-      }
-    } catch { /* location unavailable, skip */ }
-
-    if (attachments.length > 0) {
-      contextInfo += '\n\n用户上传的附件:\n' + attachments.map((a, i) => {
-        const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
-      }).join('\n\n');
-    }
+    const contextInfo = await buildUserContext(request.userId!, request.ip, attachmentIds, longitude, latitude);
 
     const chatHistory = recentMessages.reverse().map((m) => {
       let msgContent = m.content;
@@ -606,6 +578,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
     const toolDescriptions = getToolDescriptionsText();
 
+    const now = new Date();
     let systemContent = SYSTEM_PROMPT
       .replace('{CURRENT_TIME}', now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' }))
       .replace('{TOOL_DESCRIPTIONS}', toolDescriptions);
@@ -645,7 +618,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const provider = getProvider();
       if (provider === 'local') {
-        aiContent = generateLocalResponse(content, todayEvents, recentDiaries, user?.profile ?? null);
+        aiContent = generateLocalResponse(content);
       } else {
         aiContent = await callAIChat(messages, provider);
 
@@ -726,7 +699,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
     } catch {
-      aiContent = generateLocalResponse(content, todayEvents, recentDiaries, user?.profile ?? null);
+      aiContent = generateLocalResponse(content);
     }
 
     const cleanContent = stripToolCalls(aiContent);
@@ -823,15 +796,32 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         systemContent += `\n\n${selectedAgent.systemPromptAddition}`;
       }
 
+      const contextInfo = await buildUserContext(request.userId!, request.ip, attachmentIds, _longitude, _latitude);
+      systemContent += `\n\n--- 用户上下文 ---\n${contextInfo}`;
+
       const chatHistory = recentMessages.reverse().map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
       }));
 
+      let userContentWithAttachments = content;
+      if (attachmentIds && attachmentIds.length > 0) {
+        const attachments = await prisma.attachment.findMany({
+          where: { id: { in: attachmentIds }, userId: request.userId, annotationStatus: 'completed' },
+          select: { originalName: true, fileType: true, aiAnnotation: true },
+        });
+        if (attachments.length > 0) {
+          userContentWithAttachments += '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
+            const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+          }).join('\n\n');
+        }
+      }
+
       const messages: ChatMessage[] = [
         { role: 'system', content: systemContent },
         ...chatHistory.slice(-10),
-        { role: 'user', content },
+        { role: 'user', content: userContentWithAttachments },
       ];
 
       let fullContent = '';
@@ -888,6 +878,41 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const cleanContent = stripToolCalls(fullContent);
+
+      try {
+        const memoryResult = await extractMemoryFromMessage(content);
+        if (memoryResult.items.length > 0) {
+          for (const item of memoryResult.items) {
+            if (item.confidence >= 60) {
+              await prisma.memoryItem.upsert({
+                where: {
+                  userId_category_key: {
+                    userId: request.userId!,
+                    category: item.category,
+                    key: item.key,
+                  },
+                },
+                create: {
+                  userId: request.userId!,
+                  category: item.category,
+                  key: item.key,
+                  value: item.value,
+                  source: 'ai_extracted',
+                  confidence: item.confidence,
+                  isVerified: item.confidence >= 80,
+                },
+                update: {
+                  value: item.value,
+                  confidence: item.confidence,
+                  source: 'ai_extracted',
+                },
+              });
+              await updateProfileFromMemory(request.userId!, item.category, item.key, item.value);
+            }
+          }
+          await generateMemorySummary(request.userId!);
+        }
+      } catch { /* memory extraction failed, ignore */ }
 
       const assistantMessage = await prisma.chatMessage.create({
         data: {
@@ -1858,47 +1883,22 @@ ${contextInfo}
     return holidays;
   }
 
-  function generateLocalResponse(
-    userContent: string,
-    todayEvents: { title: string; startTime: Date; isAllDay: boolean }[],
-    recentDiaries: { content: string; emotionScore: number; emotionTags: string }[],
-    profile: { nickname: string; occupation: string; hobbies: string } | null
-  ): string {
-    const name = profile?.nickname || '朋友';
+  function generateLocalResponse(userContent: string): string {
     const lowerContent = userContent.toLowerCase();
 
     if (lowerContent.includes('日程') || lowerContent.includes('安排') || lowerContent.includes('计划')) {
-      if (todayEvents.length > 0) {
-        return `你好${name}！你今天有${todayEvents.length}个日程：${todayEvents.map((e) => e.title).join('、')}。需要我帮你调整安排吗？`;
-      }
-      return `你好${name}！今天暂时没有日程安排。要不要我帮你规划一下今天的安排？`;
+      return '你好！需要我帮你规划一下安排吗？';
     }
 
     if (lowerContent.includes('心情') || lowerContent.includes('情绪') || lowerContent.includes('感觉')) {
-      if (recentDiaries.length > 0) {
-        const latest = recentDiaries[0];
-        const score = latest.emotionScore;
-        if (score >= 60) {
-          return `${name}，从你最近的日记来看，你的心情还不错呢！继续保持积极的心态，有什么开心的事情也可以和我分享哦。`;
-        }
-        return `${name}，我注意到你最近的心情似乎不太好。如果有什么烦恼，可以和我说说，我会尽力帮你的。`;
-      }
-      return `${name}，你现在的感觉怎么样？如果有什么想说的，我随时都在。`;
+      return '你现在的感觉怎么样？如果有什么想说的，我随时都在。';
     }
 
     if (lowerContent.includes('建议') || lowerContent.includes('帮忙') || lowerContent.includes('怎么办')) {
-      return `${name}，我很乐意帮你！能具体说说你需要什么方面的建议吗？我可以从日程安排、情绪管理、生活习惯等方面给你专业的建议。`;
+      return '我很乐意帮你！能具体说说你需要什么方面的建议吗？我可以从日程安排、情绪管理、生活习惯等方面给你专业的建议。';
     }
 
-    if (profile?.occupation && lowerContent.includes('工作')) {
-      return `作为${profile.occupation}，工作压力一定不小吧${name}。记得合理安排休息时间，保持工作与生活的平衡。需要我帮你规划一下日程吗？`;
-    }
-
-    if (profile?.hobbies && (lowerContent.includes('兴趣') || lowerContent.includes('爱好'))) {
-      return `我记得你喜欢${profile.hobbies}，这些爱好对调节心情很有帮助！最近有在坚持吗？`;
-    }
-
-    return `${name}，谢谢你的分享！我会记住这些信息的。有什么我可以帮你的，随时告诉我。无论是日程管理、情绪分析还是生活建议，我都在这里。`;
+    return '谢谢你的分享！有什么我可以帮你的，随时告诉我。无论是日程管理、情绪分析还是生活建议，我都在这里。';
   }
 
   function generateLocalDeepAnalysis(

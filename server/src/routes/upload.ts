@@ -36,12 +36,14 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/api/files/:type/:filename', async (request, reply) => {
     const { type, filename } = request.params as { type: string; filename: string };
-    const safeType = type === 'thumbnails' ? 'thumbnails' : '';
-    if (!safeType) {
+    const safeType = type === 'thumbnails' ? 'thumbnails' : type === 'originals' ? '' : '';
+    if (type !== 'thumbnails' && type !== 'originals') {
       return reply.status(400).send({ success: false, message: '无效的文件类型' });
     }
     const safeName = path.basename(filename);
-    const filePath = path.join(UPLOAD_DIR, safeType, safeName);
+    const filePath = safeType === 'thumbnails'
+      ? path.join(UPLOAD_DIR, 'thumbnails', safeName)
+      : path.join(UPLOAD_DIR, safeName);
     if (!fs.existsSync(filePath)) {
       return reply.status(404).send({ success: false, message: '文件不存在' });
     }
@@ -166,21 +168,6 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
 
-        const annotation = await annotateWithMimo(
-          processed.filePath,
-          fileType,
-          processed.mimeType,
-          processed.extractedText,
-        );
-
-        await prisma.attachment.update({
-          where: { id: attachment.id },
-          data: {
-            aiAnnotation: annotation,
-            annotationStatus: 'completed',
-          },
-        });
-
         results.push({
           id: attachment.id,
           fileName: processed.fileName,
@@ -189,8 +176,31 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           fileSize: processed.fileSize,
           fileType,
           thumbnailPath: processed.thumbnailPath,
-          aiAnnotation: annotation,
-          annotationStatus: 'completed',
+          aiAnnotation: '',
+          annotationStatus: 'processing',
+        });
+
+        annotateWithMimo(
+          processed.filePath,
+          fileType,
+          processed.mimeType,
+          processed.extractedText,
+        ).then(async (annotation) => {
+          await prisma.attachment.update({
+            where: { id: attachment.id },
+            data: {
+              aiAnnotation: annotation,
+              annotationStatus: 'completed',
+            },
+          });
+        }).catch(async () => {
+          await prisma.attachment.update({
+            where: { id: attachment.id },
+            data: {
+              aiAnnotation: processed.extractedText ? processed.extractedText.slice(0, 2000) : '[标注失败]',
+              annotationStatus: 'failed',
+            },
+          });
         });
       } catch (e) {
         results.push({
@@ -218,6 +228,20 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return reply.send({ success: true, data: attachment });
+  });
+
+  fastify.post('/api/attachments/batch-status', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { ids } = request.body as { ids: string[] };
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return reply.status(400).send({ success: false, message: '请提供附件ID列表' });
+    }
+    const attachments = await prisma.attachment.findMany({
+      where: { id: { in: ids }, userId: request.userId },
+      select: { id: true, annotationStatus: true, aiAnnotation: true, originalName: true, fileType: true, thumbnailPath: true },
+    });
+    return reply.send({ success: true, data: attachments });
   });
 
   fastify.delete('/api/attachments/:id', {

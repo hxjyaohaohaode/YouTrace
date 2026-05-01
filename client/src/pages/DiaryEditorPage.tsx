@@ -58,6 +58,38 @@ function DiaryEditorPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges, isSaving]);
 
+  useEffect(() => {
+    const processingIds = pendingAttachments
+      .filter((a) => a.annotationStatus === 'processing')
+      .map((a) => a.id);
+    if (processingIds.length === 0) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await uploadApi.batchStatus(processingIds);
+        if (response.success && response.data) {
+          setPendingAttachments((prev) =>
+            prev.map((att) => {
+              const status = response.data!.find((s) => s.id === att.id);
+              if (status && status.annotationStatus !== 'processing') {
+                return {
+                  ...att,
+                  annotationStatus: status.annotationStatus as 'completed' | 'failed',
+                  aiAnnotation: status.aiAnnotation || att.aiAnnotation,
+                };
+              }
+              return att;
+            })
+          );
+        }
+      } catch {
+        // polling failed, will retry
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [pendingAttachments]);
+
   const processFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
     const remaining = MAX_ATTACHMENTS - pendingAttachments.length;
@@ -185,9 +217,9 @@ function DiaryEditorPage() {
   const otherAttachments = pendingAttachments.filter((a) => a.fileType !== 'image');
 
   return (
-    <div className="min-h-screen bg-surface-50 pb-8">
+    <div className="page-container">
       <header className="page-header">
-        <div className="max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+        <div className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-3.5 flex items-center justify-between">
           <button
             onClick={handleCancel}
             className="flex items-center gap-1 text-surface-500 hover:text-surface-700 text-sm font-medium"
@@ -208,7 +240,7 @@ function DiaryEditorPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-6">
         {error && (
           <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-400 text-sm">{error}</div>
         )}
@@ -255,25 +287,27 @@ function DiaryEditorPage() {
               <p className="text-xs text-surface-400 mb-2">图片</p>
               <div className="grid grid-cols-3 gap-2">
                 {imageAttachments.map((att) => {
+                  const originalUrl = att.fileName ? `/api/files/originals/${att.fileName}` : null;
                   const thumbUrl = getThumbnailUrl(att.thumbnailPath);
                   return (
                     <div
                       key={att.id}
                       className="relative group aspect-square rounded-xl overflow-hidden bg-surface-100 border border-surface-200"
                     >
-                      {thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt={att.originalName}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center">
-                          <span className="text-2xl">🖼️</span>
-                          <span className="text-[10px] text-surface-400 mt-1 px-1 truncate max-w-full">{att.originalName}</span>
-                        </div>
-                      )}
+                      <img
+                        src={originalUrl || thumbUrl || ''}
+                        alt={att.originalName}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.src !== thumbUrl && thumbUrl) {
+                            img.src = thumbUrl;
+                          } else {
+                            img.style.display = 'none';
+                          }
+                        }}
+                      />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                         <button
                           onClick={() => removeAttachment(att.id)}

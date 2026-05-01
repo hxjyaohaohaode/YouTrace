@@ -104,24 +104,24 @@ function StatsPage() {
 
   if (isLoading && !stats) {
     return (
-      <div className="min-h-screen bg-surface-50 pb-20 md:pb-6 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 pb-20 md:pb-6">
+    <div className="page-container">
       <header className="page-header">
-        <div className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-surface-800">数据分析</h1>
+            <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">数据分析</h1>
             <p className="text-xs text-surface-400 mt-0.5">全面了解你的生活状态</p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
         <div className="flex gap-2 mb-6">
           {(['7', '30', '90'] as const).map((p) => (
             <button

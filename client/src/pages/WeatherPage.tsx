@@ -297,7 +297,7 @@ function WeatherPage() {
 
   if (isLoading && !currentWeather) {
     return (
-      <div className="min-h-screen bg-surface-50 dark:bg-surface-950 pb-20 md:pb-6 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 mx-auto border-2 border-brand-500 border-t-transparent rounded-full animate-spin mb-3" />
           <p className="text-sm text-surface-400">获取天气数据中...</p>
@@ -308,7 +308,7 @@ function WeatherPage() {
 
   if (error && !currentWeather) {
     return (
-      <div className="min-h-screen bg-surface-50 dark:bg-surface-950 pb-20 md:pb-6 flex items-center justify-center">
+      <div className="page-container flex items-center justify-center">
         <div className="text-center px-6">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
             <svg className="w-8 h-8 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -323,9 +323,9 @@ function WeatherPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-50 dark:bg-surface-950 pb-20 md:pb-6">
+    <div className="page-container">
       <header className="page-header">
-        <div className="max-w-5xl lg:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-950/40 flex items-center justify-center flex-shrink-0">
@@ -425,7 +425,7 @@ function WeatherPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl lg:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
+      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 space-y-4">
         {now && (
           <div className="bg-gradient-to-br from-brand-400 via-brand-500 to-blue-600 rounded-2xl p-5 sm:p-6 lg:p-8 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 opacity-10">
