@@ -35,6 +35,8 @@ function getClient(): any {
 const signName = process.env.ALIYUN_SMS_SIGN_NAME || '';
 const templateCode = process.env.ALIYUN_SMS_TEMPLATE_CODE || '';
 
+console.log(`[SMS] Config: accessKeyId=${process.env.ALIYUN_SMS_ACCESS_KEY_ID ? '***' + process.env.ALIYUN_SMS_ACCESS_KEY_ID.slice(-4) : 'NOT SET'}, signName="${signName}", templateCode="${templateCode}"`);
+
 const smsSendLockMap = new Map<string, number>();
 const SMS_LOCK_DURATION_MS = 60_000;
 
@@ -88,17 +90,21 @@ export async function sendSmsVerifyCode(phone: string): Promise<{ success: boole
 
         const response = await client.sendSmsVerifyCodeWithOptions(request, runtime);
 
+        console.log('[SMS] SendSmsVerifyCode response:', JSON.stringify(response.body));
+
         if (response.body?.code === 'OK') {
             smsSendLockMap.set(phone, now);
             return { success: true, message: '验证码发送成功' };
         }
 
         const errMsg = response.body?.message || '发送失败';
-        return { success: false, message: errMsg };
+        const errCode = response.body?.code || 'UNKNOWN';
+        console.error(`[SMS] SendSmsVerifyCode failed: code=${errCode}, message=${errMsg}`);
+        return { success: false, message: `${errMsg} (${errCode})` };
     } catch (error: unknown) {
-        const err = error as Error & { code?: string; message?: string };
-        console.error('[SMS] SendSmsVerifyCode error:', err.message || err);
-        return { success: false, message: '验证码发送失败，请稍后重试' };
+        const err = error as Error & { code?: string; message?: string; data?: any };
+        console.error('[SMS] SendSmsVerifyCode error:', err.message || err, err.code || '', err.data || '');
+        return { success: false, message: `验证码发送失败: ${err.message || '未知错误'}` };
     }
 }
 
@@ -126,6 +132,8 @@ export async function checkSmsVerifyCode(phone: string, code: string): Promise<{
 
         const response = await client.checkSmsVerifyCodeWithOptions(request, runtime);
 
+        console.log('[SMS] CheckSmsVerifyCode response:', JSON.stringify(response.body));
+
         const verifyResult = response.body?.model?.verifyResult;
 
         if (verifyResult === 'PASS') {
@@ -136,6 +144,6 @@ export async function checkSmsVerifyCode(phone: string, code: string): Promise<{
     } catch (error: unknown) {
         const err = error as Error & { code?: string; message?: string };
         console.error('[SMS] CheckSmsVerifyCode error:', err.message || err);
-        return { success: false, message: '验证码校验失败，请稍后重试' };
+        return { success: false, message: `验证码校验失败: ${err.message || '未知错误'}` };
     }
 }
