@@ -1,12 +1,12 @@
 services:
   - type: web
     name: youji-api
-    runtime: docker
+    runtime: node
     plan: free
     region: singapore
     branch: main
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    buildCommand: npm ci && cd server && npx prisma generate && npx tsc && cd ../client && npm run build && cp -r dist ../server/public
+    startCommand: cd server && chmod +x start.sh && ./start.sh
     envVars:
       - key: NODE_ENV
         value: production

@@ -1,4 +1,6 @@
-FROM node:20-alpine
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -19,12 +21,11 @@ RUN rm -rf /root/.npm
 
 RUN mkdir -p server/uploads/thumbnails
 
+RUN chmod +x server/start.sh
+
 ENV NODE_ENV=production
 ENV PORT=10000
 
 EXPOSE 10000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:10000/api/health || exit 1
-
-CMD ["sh", "-c", "cd server && retry=0; until npx prisma db push --accept-data-loss || [ $retry -ge 5 ]; do retry=$((retry+1)); echo \"Database not ready, retry $retry/5...\"; sleep 5; done && node dist/index.js"]
+CMD ["sh", "-c", "cd server && ./start.sh"]
