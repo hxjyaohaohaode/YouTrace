@@ -11,6 +11,7 @@ export interface ChatMessage {
   agentType: string;
   metadata: Record<string, unknown>;
   attachmentIds?: string[];
+  attachmentNames?: string[];
   createdAt: string;
 }
 

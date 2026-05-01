@@ -152,6 +152,7 @@ export async function annotateWithMimo(
   fileType: FileType,
   mimeType: string,
   extractedText: string,
+  retries = 3,
 ): Promise<string> {
   const apiKey = process.env.MIMO_API_KEY;
   const baseUrl = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
@@ -161,9 +162,12 @@ export async function annotateWithMimo(
     return '[无API密钥，无法标注]';
   }
 
-  try {
-    if (fileType === 'document' && extractedText) {
-      const prompt = `请对以下文档内容进行详细摘要和关键信息提取。要求：
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      if (fileType === 'document' && extractedText) {
+        const prompt = `请对以下文档内容进行详细摘要和关键信息提取。要求：
 1. 提取文档的核心主题和要点
 2. 列出所有关键数据、数字、日期
 3. 如果是表格数据，保留关键行列信息
@@ -173,77 +177,149 @@ export async function annotateWithMimo(
 用中文回复，详细且结构化：
 
 ${extractedText.slice(0, 8000)}`;
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'mimo-v2.5',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 1024,
-        }),
-      });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        try {
+          const response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'mimo-v2.5',
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: 1024,
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
 
-      if (response.ok) {
-        const data = await response.json() as { choices: { message: { content: string } }[] };
-        return data.choices?.[0]?.message?.content || extractedText.slice(0, 2000);
+          if (response.ok) {
+            const data = await response.json() as { choices: { message: { content: string } }[] };
+            return data.choices?.[0]?.message?.content || extractedText.slice(0, 2000);
+          }
+          if (attempt < retries) {
+            console.warn(`文档标注第${attempt}次失败 (${response.status}), ${retries - attempt}次重试剩余`);
+            await delay(2000 * attempt);
+            continue;
+          }
+          return extractedText.slice(0, 2000);
+        } catch (fetchErr) {
+          clearTimeout(timeout);
+          if ((fetchErr as Error).name === 'AbortError' && attempt < retries) {
+            console.warn(`文档标注第${attempt}次超时, ${retries - attempt}次重试剩余`);
+            await delay(2000 * attempt);
+            continue;
+          }
+          throw fetchErr;
+        }
       }
-      return extractedText.slice(0, 2000);
+
+      const fileBuffer = fs.readFileSync(filePath);
+      const base64Data = fileBuffer.toString('base64');
+      type ChatContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
+      const contentParts: ChatContentPart[] = [];
+
+      if (fileType === 'image') {
+        let finalBase64 = base64Data;
+        let finalMime = mimeType;
+        try {
+          const sharp = (await import('sharp')).default;
+          const stats = fs.statSync(filePath);
+          if (stats.size > 1024 * 1024) {
+            const resized = await sharp(fileBuffer)
+              .resize(1536, 1536, { fit: 'inside', withoutEnlargement: true })
+              .jpeg({ quality: 80 })
+              .toBuffer();
+            finalBase64 = resized.toString('base64');
+            finalMime = 'image/jpeg';
+          }
+        } catch {
+          // sharp not available, use original
+        }
+
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: `data:${finalMime};base64,${finalBase64}` },
+        });
+        contentParts.push({
+          type: 'text',
+          text: '请非常详细地描述这张图片的所有内容，包括：1.场景和环境 2.人物及其动作/表情 3.所有可见文字（逐字抄录） 4.数据/图表/表格的具体数值 5.颜色和布局 6.如果是课表/日程表，请提取所有课程信息（课程名、时间、地点、教师） 7.如果是文档截图，请完整抄录文字内容。用中文回复，尽可能详尽。',
+        });
+      } else if (fileType === 'video') {
+        contentParts.push({
+          type: 'text',
+          text: `[视频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个视频可能包含的内容。注意：当前API可能不支持直接视频输入。`,
+        });
+      } else if (fileType === 'audio') {
+        contentParts.push({
+          type: 'text',
+          text: `[音频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个音频可能包含的内容。注意：当前API可能不支持直接音频输入。`,
+        });
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
+      try {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'mimo-v2.5',
+            messages: [{ role: 'user', content: contentParts }],
+            max_tokens: 1024,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const data = await response.json() as { choices: { message: { content: string } }[] };
+          const result = data.choices?.[0]?.message?.content;
+          if (result) return result;
+          if (attempt < retries) {
+            await delay(2000 * attempt);
+            continue;
+          }
+          return '[标注失败]';
+        }
+
+        if (attempt < retries) {
+          const errorBody = await response.text().catch(() => '');
+          console.warn(`图片标注第${attempt}次失败 (${response.status}), ${retries - attempt}次重试剩余: ${errorBody.slice(0, 200)}`);
+          await delay(2000 * attempt);
+          continue;
+        }
+
+        const errorBody = await response.text().catch(() => '');
+        return `[标注请求失败: ${response.status} ${errorBody.slice(0, 200)}]`;
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        if ((fetchErr as Error).name === 'AbortError' && attempt < retries) {
+          console.warn(`图片标注第${attempt}次超时, ${retries - attempt}次重试剩余`);
+          await delay(2000 * attempt);
+          continue;
+        }
+        throw fetchErr;
+      }
+    } catch (e) {
+      if (attempt < retries) {
+        console.warn(`标注第${attempt}次异常: ${(e as Error).message}, ${retries - attempt}次重试剩余`);
+        await delay(2000 * attempt);
+        continue;
+      }
+      if (extractedText) return extractedText.slice(0, 2000);
+      return `[标注异常: ${(e as Error).message}]`;
     }
-
-    const fileBuffer = fs.readFileSync(filePath);
-    const base64Data = fileBuffer.toString('base64');
-    type ChatContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
-
-    const contentParts: ChatContentPart[] = [];
-
-    if (fileType === 'image') {
-      contentParts.push({
-        type: 'image_url',
-        image_url: { url: `data:${mimeType};base64,${base64Data}` },
-      });
-      contentParts.push({
-        type: 'text',
-        text: '请非常详细地描述这张图片的所有内容，包括：1.场景和环境 2.人物及其动作/表情 3.所有可见文字（逐字抄录） 4.数据/图表/表格的具体数值 5.颜色和布局 6.如果是课表/日程表，请提取所有课程信息（课程名、时间、地点、教师） 7.如果是文档截图，请完整抄录文字内容。用中文回复，尽可能详尽。',
-      });
-    } else if (fileType === 'video') {
-      contentParts.push({
-        type: 'text',
-        text: `[视频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个视频可能包含的内容。注意：当前API可能不支持直接视频输入。`,
-      });
-    } else if (fileType === 'audio') {
-      contentParts.push({
-        type: 'text',
-        text: `[音频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个音频可能包含的内容。注意：当前API可能不支持直接音频输入。`,
-      });
-    }
-
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'mimo-v2.5',
-        messages: [{ role: 'user', content: contentParts }],
-        max_tokens: 1024,
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json() as { choices: { message: { content: string } }[] };
-      return data.choices?.[0]?.message?.content || '[标注失败]';
-    }
-
-    const errorBody = await response.text().catch(() => '');
-    return `[标注请求失败: ${response.status} ${errorBody.slice(0, 200)}]`;
-  } catch (e) {
-    if (extractedText) return extractedText.slice(0, 2000);
-    return `[标注异常: ${(e as Error).message}]`;
   }
+
+  if (extractedText) return extractedText.slice(0, 2000);
+  return '[标注失败]';
 }
 
 export function deleteFile(filePath: string): void {

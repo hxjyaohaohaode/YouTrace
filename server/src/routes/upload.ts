@@ -193,11 +193,12 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
               annotationStatus: 'completed',
             },
           });
-        }).catch(async () => {
+        }).catch(async (err) => {
+          console.error(`附件标注最终失败 ${attachment.id}:`, (err as Error).message);
           await prisma.attachment.update({
             where: { id: attachment.id },
             data: {
-              aiAnnotation: processed.extractedText ? processed.extractedText.slice(0, 2000) : '[标注失败]',
+              aiAnnotation: processed.extractedText ? processed.extractedText.slice(0, 2000) : '[标注失败，可点击重试]',
               annotationStatus: 'failed',
             },
           });
@@ -242,6 +243,62 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
       select: { id: true, annotationStatus: true, aiAnnotation: true, originalName: true, fileType: true, thumbnailPath: true },
     });
     return reply.send({ success: true, data: attachments });
+  });
+
+  fastify.post('/api/attachments/:id/re-annotate', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const attachment = await prisma.attachment.findFirst({
+      where: { id, userId: request.userId },
+    });
+
+    if (!attachment) {
+      return reply.status(404).send({ success: false, message: '附件不存在' });
+    }
+
+    if (!fs.existsSync(attachment.filePath)) {
+      return reply.status(400).send({ success: false, message: '文件已丢失，无法重新标注' });
+    }
+
+    await prisma.attachment.update({
+      where: { id },
+      data: { annotationStatus: 'processing', aiAnnotation: '' },
+    });
+
+    const fileType = getFileType(attachment.mimeType);
+    let extractedText = '';
+    if (fileType === 'document') {
+      try {
+        const { processUploadedFile } = await import('../services/fileService.js');
+        extractedText = '';
+      } catch {
+        // ignore
+      }
+    }
+
+    annotateWithMimo(
+      attachment.filePath,
+      fileType,
+      attachment.mimeType,
+      extractedText,
+    ).then(async (annotation) => {
+      await prisma.attachment.update({
+        where: { id },
+        data: { aiAnnotation: annotation, annotationStatus: 'completed' },
+      });
+    }).catch(async (err) => {
+      console.error(`重新标注失败 ${id}:`, (err as Error).message);
+      await prisma.attachment.update({
+        where: { id },
+        data: {
+          aiAnnotation: extractedText ? extractedText.slice(0, 2000) : '[标注失败，可点击重试]',
+          annotationStatus: 'failed',
+        },
+      });
+    });
+
+    return reply.send({ success: true, message: '已开始重新标注' });
   });
 
   fastify.delete('/api/attachments/:id', {

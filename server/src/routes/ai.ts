@@ -427,10 +427,16 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       success: true,
       data: {
         ...conversation,
-        messages: conversation.messages.map((m) => ({
-          ...m,
-          metadata: (() => { try { return JSON.parse(m.metadata); } catch { return {}; } })(),
-        })),
+        messages: conversation.messages.map((m) => {
+          let metadata: Record<string, unknown> = {};
+          try { metadata = JSON.parse(m.metadata); } catch { /* ignore */ }
+          return {
+            ...m,
+            metadata,
+            attachmentIds: (metadata.attachmentIds as string[]) || undefined,
+            attachmentNames: (metadata.attachmentNames as string[]) || undefined,
+          };
+        }),
       },
     });
   });
@@ -490,10 +496,16 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({
       success: true,
-      data: messages.reverse().map((m) => ({
-        ...m,
-        metadata: (() => { try { return JSON.parse(m.metadata); } catch { return {}; } })(),
-      })),
+      data: messages.reverse().map((m) => {
+        let metadata: Record<string, unknown> = {};
+        try { metadata = JSON.parse(m.metadata); } catch { /* ignore */ }
+        return {
+          ...m,
+          metadata,
+          attachmentIds: (metadata.attachmentIds as string[]) || undefined,
+          attachmentNames: (metadata.attachmentNames as string[]) || undefined,
+        };
+      }),
     });
   });
 
@@ -802,10 +814,13 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    let fullContent = '';
+    let activeConversationId: string | undefined = conversationId;
+    let savedUserMessage: Record<string, unknown> | null = null;
+
     try {
       const selectedAgent = getAgentById(agentType || 'default');
 
-      let activeConversationId = conversationId;
       if (!activeConversationId) {
         const newConversation = await prisma.conversation.create({
           data: {
@@ -840,6 +855,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
+      savedUserMessage = { ...userMessage, metadata: JSON.parse(userMessage.metadata) };
       sendSSE('conversation', { conversationId: activeConversationId, userMessage });
 
       const recentMessages = await prisma.chatMessage.findMany({
@@ -954,7 +970,6 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         { role: 'user', content: userContentWithAttachments },
       ];
 
-      let fullContent = '';
       const provider = getProvider();
 
       for await (const chunk of callAIChatStream(messages, provider)) {
@@ -1062,6 +1077,23 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
       sendSSE('done', { conversationId: activeConversationId, userMessage, assistantMessage });
     } catch (error) {
+      if (fullContent && activeConversationId) {
+        try {
+          const partialContent = stripToolCalls(fullContent);
+          if (partialContent.trim()) {
+            await prisma.chatMessage.create({
+              data: {
+                userId: request.userId!,
+                conversationId: activeConversationId,
+                role: 'assistant',
+                content: partialContent + '\n\n[回复被中断，部分内容可能不完整]',
+                agentType: (agentType as string) || 'default',
+                metadata: JSON.stringify({ interrupted: true }),
+              },
+            });
+          }
+        } catch { /* save failed, ignore */ }
+      }
       sendSSE('error', { message: (error as Error).message || 'AI回复失败' });
     }
 

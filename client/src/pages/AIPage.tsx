@@ -221,6 +221,9 @@ export default function AIPage() {
     const text = input.trim();
     if ((!text && pendingAttachments.length === 0) || isSending) return;
     setInput('');
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
     const attachmentIds = pendingAttachments.map((a) => a.id);
     const hasProcessing = pendingAttachments.some(
@@ -290,9 +293,12 @@ export default function AIPage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (!isMobile) {
+        e.preventDefault();
+        handleSend();
+      }
     }
   };
 
@@ -491,11 +497,14 @@ export default function AIPage() {
                       </div>
                       {msg.role === 'user' && msg.attachmentIds && msg.attachmentIds.length > 0 && (
                         <div className="px-4 pb-1 flex flex-wrap gap-1">
-                          {msg.attachmentIds.map((attId, i) => (
-                            <span key={attId} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px] text-white/70">
-                              📎 附件{i + 1}
-                            </span>
-                          ))}
+                          {msg.attachmentIds.map((attId, i) => {
+                            const attName = msg.attachmentNames?.[i] || `附件${i + 1}`;
+                            return (
+                              <span key={attId} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px] text-white/70">
+                                📎 {attName}
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                       <div className={`px-4 pb-2 text-[10px] ${msg.role === 'user' ? 'text-white/50' : 'text-surface-300'}`}>
