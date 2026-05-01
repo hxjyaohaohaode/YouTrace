@@ -3,9 +3,8 @@ services:
     name: youji-api
     runtime: node
     plan: free
-    rootDir: server
-    buildCommand: npm ci && npx prisma generate && npx tsc && cd ../client && npm ci && npm run build && cp -r dist ../server/public
-    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    buildCommand: npm ci && cd server && npx prisma generate && npx tsc && cd ../client && npm run build && cp -r dist ../server/public
+    startCommand: cd server && npx prisma db push --accept-data-loss && node dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
