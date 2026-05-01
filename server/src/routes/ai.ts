@@ -435,7 +435,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
             metadata,
             attachmentIds: (metadata.attachmentIds as string[]) || undefined,
             attachmentNames: (metadata.attachmentNames as string[]) || undefined,
-            attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }>) || undefined,
+            attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null; filePath: string | null }>) || undefined,
           };
         }),
       },
@@ -505,7 +505,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
           metadata,
           attachmentIds: (metadata.attachmentIds as string[]) || undefined,
           attachmentNames: (metadata.attachmentNames as string[]) || undefined,
-          attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }>) || undefined,
+          attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null; filePath: string | null }>) || undefined,
         };
       }),
     });
@@ -561,7 +561,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         metadata: JSON.stringify({
           attachmentIds: attachments.map((a) => a.id),
           attachmentNames: attachments.map((a) => a.originalName),
-          attachmentMeta: attachments.map((a) => ({ id: a.id, originalName: a.originalName, fileType: a.fileType, thumbnailPath: null })),
+          attachmentMeta: attachments.map((a) => ({ id: a.id, originalName: a.originalName, fileType: a.fileType, thumbnailPath: null, filePath: null })),
         }),
       },
     });
@@ -835,11 +835,11 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       let attachmentNames: string[] = [];
-      let attachmentMeta: Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }> = [];
+      let attachmentMeta: Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null; filePath: string | null }> = [];
       if (attachmentIds && attachmentIds.length > 0) {
         const attMeta = await prisma.attachment.findMany({
           where: { id: { in: attachmentIds }, userId: request.userId },
-          select: { id: true, originalName: true, fileType: true, thumbnailPath: true },
+          select: { id: true, originalName: true, fileType: true, thumbnailPath: true, filePath: true },
         });
         attachmentNames = attMeta.map((a) => a.originalName);
         attachmentMeta = attMeta;

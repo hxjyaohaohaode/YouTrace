@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAIStore } from '../stores/aiStore';
-import { uploadApi, getThumbnailUrl, getAttachmentDownloadUrl, type AttachmentResult } from '../api/upload';
+import { uploadApi, getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, type AttachmentResult } from '../api/upload';
 import { IconAI, IconCalendar, IconHeart, IconBolt, IconTarget, IconWeather, IconSend, IconCheck, IconSparkles, IconXMark, IconPlus, IconTrash } from '../components/Icons';
 import type { Conversation } from '../types';
 
@@ -501,12 +501,12 @@ export default function AIPage() {
                             <div className="flex flex-wrap gap-1.5">
                               {msg.attachmentMeta.map((att) => {
                                 const thumbUrl = getThumbnailUrl(att.thumbnailPath);
-                                const fileUrl = getAttachmentDownloadUrl(att.id, true);
+                                const originalUrl = att.fileType === 'image' ? getOriginalFileUrl(att.filePath) : getAttachmentDownloadUrl(att.id, true);
                                 if (att.fileType === 'image') {
                                   return (
                                     <a
                                       key={att.id}
-                                      href={fileUrl}
+                                      href={originalUrl || '#'}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="block w-16 h-16 rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
@@ -524,7 +524,7 @@ export default function AIPage() {
                                 return (
                                   <a
                                     key={att.id}
-                                    href={fileUrl}
+                                    href={originalUrl || '#'}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1 px-2 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors max-w-[140px]"

@@ -7,6 +7,7 @@ export interface AttachmentMeta {
   originalName: string;
   fileType: string;
   thumbnailPath: string | null;
+  filePath: string | null;
 }
 
 export interface ChatMessage {

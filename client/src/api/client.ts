@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { getSecureToken, setSecureToken, clearAuthData } from '../utils/secureStorage';
+import { useAuthStore } from '../stores/authStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const MAX_RETRIES = 2;
@@ -94,6 +95,7 @@ client.interceptors.response.use(
         if (data.success && data.data?.token) {
           await setSecureToken(data.data.token);
           cachedToken = data.data.token;
+          useAuthStore.setState({ token: data.data.token });
           processQueue(null, data.data.token);
           originalRequest.headers.Authorization = `Bearer ${data.data.token}`;
           return client(originalRequest);

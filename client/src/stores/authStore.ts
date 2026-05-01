@@ -103,6 +103,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ isAuthenticated: false, user: null, token: null });
       return;
     }
+    setCachedToken(token);
     const cachedUser = await getUserData();
     set({ token, isAuthenticated: true, user: (cachedUser as User) || null });
     try {
