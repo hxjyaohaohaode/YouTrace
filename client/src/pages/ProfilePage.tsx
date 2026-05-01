@@ -101,7 +101,16 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await updateProfile(editData);
+      const changedData: Record<string, string> = {};
+      for (const [key, value] of Object.entries(editData)) {
+        const originalValue = profile?.[key as keyof Profile] || '';
+        if (value !== originalValue) {
+          changedData[key] = value;
+        }
+      }
+      if (Object.keys(changedData).length > 0) {
+        await updateProfile(changedData);
+      }
       setIsEditing(false);
     } finally {
       setIsSaving(false);

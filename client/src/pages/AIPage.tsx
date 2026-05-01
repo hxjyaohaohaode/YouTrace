@@ -228,8 +228,8 @@ export default function AIPage() {
 
   return (
     <div className="flex flex-col h-dvh md:h-screen overflow-hidden pb-16 md:pb-0">
-      <header className="flex-shrink-0 border-b border-surface-100 dark:border-surface-800 bg-white/95 dark:bg-surface-900/95 backdrop-blur-md safe-top z-10 relative">
-        <div className="px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between">
+      <header className="flex-shrink-0 border-b border-surface-100 dark:border-surface-800 bg-white/95 dark:bg-surface-900/95 backdrop-blur-md z-10 relative">
+        <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-2.5 flex items-center justify-between safe-top">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-brand-600 rounded-lg flex items-center justify-center text-white">
               <CurrentAgentIcon size={16} className="text-white" />
@@ -441,7 +441,7 @@ export default function AIPage() {
             </div>
           )}
 
-          <div className={`border-t border-surface-100 dark:border-surface-800 bg-white dark:bg-surface-900 px-4 sm:px-6 lg:px-8 py-2.5 safe-bottom flex-shrink-0 transition-colors ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
+          <div className={`border-t border-surface-100 dark:border-surface-800 bg-white dark:bg-surface-900 px-4 sm:px-6 lg:px-8 py-2.5 flex-shrink-0 transition-colors md:safe-bottom ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
             }`}>
             <div className="max-w-3xl mx-auto">
               {pendingAttachments.length > 0 && (
