@@ -3,6 +3,8 @@ services:
     name: youji-api
     runtime: node
     plan: free
+    region: singapore
+    branch: main
     buildCommand: npm ci && cd server && npx prisma generate && npx tsc && cd ../client && npm run build && cp -r dist ../server/public
     startCommand: cd server && npx prisma db push --accept-data-loss && node dist/index.js
     envVars:
@@ -56,5 +58,6 @@ services:
 databases:
   - name: youji-db
     plan: free
+    region: singapore
     databaseName: youji
     user: youji_user
