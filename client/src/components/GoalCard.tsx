@@ -17,7 +17,7 @@ function GoalCard({ goal, onClick }: GoalCardProps) {
   return (
     <div
       onClick={() => onClick(goal.id)}
-      className="card p-5 cursor-pointer group"
+      className="card card-responsive cursor-pointer group"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">

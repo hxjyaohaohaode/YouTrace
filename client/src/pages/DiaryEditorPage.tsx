@@ -219,7 +219,7 @@ function DiaryEditorPage() {
   return (
     <div className="page-container">
       <header className="page-header">
-        <div className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-3.5 flex items-center justify-between">
+        <div className="md:max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-3.5 flex items-center justify-between">
           <button
             onClick={handleCancel}
             className="flex items-center gap-1 text-surface-500 hover:text-surface-700 text-sm font-medium"
@@ -240,7 +240,7 @@ function DiaryEditorPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-6">
+      <main className="md:max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-8 lg:px-12 py-5 sm:py-6">
         {error && (
           <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-400 text-sm">{error}</div>
         )}
@@ -259,12 +259,12 @@ function DiaryEditorPage() {
           </div>
         )}
 
-        <div className="card p-5" onPaste={handlePaste}>
+        <div className="card card-responsive" onPaste={handlePaste}>
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             placeholder="今天过得怎么样？记录你的心情和故事...&#10;&#10;💡 提示：可以直接粘贴图片，或拖拽文件到下方区域"
-            className="w-full min-h-[300px] resize-none border-0 focus:ring-0 p-0 text-surface-700 leading-relaxed placeholder:text-surface-300"
+            className="w-full min-h-[200px] sm:min-h-[300px] resize-none border-0 focus:ring-0 p-0 text-surface-700 leading-relaxed placeholder:text-surface-300"
             autoFocus
           />
         </div>
@@ -456,7 +456,7 @@ function DiaryEditorPage() {
 
       {showCancelConfirm && (
         <div className="overlay" onClick={() => setShowCancelConfirm(false)}>
-          <div className="modal-content p-7 max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content p-5 sm:p-7 max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-surface-800 mb-2">放弃编辑？</h3>
             <p className="text-surface-400 text-sm mb-6">当前内容尚未保存，确认放弃吗？</p>
             <div className="flex gap-3">

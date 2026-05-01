@@ -15,7 +15,7 @@ export const eventApi = {
     isAllDay?: boolean; recurrenceRule?: string; color?: string; goalId?: string; reminderMinutes?: number;
     isCourse?: boolean; courseWeekStart?: number; courseWeekEnd?: number; courseDayOfWeek?: number;
     courseStartSec?: number; courseEndSec?: number; courseTeacher?: string; courseLocation?: string;
-    courseAdjust?: string;
+    courseAdjust?: string; courseWeekType?: string; courseSemesterStart?: string; courseTimeConfig?: string;
   }): Promise<ApiResponse<EventItem>> => {
     const response = await client.post('/api/events', data);
     return response.data;
@@ -26,7 +26,7 @@ export const eventApi = {
     isAllDay: boolean; recurrenceRule: string; color: string; goalId: string; reminderMinutes: number;
     isCourse: boolean; courseWeekStart: number; courseWeekEnd: number; courseDayOfWeek: number;
     courseStartSec: number; courseEndSec: number; courseTeacher: string; courseLocation: string;
-    courseAdjust: string;
+    courseAdjust: string; courseWeekType: string; courseSemesterStart: string; courseTimeConfig: string;
   }>): Promise<ApiResponse<EventItem>> => {
     const response = await client.put(`/api/events/${id}`, data);
     return response.data;
@@ -48,9 +48,11 @@ export const eventApi = {
     courses: Array<{
       title: string; teacher: string; location: string; dayOfWeek: number;
       startSection: number; endSection: number; weekStart: number; weekEnd: number;
+      weekType?: string;
       adjustments: Array<{ week: number; dayOfWeek: number; startSection: number; endSection: number; location?: string }>;
     }>;
     semesterStart: string; color?: string;
+    sectionTimes?: Array<{ start: string; end: string }>;
   }): Promise<ApiResponse> => {
     const response = await client.post('/api/schedule/batch-create', data);
     return response.data;

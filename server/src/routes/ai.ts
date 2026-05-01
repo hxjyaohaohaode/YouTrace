@@ -314,13 +314,18 @@ async function buildUserContext(userId: string, ip: string | undefined, attachme
 
   if (attachmentIds && attachmentIds.length > 0) {
     const attachments = await prisma.attachment.findMany({
-      where: { id: { in: attachmentIds }, userId, annotationStatus: 'completed' },
-      select: { id: true, originalName: true, fileType: true, aiAnnotation: true, mimeType: true },
+      where: { id: { in: attachmentIds }, userId },
+      select: { id: true, originalName: true, fileType: true, aiAnnotation: true, mimeType: true, annotationStatus: true },
     });
     if (attachments.length > 0) {
       contextInfo += '\n\n用户上传的附件:\n' + attachments.map((a, i) => {
         const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+        const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
+          ? a.aiAnnotation
+          : a.annotationStatus === 'processing'
+            ? '[附件正在分析中]'
+            : '[附件分析未完成]';
+        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
       }).join('\n\n');
     }
   }
@@ -767,6 +772,15 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         activeConversationId = newConversation.id;
       }
 
+      let attachmentNames: string[] = [];
+      if (attachmentIds && attachmentIds.length > 0) {
+        const attMeta = await prisma.attachment.findMany({
+          where: { id: { in: attachmentIds }, userId: request.userId },
+          select: { originalName: true },
+        });
+        attachmentNames = attMeta.map((a) => a.originalName);
+      }
+
       const userMessage = await prisma.chatMessage.create({
         data: {
           userId: request.userId!,
@@ -774,7 +788,10 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
           role: 'user',
           content: content.trim(),
           agentType: selectedAgent.id,
-          metadata: JSON.stringify({ attachmentIds: attachmentIds || [] }),
+          metadata: JSON.stringify({
+            attachmentIds: attachmentIds || [],
+            attachmentNames,
+          }),
         },
       });
 
@@ -799,21 +816,38 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       const contextInfo = await buildUserContext(request.userId!, request.ip, attachmentIds, _longitude, _latitude);
       systemContent += `\n\n--- 用户上下文 ---\n${contextInfo}`;
 
-      const chatHistory = recentMessages.reverse().map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      }));
+      const chatHistory = recentMessages.reverse().map((m) => {
+        let msgContent = m.content;
+        try {
+          const meta = JSON.parse(m.metadata);
+          if (meta.attachmentNames && meta.attachmentNames.length > 0 && m.role === 'user') {
+            msgContent += `\n\n[用户在此消息中上传了附件: ${meta.attachmentNames.join(', ')}]`;
+          }
+          if (meta.attachmentIds && meta.attachmentIds.length > 0 && m.role === 'user' && !meta.attachmentNames) {
+            msgContent += `\n\n[用户在此消息中上传了${meta.attachmentIds.length}个附件]`;
+          }
+        } catch { /* ignore */ }
+        return {
+          role: m.role as 'user' | 'assistant',
+          content: msgContent,
+        };
+      });
 
       let userContentWithAttachments = content;
       if (attachmentIds && attachmentIds.length > 0) {
         const attachments = await prisma.attachment.findMany({
-          where: { id: { in: attachmentIds }, userId: request.userId, annotationStatus: 'completed' },
-          select: { originalName: true, fileType: true, aiAnnotation: true },
+          where: { id: { in: attachmentIds }, userId: request.userId },
+          select: { originalName: true, fileType: true, aiAnnotation: true, annotationStatus: true },
         });
         if (attachments.length > 0) {
           userContentWithAttachments += '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
             const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+            const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
+              ? a.aiAnnotation
+              : a.annotationStatus === 'processing'
+                ? '[附件正在分析中，请基于文件名和类型给出初步回应]'
+                : '[附件分析未完成，请基于文件名和类型给出初步回应]';
+            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
           }).join('\n\n');
         }
       }
@@ -1266,18 +1300,16 @@ ${JSON.stringify(contextData, null, 2)}
       }).join('\n');
     }
 
-    const prompt = `你是一个专业的心理咨询师和生活顾问。请对以下日记进行深度分析，结合用户的个人信息、日程安排和情绪趋势，提供专业的建议。
+    const prompt = `你是一个专业的心理咨询师和生活顾问。请对以下日记进行深度分析，结合用户的个人信息、日程安排和情绪趋势，提供精准的建议。
 
 ${contextInfo}
 
-请从以下维度分析：
-1. 情绪解读：深入分析用户的情绪状态
-2. 潜在需求：用户可能未直接表达的需求
-3. 生活建议：结合日程和个人信息的具体建议
-4. 情绪趋势：结合近期日记分析情绪变化
-5. 行动方案：具体的、可执行的行动建议
+请用2-3句话简洁分析，要求：
+1. 精准指出核心情绪或问题
+2. 结合用户日程/习惯给出1条可执行建议
+3. 如果发现情绪趋势变化，简要指出
 
-请用温暖专业的语气回复，中文，简洁有力。`;
+中文回复，简洁有力，不超过100字。`;
 
     let analysis: string;
     try {
@@ -1920,6 +1952,101 @@ ${contextInfo}
 2. 坚持记录日记，关注情绪变化
 3. 如有困扰，及时与信任的人沟通`;
   }
+
+  fastify.post<{ Body: { weatherSummary: string; forecastDays: Array<{ date: string; tempMax: string; tempMin: string; textDay: string; humidity: string; windScale: string }> } }>('/api/ai/weather-suggestions', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { weatherSummary, forecastDays } = request.body;
+
+    const now = new Date();
+    const threeDaysLater = new Date(now.getTime() + 3 * 86400000);
+    const events = await prisma.event.findMany({
+      where: {
+        userId: request.userId!,
+        startTime: { gte: now, lte: threeDaysLater },
+      },
+      orderBy: { startTime: 'asc' },
+      select: { title: true, startTime: true, endTime: true, isAllDay: true, isCourse: true, courseLocation: true },
+    });
+
+    const habits = await prisma.habit.findMany({
+      where: { userId: request.userId! },
+      select: { title: true, frequency: true },
+    });
+
+    const scheduleSummary = events.length > 0
+      ? events.map(e => {
+        const day = e.startTime.toLocaleDateString('zh-CN', { weekday: 'short', month: 'short', day: 'numeric' });
+        if (e.isAllDay) return `${day} 全天 ${e.title}`;
+        const start = e.startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        return `${day} ${start} ${e.title}${e.isCourse && e.courseLocation ? `(${e.courseLocation})` : ''}`;
+      }).join('\n')
+      : '近3天暂无日程安排';
+
+    const habitSummary = habits.length > 0
+      ? habits.map(h => `${h.title}(${h.frequency})`).join(', ')
+      : '暂无进行中的习惯';
+
+    const forecastSummary = forecastDays.map(d =>
+      `${d.date} ${d.textDay} ${d.tempMin}~${d.tempMax}°C 湿度${d.humidity}% 风力${d.windScale}级`
+    ).join('\n');
+
+    const provider = getProvider();
+    if (provider === 'local') {
+      const suggestions: Array<{ date: string; suggestion: string }> = [];
+      forecastDays.forEach(d => {
+        const temp = parseInt(d.tempMax) || 20;
+        const parts: string[] = [];
+        if (temp < 5) parts.push('注意保暖，穿厚外套');
+        else if (temp < 15) parts.push('适当添加衣物');
+        else if (temp > 35) parts.push('注意防暑');
+        if (d.textDay.includes('雨')) parts.push('带伞出行');
+        if (d.textDay.includes('雪')) parts.push('路滑注意安全');
+        if (parseInt(d.humidity) > 80) parts.push('湿度大注意除湿');
+        suggestions.push({ date: d.date, suggestion: parts.join('；') || '天气适宜' });
+      });
+      return reply.send({ success: true, data: { suggestions } });
+    }
+
+    try {
+      const prompt = `你是一个贴心的生活助手。根据天气预报和用户的日程安排，为每一天提供简洁的个性化建议。
+
+当前天气：${weatherSummary}
+
+未来几天预报：
+${forecastSummary}
+
+用户近3天日程：
+${scheduleSummary}
+
+用户进行中的习惯：
+${habitSummary}
+
+请为每一天提供1-2条简洁建议，要求：
+1. 结合天气给出穿衣/出行建议
+2. 结合用户日程给出时间安排提醒（如：有早课建议提前出发、有户外活动注意天气等）
+3. 如有相关习惯，给出简短提醒
+4. 每条建议不超过20字
+
+返回JSON格式：
+{
+  "suggestions": [
+    {"date": "日期", "suggestion": "建议内容"}
+  ]
+}
+只返回JSON。`;
+
+      const result = await callAI(prompt, provider);
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return reply.send({ success: true, data: { suggestions: parsed.suggestions || [] } });
+      }
+      return reply.send({ success: true, data: { suggestions: [] } });
+    } catch {
+      return reply.send({ success: true, data: { suggestions: [] } });
+    }
+  });
 };
 
 export default aiRoutes;

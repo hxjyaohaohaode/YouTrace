@@ -1,6 +1,27 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { EventItem, EventColor } from '../types';
 import { EVENT_COLORS } from '../types';
+
+const DEFAULT_SECTION_TIMES = [
+    { start: '08:00', end: '08:45' },
+    { start: '08:55', end: '09:40' },
+    { start: '10:00', end: '10:45' },
+    { start: '10:55', end: '11:40' },
+    { start: '14:00', end: '14:45' },
+    { start: '14:55', end: '15:40' },
+    { start: '16:00', end: '16:45' },
+    { start: '16:55', end: '17:40' },
+    { start: '19:00', end: '19:45' },
+    { start: '19:55', end: '20:40' },
+    { start: '20:50', end: '21:35' },
+    { start: '21:45', end: '22:30' },
+];
+
+interface SectionTimeConfig {
+    start: string;
+    end: string;
+}
+
 interface EventFormProps {
     event?: EventItem;
     onSubmit: (data: {
@@ -21,9 +42,22 @@ interface EventFormProps {
         courseTeacher?: string;
         courseLocation?: string;
         courseAdjust?: string;
+        courseWeekType?: string;
+        courseSemesterStart?: string;
+        courseTimeConfig?: string;
     }) => void;
     onDelete?: () => void;
     onCancel: () => void;
+}
+
+function parseTimeConfig(json: string): SectionTimeConfig[] {
+    try {
+        const parsed = JSON.parse(json);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].start && parsed[0].end) {
+            return parsed;
+        }
+    } catch { /* ignore */ }
+    return DEFAULT_SECTION_TIMES;
 }
 
 function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
@@ -42,6 +76,62 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
     const [courseEndSec, setCourseEndSec] = useState(event?.courseEndSec || 2);
     const [courseTeacher, setCourseTeacher] = useState(event?.courseTeacher || '');
     const [courseLocation, setCourseLocation] = useState(event?.courseLocation || '');
+    const [courseWeekType, setCourseWeekType] = useState<string>(event?.courseWeekType || 'ALL');
+    const [courseSemesterStart, setCourseSemesterStart] = useState(event?.courseSemesterStart || '');
+    const [sectionTimes, setSectionTimes] = useState<SectionTimeConfig[]>(
+        parseTimeConfig(event?.courseTimeConfig || '{}')
+    );
+    const [sectionDuration, setSectionDuration] = useState(45);
+    const [breakDuration, setBreakDuration] = useState(10);
+    const [showTimeConfig, setShowTimeConfig] = useState(false);
+
+    const currentSectionTimes = useMemo(() => sectionTimes, [sectionTimes]);
+
+    const autoGenerateSectionTimes = (firstClassStart: string, duration: number, breakMin: number, bigBreakAfter: number[], bigBreakMin: number) => {
+        const times: SectionTimeConfig[] = [];
+        const [startH, startM] = firstClassStart.split(':').map(Number);
+        let currentMinutes = startH * 60 + startM;
+
+        for (let i = 0; i < 12; i++) {
+            const startMin = currentMinutes;
+            const endMin = currentMinutes + duration;
+            times.push({
+                start: `${String(Math.floor(startMin / 60)).padStart(2, '0')}:${String(startMin % 60).padStart(2, '0')}`,
+                end: `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`,
+            });
+            const isBigBreak = bigBreakAfter.includes(i + 1);
+            currentMinutes = endMin + (isBigBreak ? bigBreakMin : breakMin);
+        }
+        setSectionTimes(times);
+    };
+
+    const computeCourseTime = () => {
+        if (!courseSemesterStart) return;
+        const startIdx = Math.max(0, courseStartSec - 1);
+        const endIdx = Math.max(0, courseEndSec - 1);
+        if (startIdx >= currentSectionTimes.length || endIdx >= currentSectionTimes.length) return;
+
+        const semesterStartDate = new Date(courseSemesterStart + 'T00:00:00');
+        const startDay = semesterStartDate.getDay();
+        const startDayMon = startDay === 0 ? 7 : startDay;
+        const offsetToMonday = 1 - startDayMon;
+        const mondayOfWeek1 = new Date(semesterStartDate.getTime() + offsetToMonday * 86400000);
+
+        const computeDateForWeek = (week: number) => {
+            const targetOffset = (week - 1) * 7 + (courseDayOfWeek - 1);
+            return new Date(mondayOfWeek1.getTime() + targetOffset * 86400000);
+        };
+
+        const firstWeekDate = computeDateForWeek(courseWeekStart);
+        const [sh, sm] = currentSectionTimes[startIdx].start.split(':').map(Number);
+        const [eh, em] = currentSectionTimes[endIdx].end.split(':').map(Number);
+
+        const computedStart = new Date(firstWeekDate.getFullYear(), firstWeekDate.getMonth(), firstWeekDate.getDate(), sh, sm);
+        const computedEnd = new Date(firstWeekDate.getFullYear(), firstWeekDate.getMonth(), firstWeekDate.getDate(), eh, em);
+
+        setStartTime(computedStart.toISOString().slice(0, 16));
+        setEndTime(computedEnd.toISOString().slice(0, 16));
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -62,11 +152,14 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
             courseEndSec: isCourse ? courseEndSec : undefined,
             courseTeacher: isCourse ? courseTeacher.trim() || undefined : undefined,
             courseLocation: isCourse ? courseLocation.trim() || undefined : undefined,
+            courseWeekType: isCourse ? courseWeekType : undefined,
+            courseSemesterStart: isCourse ? courseSemesterStart || undefined : undefined,
+            courseTimeConfig: isCourse ? JSON.stringify(currentSectionTimes) : undefined,
         });
     };
 
     return (
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6">
             <h3 className="text-lg font-semibold text-surface-800 mb-5">
                 {event ? '编辑日程' : '新建日程'}
             </h3>
@@ -120,6 +213,16 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
 
                 {isCourse && (
                     <div className="space-y-3 p-4 bg-purple-50 dark:bg-purple-950/20 rounded-xl">
+                        <div>
+                            <label className="block text-xs font-medium text-surface-600 mb-1">学期开始日期</label>
+                            <input
+                                type="date"
+                                value={courseSemesterStart}
+                                onChange={(e) => setCourseSemesterStart(e.target.value)}
+                                className="input-field text-sm"
+                            />
+                        </div>
+
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs font-medium text-surface-600 mb-1">起始周</label>
@@ -144,6 +247,30 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 />
                             </div>
                         </div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-surface-600 mb-1.5">周次类型</label>
+                            <div className="flex gap-2">
+                                {[
+                                    { value: 'ALL', label: '每周' },
+                                    { value: 'ODD', label: '单周' },
+                                    { value: 'EVEN', label: '双周' },
+                                ].map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setCourseWeekType(opt.value)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${courseWeekType === opt.value
+                                            ? 'bg-purple-500 text-white shadow-sm'
+                                            : 'bg-white dark:bg-surface-800 text-surface-600 dark:text-surface-300 border border-surface-200 dark:border-surface-700'
+                                            }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         <div>
                             <label className="block text-xs font-medium text-surface-600 mb-1">星期</label>
                             <select
@@ -160,6 +287,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 <option value={7}>周日</option>
                             </select>
                         </div>
+
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="block text-xs font-medium text-surface-600 mb-1">开始节次</label>
@@ -168,8 +296,8 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                     onChange={(e) => setCourseStartSec(Number(e.target.value))}
                                     className="input-field text-sm"
                                 >
-                                    {Array.from({ length: 12 }, (_, i) => (
-                                        <option key={i + 1} value={i + 1}>第{i + 1}节</option>
+                                    {currentSectionTimes.map((sec, i) => (
+                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.start}-{sec.end})</option>
                                     ))}
                                 </select>
                             </div>
@@ -180,12 +308,13 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                     onChange={(e) => setCourseEndSec(Number(e.target.value))}
                                     className="input-field text-sm"
                                 >
-                                    {Array.from({ length: 12 }, (_, i) => (
-                                        <option key={i + 1} value={i + 1}>第{i + 1}节</option>
+                                    {currentSectionTimes.map((sec, i) => (
+                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.start}-{sec.end})</option>
                                     ))}
                                 </select>
                             </div>
                         </div>
+
                         <div>
                             <label className="block text-xs font-medium text-surface-600 mb-1">教师</label>
                             <input
@@ -196,6 +325,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 className="input-field text-sm"
                             />
                         </div>
+
                         <div>
                             <label className="block text-xs font-medium text-surface-600 mb-1">教室</label>
                             <input
@@ -206,6 +336,114 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 className="input-field text-sm"
                             />
                         </div>
+
+                        <div className="border-t border-purple-200 dark:border-purple-800 pt-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowTimeConfig(!showTimeConfig)}
+                                className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700"
+                            >
+                                <svg className={`w-3.5 h-3.5 transition-transform ${showTimeConfig ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                                自定义上课时间配置
+                            </button>
+                        </div>
+
+                        {showTimeConfig && (
+                            <div className="space-y-3 p-3 bg-white dark:bg-surface-800 rounded-lg border border-purple-200 dark:border-purple-800">
+                                <p className="text-2xs text-surface-400">配置每节课的时长和课间休息时间，系统会自动计算各节次的时间</p>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-2xs font-medium text-surface-500 mb-1">第一节课开始时间</label>
+                                        <input
+                                            type="time"
+                                            value={currentSectionTimes[0]?.start || '08:00'}
+                                            onChange={(e) => {
+                                                autoGenerateSectionTimes(e.target.value, sectionDuration, breakDuration, [4, 8], 20);
+                                            }}
+                                            className="input-field text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-2xs font-medium text-surface-500 mb-1">每节课时长(分钟)</label>
+                                        <input
+                                            type="number"
+                                            value={sectionDuration}
+                                            onChange={(e) => {
+                                                const d = Number(e.target.value);
+                                                setSectionDuration(d);
+                                                autoGenerateSectionTimes(currentSectionTimes[0]?.start || '08:00', d, breakDuration, [4, 8], 20);
+                                            }}
+                                            min={20}
+                                            max={120}
+                                            className="input-field text-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-2xs font-medium text-surface-500 mb-1">课间休息(分钟)</label>
+                                        <input
+                                            type="number"
+                                            value={breakDuration}
+                                            onChange={(e) => {
+                                                const b = Number(e.target.value);
+                                                setBreakDuration(b);
+                                                autoGenerateSectionTimes(currentSectionTimes[0]?.start || '08:00', sectionDuration, b, [4, 8], 20);
+                                            }}
+                                            min={0}
+                                            max={30}
+                                            className="input-field text-sm"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-2xs font-medium text-surface-500 mb-1">大课间休息(分钟)</label>
+                                        <input
+                                            type="number"
+                                            value={20}
+                                            min={10}
+                                            max={60}
+                                            className="input-field text-sm"
+                                            disabled
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mt-2 max-h-32 overflow-y-auto">
+                                    <table className="w-full text-2xs">
+                                        <thead>
+                                            <tr className="text-surface-400">
+                                                <th className="text-left py-1 font-medium">节次</th>
+                                                <th className="text-left py-1 font-medium">上课</th>
+                                                <th className="text-left py-1 font-medium">下课</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {currentSectionTimes.map((sec, i) => (
+                                                <tr key={i} className="border-t border-surface-100 dark:border-surface-700">
+                                                    <td className="py-1 text-surface-600">第{i + 1}节</td>
+                                                    <td className="py-1 text-surface-700 font-mono">{sec.start}</td>
+                                                    <td className="py-1 text-surface-700 font-mono">{sec.end}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {courseSemesterStart && (
+                            <button
+                                type="button"
+                                onClick={computeCourseTime}
+                                className="w-full py-2 text-sm font-medium text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+                            >
+                                自动计算上课时间
+                            </button>
+                        )}
                     </div>
                 )}
 

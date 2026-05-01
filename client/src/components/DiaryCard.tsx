@@ -1,4 +1,4 @@
-﻿import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { Diary } from '../types';
 import { formatRelative } from '../utils/date';
 import { getScoreColor, getScoreLabel } from '../utils/emotionUtils';
@@ -19,7 +19,7 @@ function DiaryCard({ diary }: DiaryCardProps) {
   return (
     <div
       onClick={() => navigate(`/diary/${diary.id}`)}
-      className="card-hover p-5"
+      className="card-hover card-responsive"
     >
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-surface-400 font-medium">{formatRelative(diary.createdAt)}</span>

@@ -119,6 +119,14 @@
     transform: scale(0.985);
   }
 
+  .card-responsive {
+    @apply p-4 sm:p-5;
+  }
+
+  .card-responsive-lg {
+    @apply p-5 sm:p-7;
+  }
+
   .btn-primary {
     @apply inline-flex items-center justify-center px-5 py-2.5 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed;
     background: linear-gradient(to right, #e8941e, #c9553e);
@@ -168,7 +176,7 @@
   }
 
   .empty-state {
-    @apply flex flex-col items-center justify-center py-16 px-6 text-center;
+    @apply flex flex-col items-center justify-center py-12 sm:py-16 px-4 sm:px-6 text-center;
   }
 
   .empty-state-title {
@@ -248,7 +256,7 @@
   }
 
   .floating-action-btn {
-    @apply fixed z-40 w-14 h-14 text-white rounded-full flex items-center justify-center;
+    @apply fixed z-40 w-12 h-12 sm:w-14 sm:h-14 text-white rounded-full flex items-center justify-center;
     bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
     right: 1.25rem;
     background: linear-gradient(to right, #e8941e, #c9553e);

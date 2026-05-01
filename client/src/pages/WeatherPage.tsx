@@ -1,6 +1,8 @@
-﻿import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useWeatherStore } from '../stores/weatherStore';
 import { useLocationStore } from '../stores/locationStore';
+import { useEventStore } from '../stores/eventStore';
+import client from '../api/client';
 import type { WeatherAlert, DailyForecast, AirQuality, LocationInfo } from '../types';
 
 const WEATHER_ICONS: Record<string, string> = {
@@ -94,30 +96,43 @@ function AlertCard({ alert }: { alert: WeatherAlert }) {
   );
 }
 
-function ForecastCard({ day }: { day: DailyForecast }) {
+interface AiSuggestion {
+  date: string;
+  suggestion: string;
+}
+
+function ForecastCard({ day, aiSuggestion }: { day: DailyForecast; aiSuggestion?: AiSuggestion }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-surface-50 dark:border-surface-800 last:border-0">
-      <div className="w-12 text-sm text-surface-600 dark:text-surface-400">{formatWeekday(day.fxDate)}</div>
-      <div className="flex items-center gap-1 w-20">
-        <span className="text-base">{getWeatherIcon(day.iconDay)}</span>
-        <span className="text-xs text-surface-500 dark:text-surface-400">{day.textDay}</span>
-      </div>
-      <div className="flex items-center gap-1 w-16 justify-center">
-        <span className="text-xs text-surface-400">💧{day.humidity}%</span>
-      </div>
-      <div className="flex items-center gap-2 w-24 justify-end">
-        <span className="text-sm font-medium text-surface-700 dark:text-surface-300">{day.tempMax}°</span>
-        <div className="w-12 h-1 rounded-full bg-surface-200 dark:bg-surface-700 relative overflow-hidden">
-          <div
-            className="absolute inset-y-0 rounded-full gradient-bg"
-            style={{
-              left: `${((parseInt(day.tempMin) + 20) / 60) * 100}%`,
-              right: `${100 - ((parseInt(day.tempMax) + 20) / 60) * 100}%`,
-            }}
-          />
+    <div className="py-2.5 border-b border-surface-50 dark:border-surface-800 last:border-0">
+      <div className="flex items-center justify-between">
+        <div className="w-12 text-sm text-surface-600 dark:text-surface-400">{formatWeekday(day.fxDate)}</div>
+        <div className="flex items-center gap-1 w-20">
+          <span className="text-base">{getWeatherIcon(day.iconDay)}</span>
+          <span className="text-xs text-surface-500 dark:text-surface-400">{day.textDay}</span>
         </div>
-        <span className="text-sm text-surface-400">{day.tempMin}°</span>
+        <div className="flex items-center gap-1 w-16 justify-center">
+          <span className="text-xs text-surface-400">💧{day.humidity}%</span>
+        </div>
+        <div className="flex items-center gap-2 w-24 justify-end">
+          <span className="text-sm font-medium text-surface-700 dark:text-surface-300">{day.tempMax}°</span>
+          <div className="w-12 h-1 rounded-full bg-surface-200 dark:bg-surface-700 relative overflow-hidden">
+            <div
+              className="absolute inset-y-0 rounded-full gradient-bg"
+              style={{
+                left: `${((parseInt(day.tempMin) + 20) / 60) * 100}%`,
+                right: `${100 - ((parseInt(day.tempMax) + 20) / 60) * 100}%`,
+              }}
+            />
+          </div>
+          <span className="text-sm text-surface-400">{day.tempMin}°</span>
+        </div>
       </div>
+      {aiSuggestion && (
+        <div className="mt-1.5 ml-12 flex items-start gap-1.5">
+          <span className="text-2xs text-brand-500 flex-shrink-0">💡</span>
+          <p className="text-2xs text-brand-600 dark:text-brand-400 leading-relaxed">{aiSuggestion.suggestion}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -207,10 +222,13 @@ function getLifeSuggestions(
 function WeatherPage() {
   const { currentWeather, forecast, isLoading, error, refreshAll } = useWeatherStore();
   const { location, coords, searchResults, permissionStatus, requestBrowserLocation, searchCity, clearSearch } = useLocationStore();
+  const { events, fetchEvents } = useEventStore();
   const [showAlerts, setShowAlerts] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<LocationInfo | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
 
@@ -244,6 +262,43 @@ function WeatherPage() {
       refreshAll();
     });
   }, [coords, refreshAll, requestBrowserLocation]);
+
+  useEffect(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 4, 23, 59, 59).toISOString();
+    fetchEvents(start, end);
+  }, [fetchEvents]);
+
+  useEffect(() => {
+    if (forecast?.daily && forecast.daily.length > 0 && currentWeather?.now) {
+      fetchAiSuggestions();
+    }
+  }, [forecast, currentWeather]);
+
+  const fetchAiSuggestions = async () => {
+    if (!forecast?.daily || !currentWeather?.now) return;
+    setLoadingSuggestions(true);
+    try {
+      const weatherSummary = `${currentWeather.now.text} ${currentWeather.now.temp}°C 体感${currentWeather.now.feelsLike}°C 湿度${currentWeather.now.humidity}% 风力${currentWeather.now.windDir}${currentWeather.now.windScale}级`;
+      const forecastDays = forecast.daily.slice(0, 7).map(d => ({
+        date: d.fxDate,
+        tempMax: d.tempMax,
+        tempMin: d.tempMin,
+        textDay: d.textDay,
+        humidity: d.humidity,
+        windScale: d.windScaleDay,
+      }));
+      const res = await client.post('/api/ai/weather-suggestions', { weatherSummary, forecastDays });
+      if (res.data?.success && res.data?.data?.suggestions) {
+        setAiSuggestions(res.data.data.suggestions);
+      }
+    } catch {
+      setAiSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
 
   const handleSearch = useCallback((value: string) => {
     setSearchQuery(value);
@@ -295,6 +350,11 @@ function WeatherPage() {
     ? `${loc.city}${loc.district ? ` · ${loc.district}` : ''}` || loc.formattedAddress || '未知位置'
     : '定位中...';
 
+  const todayEvents = events.filter(e => {
+    const today = new Date().toISOString().slice(0, 10);
+    return e.startTime.slice(0, 10) === today;
+  });
+
   if (isLoading && !currentWeather) {
     return (
       <div className="page-container flex items-center justify-center">
@@ -325,7 +385,7 @@ function WeatherPage() {
   return (
     <div className="page-container">
       <header className="page-header">
-        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
+        <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-950/40 flex items-center justify-center flex-shrink-0">
@@ -425,7 +485,7 @@ function WeatherPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 space-y-4">
+      <main className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4 space-y-4">
         {now && (
           <div className="bg-gradient-to-br from-brand-400 via-brand-500 to-blue-600 rounded-2xl p-5 sm:p-6 lg:p-8 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 opacity-10">
@@ -487,14 +547,48 @@ function WeatherPage() {
           </div>
         )}
 
+        {todayEvents.length > 0 && (
+          <div className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-100 dark:border-surface-800 p-4 sm:p-5">
+            <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-300 mb-3 flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              今日日程
+            </h3>
+            <div className="space-y-2">
+              {todayEvents.map(event => (
+                <div key={event.id} className="flex items-center gap-2.5 p-2 rounded-xl bg-surface-50 dark:bg-surface-800">
+                  <div className={`w-2 h-2 rounded-full ${event.isCourse ? 'bg-purple-400' : event.isHoliday ? 'bg-red-400' : 'bg-brand-400'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-surface-700 dark:text-surface-300 truncate">{event.title}</p>
+                    <p className="text-2xs text-surface-400">
+                      {event.isAllDay ? '全天' : `${new Date(event.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`}
+                      {event.isCourse && event.courseLocation && ` · ${event.courseLocation}`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {air && <AirQualityCard air={air} />}
 
           {forecast && forecast.daily.length > 0 && (
             <div className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-100 dark:border-surface-800 p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-300 mb-2">7日预报</h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-300">7日预报</h3>
+                {loadingSuggestions && (
+                  <span className="text-2xs text-brand-500 animate-pulse">AI分析中...</span>
+                )}
+              </div>
               {forecast.daily.map((day) => (
-                <ForecastCard key={day.fxDate} day={day} />
+                <ForecastCard
+                  key={day.fxDate}
+                  day={day}
+                  aiSuggestion={aiSuggestions.find(s => s.date === day.fxDate)}
+                />
               ))}
             </div>
           )}
@@ -544,6 +638,25 @@ function WeatherPage() {
             </div>
           )}
         </div>
+
+        {aiSuggestions.length > 0 && (
+          <div className="bg-gradient-to-r from-brand-50 to-blue-50 dark:from-brand-950/20 dark:to-blue-950/20 rounded-2xl border border-brand-100 dark:border-brand-900/30 p-4 sm:p-5">
+            <h3 className="text-sm font-semibold text-surface-700 dark:text-surface-300 mb-3 flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              AI 智能建议
+            </h3>
+            <div className="space-y-2">
+              {aiSuggestions.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-white/60 dark:bg-surface-800/60">
+                  <span className="text-xs text-surface-400 flex-shrink-0 mt-0.5">{s.date.slice(5)}</span>
+                  <p className="text-xs text-surface-600 dark:text-surface-400">{s.suggestion}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

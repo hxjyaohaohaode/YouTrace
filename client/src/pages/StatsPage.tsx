@@ -113,7 +113,7 @@ function StatsPage() {
   return (
     <div className="page-container">
       <header className="page-header">
-        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 flex items-center justify-between">
+        <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">数据分析</h1>
             <p className="text-xs text-surface-400 mt-0.5">全面了解你的生活状态</p>
@@ -121,7 +121,7 @@ function StatsPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
+      <main className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
         <div className="flex gap-2 mb-6">
           {(['7', '30', '90'] as const).map((p) => (
             <button
@@ -137,7 +137,7 @@ function StatsPage() {
         {stats && (
           <>
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <div className="card p-5">
+              <div className="card card-responsive">
                 <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center mb-3">
                   <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                 </div>
@@ -145,7 +145,7 @@ function StatsPage() {
                 <p className="text-xs text-surface-400 mt-0.5">日记数量</p>
               </div>
 
-              <div className="card p-5">
+              <div className="card card-responsive">
                 <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center mb-3">
                   <svg className="w-4.5 h-4.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
@@ -153,7 +153,7 @@ function StatsPage() {
                 <p className="text-xs text-surface-400 mt-0.5">平均情绪指数</p>
               </div>
 
-              <div className="card p-5">
+              <div className="card card-responsive">
                 <div className="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center mb-3">
                   <svg className="w-4.5 h-4.5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /></svg>
                 </div>
@@ -161,7 +161,7 @@ function StatsPage() {
                 <p className="text-xs text-surface-400 mt-0.5">连续记录天数</p>
               </div>
 
-              <div className="card p-5">
+              <div className="card card-responsive">
                 <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center mb-3">
                   <svg className="w-4.5 h-4.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                 </div>
@@ -173,7 +173,7 @@ function StatsPage() {
             {(activeGoals.length > 0 || habits.length > 0) && (
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {activeGoals.length > 0 && (
-                  <div className="card p-5">
+                  <div className="card card-responsive">
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center">
                         <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -200,7 +200,7 @@ function StatsPage() {
                 )}
 
                 {habits.length > 0 && (
-                  <div className="card p-5">
+                  <div className="card card-responsive">
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
                         <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -230,9 +230,9 @@ function StatsPage() {
             )}
 
             {stats.emotionTrend.length > 0 && (
-              <div className="card p-5 mb-6">
-                <h3 className="text-sm font-semibold text-surface-700 mb-4">情绪趋势</h3>
-                <div className="flex items-end gap-1 h-32">
+              <div className="card card-responsive mb-4 sm:mb-6">
+                <h3 className="text-sm font-semibold text-surface-700 mb-3 sm:mb-4">情绪趋势</h3>
+                <div className="flex items-end gap-1 h-24 sm:h-32">
                   {stats.emotionTrend.map((d: { date: string; score: number }, i: number) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
                       <div
@@ -249,7 +249,7 @@ function StatsPage() {
             )}
 
             {stats.topEmotions.length > 0 && (
-              <div className="card p-5 mb-6">
+              <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">情绪分布</h3>
                 <div className="space-y-3">
                   {stats.topEmotions.map((em: { score: number; count: number }, i: number) => {
@@ -272,7 +272,7 @@ function StatsPage() {
             )}
 
             {stats.wordCloud.length > 0 && (
-              <div className="card p-5 mb-6">
+              <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">高频词汇</h3>
                 <div className="flex flex-wrap gap-2">
                   {stats.wordCloud.map((w: { word: string; count: number }, i: number) => (
@@ -288,7 +288,7 @@ function StatsPage() {
               </div>
             )}
 
-            <div className="card p-5 mb-6">
+            <div className="card card-responsive mb-4 sm:mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-surface-700 flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center">

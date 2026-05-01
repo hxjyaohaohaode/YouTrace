@@ -100,8 +100,13 @@ export interface EventItem {
   courseTeacher: string | null;
   courseLocation: string | null;
   courseAdjust: string;
+  courseWeekType: 'ALL' | 'ODD' | 'EVEN';
+  courseSemesterStart: string | null;
+  courseTimeConfig: string;
   isHoliday: boolean;
   holidayName: string | null;
+  holidayType: 'HOLIDAY' | 'WORKDAY';
+  holidayDescription: string | null;
   createdAt: string;
   updatedAt: string;
   goal?: { id: string; title: string } | null;

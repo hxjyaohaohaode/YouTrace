@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Habit } from '../types';
 import { dateOnlyLocal } from '../utils/date';
+
 interface HabitCardProps {
   habit: Habit;
   onToggle: (id: string, date?: string) => void;
@@ -33,8 +34,18 @@ function HabitCard({ habit, onToggle, onEdit }: HabitCardProps) {
   const sixDaysAgo = dateOnlyLocal(new Date(Date.now() - 6 * 86400000));
   const sevenDaysAgo = dateOnlyLocal(new Date(Date.now() - 7 * 86400000));
 
+  const completionRate = habit.targetDays > 0
+    ? Math.min(100, Math.round((habit.streakCurrent / habit.targetDays) * 100))
+    : 0;
+
+  const recentCompleted = habit.recentLogs
+    ? habit.recentLogs.filter(l => l.isCompleted).length
+    : 0;
+  const recentTotal = habit.recentLogs ? habit.recentLogs.length : 0;
+  const recentRate = recentTotal > 0 ? Math.round((recentCompleted / recentTotal) * 100) : 0;
+
   return (
-    <div className="card p-5">
+    <div className="card card-responsive">
       <div className="flex items-center justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -64,6 +75,14 @@ function HabitCard({ habit, onToggle, onEdit }: HabitCardProps) {
               {habit.frequency === 'DAILY' ? '每天' : habit.frequency === 'WEEKLY' ? '每周' : habit.frequency === 'WEEKDAYS' ? '工作日' : '自定义'}
             </span>
           </div>
+
+          {habit.goalId && (habit as { goal?: { id: string; title: string } }).goal && (
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="text-2xs text-blue-500 bg-blue-50 dark:bg-blue-950/30 px-1.5 py-0.5 rounded-md font-medium">
+                🎯 {(habit as { goal?: { id: string; title: string } }).goal!.title}
+              </span>
+            </div>
+          )}
         </div>
 
         <button
@@ -81,8 +100,24 @@ function HabitCard({ habit, onToggle, onEdit }: HabitCardProps) {
         </button>
       </div>
 
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-2xs text-surface-400">目标进度</span>
+            <span className="text-2xs text-surface-500 font-medium">{completionRate}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full bg-surface-100 dark:bg-surface-800">
+            <div
+              className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-brand-400 to-brand-500"
+              style={{ width: `${completionRate}%` }}
+            />
+          </div>
+        </div>
+        <span className="text-2xs text-surface-400 flex-shrink-0">近7天 {recentRate}%</span>
+      </div>
+
       {habit.recentLogs && habit.recentLogs.length > 0 && (
-        <div className="flex gap-1.5 mt-4">
+        <div className="flex gap-1.5 mt-3">
           {habit.recentLogs.slice(0, 7).map((log) => (
             <div
               key={log.date}

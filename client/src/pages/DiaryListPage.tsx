@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useAuthStore } from '../stores/authStore';
@@ -78,7 +78,7 @@ function DiaryListPage() {
     return (
         <div className="page-container">
             <header className="page-header">
-                <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-5 flex items-center justify-between">
+                <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-4 sm:py-5 flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100 tracking-tight">有记</h1>
                         <p className="text-xs text-surface-400 mt-1">记录每一天的心情变化</p>
@@ -106,7 +106,7 @@ function DiaryListPage() {
                     </div>
                 </div>
 
-                <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 pb-4">
+                <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 pb-3 sm:pb-4">
                     <div className="relative">
                         <input
                             type="text"
@@ -148,10 +148,10 @@ function DiaryListPage() {
             </header>
 
             {(goals.filter(g => g.status === 'ACTIVE').length > 0 || habits.length > 0) && (
-                <section className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 pt-5">
+                <section className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 pt-4 sm:pt-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {goals.filter(g => g.status === 'ACTIVE').length > 0 && (
-                            <div className="card p-5">
+                            <div className="card card-responsive">
                                 <div className="flex items-center justify-between mb-3.5">
                                     <h3 className="text-sm font-medium text-surface-600 flex items-center gap-1.5">
                                         <svg className="w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -185,7 +185,7 @@ function DiaryListPage() {
                         )}
 
                         {habits.length > 0 && (
-                            <div className="card p-5">
+                            <div className="card card-responsive">
                                 <div className="flex items-center justify-between mb-3.5">
                                     <h3 className="text-sm font-medium text-surface-600 flex items-center gap-1.5">
                                         <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -226,7 +226,7 @@ function DiaryListPage() {
                 </section>
             )}
 
-            <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-5">
+            <main className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-4 sm:py-5">
                 {error && (
                     <div className="bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/50 text-red-600 dark:text-red-400 rounded-xl p-4 mb-5 text-sm">
                         {error}
@@ -236,7 +236,7 @@ function DiaryListPage() {
                 {isLoading ? (
                     <div className="space-y-4">
                         {[1, 2, 3].map((i) => (
-                            <div key={i} className="card p-6">
+                            <div key={i} className="card p-4 sm:p-6">
                                 <div className="flex justify-between mb-4">
                                     <div className="skeleton h-3 w-20" />
                                     <div className="skeleton h-3 w-16" />
@@ -317,7 +317,7 @@ function DiaryListPage() {
                     onClick={() => setShowLogoutConfirm(false)}
                 >
                     <div
-                        className="modal-content p-7 max-w-sm mx-4"
+                        className="modal-content p-5 sm:p-7 max-w-sm mx-4"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <h3 className="text-lg font-semibold text-surface-800 mb-2">确认退出</h3>

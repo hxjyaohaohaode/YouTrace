@@ -97,7 +97,7 @@ function InstallPrompt() {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="overlay-handle" />
-          <div className="p-5">
+          <div className="p-4 sm:p-5">
             <h3 className="text-lg font-semibold text-surface-800 mb-4">添加到主屏幕</h3>
             <div className="space-y-4">
               <div className="flex items-start gap-3">

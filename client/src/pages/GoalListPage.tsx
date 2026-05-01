@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGoalStore } from '../stores/goalStore';
 import GoalCard from '../components/GoalCard';
 import GoalForm from '../components/GoalForm';
@@ -19,13 +19,13 @@ function GoalListPage() {
     return (
       <div className="page-container">
         <header className="page-header">
-          <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
+          <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
             <h1 className="text-lg font-semibold text-surface-800 dark:text-surface-100">
               {editingGoalId ? '编辑目标' : '新建目标'}
             </h1>
           </div>
         </header>
-        <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-6">
+        <main className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-5 sm:py-6">
           <GoalForm
             goalId={editingGoalId}
             goals={goals}
@@ -41,7 +41,7 @@ function GoalListPage() {
   return (
     <div className="page-container">
       <header className="page-header">
-        <div className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4 flex items-center justify-between">
+        <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">目标</h1>
             <p className="text-xs text-surface-400 mt-0.5">让AI帮你拆解目标</p>
@@ -49,7 +49,7 @@ function GoalListPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl lg:max-w-4xl mx-auto px-5 sm:px-8 lg:px-12 py-4">
+      <main className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
         {error && (
           <div className="bg-red-50 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/50 text-red-600 dark:text-red-400 rounded-xl p-4 mb-4 text-sm">
             {error}
@@ -59,7 +59,7 @@ function GoalListPage() {
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="card p-5">
+              <div key={i} className="card card-responsive">
                 <div className="flex justify-between mb-3">
                   <div className="skeleton h-4 w-32" />
                   <div className="skeleton h-6 w-16 rounded-full" />

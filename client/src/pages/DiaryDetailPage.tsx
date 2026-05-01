@@ -113,7 +113,7 @@ function DiaryDetailPage() {
   return (
     <div className="page-container">
       <header className="page-header">
-        <div className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-3.5 flex items-center justify-between">
+        <div className="md:max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-8 lg:px-12 py-3 sm:py-3.5 flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
             className="flex items-center gap-1 text-surface-500 hover:text-surface-700 text-sm font-medium"
@@ -141,8 +141,8 @@ function DiaryDetailPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl lg:max-w-3xl mx-auto px-5 sm:px-8 lg:px-12 py-8">
-        <div className="card p-7 mb-5">
+      <main className="md:max-w-2xl lg:max-w-3xl mx-auto px-4 sm:px-8 lg:px-12 py-5 sm:py-8">
+        <div className="card card-responsive-lg mb-4 sm:mb-5">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm text-surface-400 font-medium">{formatDateTime(currentDiary.createdAt)}</span>
             <div className="flex items-center gap-2">
@@ -352,7 +352,7 @@ function DiaryDetailPage() {
           )}
         </div>
 
-        <div className="card p-7 mb-5">
+        <div className="card card-responsive-lg mb-4 sm:mb-5">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl gradient-bg flex items-center justify-center">
@@ -388,7 +388,7 @@ function DiaryDetailPage() {
           )}
         </div>
 
-        <div className="card p-7 mb-5">
+        <div className="card card-responsive-lg mb-4 sm:mb-5">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
@@ -512,7 +512,7 @@ function DiaryDetailPage() {
           onClick={() => setShowDeleteConfirm(false)}
         >
           <div
-            className="modal-content p-7 max-w-sm mx-4"
+            className="modal-content p-5 sm:p-7 max-w-sm mx-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-surface-800 mb-2">确认删除</h3>

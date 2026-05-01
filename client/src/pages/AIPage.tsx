@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAIStore } from '../stores/aiStore';
 import { uploadApi, getThumbnailUrl, type AttachmentResult } from '../api/upload';
 import { IconAI, IconCalendar, IconHeart, IconBolt, IconTarget, IconWeather, IconSend, IconCheck, IconSparkles, IconXMark, IconPlus, IconTrash } from '../components/Icons';
@@ -89,12 +89,14 @@ export default function AIPage() {
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentResult[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isWaitingAnnotation, setIsWaitingAnnotation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const agentBtnRef = useRef<HTMLButtonElement>(null);
   const [agentDropdownPos, setAgentDropdownPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     fetchAgents();
@@ -111,6 +113,55 @@ export default function AIPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const hasProcessing = pendingAttachments.some((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending');
+    if (hasProcessing && !pollingRef.current) {
+      pollingRef.current = setInterval(async () => {
+        const processingIds = pendingAttachments
+          .filter((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending')
+          .map((a) => a.id);
+        if (processingIds.length === 0) {
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+          return;
+        }
+        try {
+          const response = await uploadApi.batchStatus(processingIds);
+          if (response.success && response.data) {
+            setPendingAttachments((prev) =>
+              prev.map((att) => {
+                const updated = response.data!.find((r) => r.id === att.id);
+                if (updated) {
+                  return {
+                    ...att,
+                    annotationStatus: updated.annotationStatus as AttachmentResult['annotationStatus'],
+                    aiAnnotation: updated.aiAnnotation || att.aiAnnotation,
+                    thumbnailPath: updated.thumbnailPath ?? att.thumbnailPath,
+                  };
+                }
+                return att;
+              })
+            );
+          }
+        } catch {
+          // polling failed, ignore
+        }
+      }, 2000);
+    }
+    if (!hasProcessing && pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [pendingAttachments]);
 
   const processFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
@@ -131,11 +182,57 @@ export default function AIPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [pendingAttachments.length]);
 
+  const waitForAnnotations = async (attachmentIds: string[]): Promise<void> => {
+    const maxWait = 30000;
+    const interval = 1500;
+    const start = Date.now();
+
+    while (Date.now() - start < maxWait) {
+      try {
+        const response = await uploadApi.batchStatus(attachmentIds);
+        if (response.success && response.data) {
+          const allDone = response.data.every(
+            (r) => r.annotationStatus === 'completed' || r.annotationStatus === 'failed'
+          );
+          setPendingAttachments((prev) =>
+            prev.map((att) => {
+              const updated = response.data!.find((r) => r.id === att.id);
+              if (updated) {
+                return {
+                  ...att,
+                  annotationStatus: updated.annotationStatus as AttachmentResult['annotationStatus'],
+                  aiAnnotation: updated.aiAnnotation || att.aiAnnotation,
+                  thumbnailPath: updated.thumbnailPath ?? att.thumbnailPath,
+                };
+              }
+              return att;
+            })
+          );
+          if (allDone) return;
+        }
+      } catch {
+        // ignore polling errors
+      }
+      await new Promise((r) => setTimeout(r, interval));
+    }
+  };
+
   const handleSend = async () => {
     const text = input.trim();
     if ((!text && pendingAttachments.length === 0) || isSending) return;
     setInput('');
+
     const attachmentIds = pendingAttachments.map((a) => a.id);
+    const hasProcessing = pendingAttachments.some(
+      (a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending'
+    );
+
+    if (hasProcessing && attachmentIds.length > 0) {
+      setIsWaitingAnnotation(true);
+      await waitForAnnotations(attachmentIds);
+      setIsWaitingAnnotation(false);
+    }
+
     setPendingAttachments([]);
     await sendMessage(text || '请查看我上传的附件', attachmentIds.length > 0 ? attachmentIds : undefined);
   };
@@ -229,29 +326,29 @@ export default function AIPage() {
   return (
     <div className="flex flex-col h-dvh md:h-screen overflow-hidden ai-chat-container">
       <header className="flex-shrink-0 border-b border-surface-100/60 dark:border-surface-800/60 bg-white/92 dark:bg-surface-900/92 backdrop-blur-xl z-10 relative">
-        <div className="px-5 sm:px-8 lg:px-12 pt-4 pb-3 flex items-center justify-between safe-top">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl flex items-center justify-center text-white shadow-sm">
+        <div className="px-3 sm:px-8 lg:px-12 pt-3 pb-2.5 sm:pt-4 sm:pb-3 flex items-center justify-between safe-top">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl flex items-center justify-center text-white shadow-sm flex-shrink-0">
               <CurrentAgentIcon size={16} className="text-white" />
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold text-surface-900 dark:text-surface-100 truncate">
                 {currentAgent?.name || 'AI 助手'}
               </h1>
-              <p className="text-2xs text-surface-400 truncate">{currentAgent?.description || '随时为你服务'}</p>
+              <p className="text-2xs text-surface-400 truncate hidden sm:block">{currentAgent?.description || '随时为你服务'}</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 sm:gap-1 flex-shrink-0 ml-2">
             <button
               onClick={handleNewChat}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
+              className="w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors active:bg-surface-100 dark:active:bg-surface-800"
               title="新建对话"
             >
               <IconPlus size={18} />
             </button>
             <button
               onClick={() => { setShowHistory(!showHistory); fetchConversations(); }}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${showHistory ? 'text-brand-500 bg-brand-50 dark:bg-brand-950/30' : 'text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30'
+              className={`w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center transition-colors active:bg-surface-100 dark:active:bg-surface-800 ${showHistory ? 'text-brand-500 bg-brand-50 dark:bg-brand-950/30' : 'text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30'
                 }`}
               title="历史对话"
             >
@@ -270,7 +367,7 @@ export default function AIPage() {
                   }
                   setShowAgents(!showAgents);
                 }}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
+                className="w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors active:bg-surface-100 dark:active:bg-surface-800"
                 title="切换专家"
               >
                 <IconSparkles size={18} className="text-brand-400" />
@@ -351,8 +448,8 @@ export default function AIPage() {
         )}
 
         <div className="flex-1 flex flex-col min-h-0" ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
-          <div className="flex-1 overflow-y-auto px-5 sm:px-8 lg:px-12 py-5">
-            <div className="max-w-3xl mx-auto w-full space-y-5">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-8 lg:px-12 py-4 sm:py-5">
+            <div className="md:max-w-3xl mx-auto w-full space-y-5">
               {messages.length === 0 && (
                 <div className="empty-state py-12">
                   <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-brand-600 rounded-2xl flex items-center justify-center text-white shadow-card mb-3">
@@ -430,7 +527,7 @@ export default function AIPage() {
 
           {error && (
             <div className="px-5 sm:px-8 lg:px-12 pb-2 flex-shrink-0">
-              <div className="max-w-3xl mx-auto">
+              <div className="md:max-w-3xl mx-auto">
                 <div className="px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 rounded-xl text-sm text-red-600 dark:text-red-400 flex items-center justify-between">
                   <span>{error}</span>
                   <button onClick={clearError} className="text-red-400 hover:text-red-600">
@@ -443,11 +540,20 @@ export default function AIPage() {
 
           <div className={`border-t border-surface-100/60 dark:border-surface-800/60 bg-white dark:bg-surface-900 px-5 sm:px-8 lg:px-12 py-3 flex-shrink-0 transition-colors md:safe-bottom ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
             }`}>
-            <div className="max-w-3xl mx-auto">
+            <div className="md:max-w-3xl mx-auto">
               {pendingAttachments.length > 0 && (
                 <div className="mb-2 p-2.5 bg-surface-50 dark:bg-surface-800 rounded-xl border border-surface-200 dark:border-surface-700">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-[10px] text-surface-400 font-medium">待发送附件 ({pendingAttachments.length}/{MAX_ATTACHMENTS})</span>
+                    {pendingAttachments.some((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending') && (
+                      <span className="text-[10px] text-brand-500 font-medium flex items-center gap-1">
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        AI分析中...
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {pendingAttachments.map((att) => {
@@ -545,10 +651,17 @@ export default function AIPage() {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={(!input.trim() && pendingAttachments.length === 0) || isSending}
+                  disabled={(!input.trim() && pendingAttachments.length === 0) || isSending || isWaitingAnnotation}
                   className="btn-primary px-3 py-2 h-[38px] flex-shrink-0"
                 >
-                  <IconSend size={16} />
+                  {isWaitingAnnotation ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <IconSend size={16} />
+                  )}
                 </button>
               </div>
             </div>
@@ -560,8 +673,8 @@ export default function AIPage() {
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setShowAgents(false)} />
           <div
-            className="fixed z-[70] w-60 bg-white dark:bg-surface-800 rounded-xl shadow-card-hover border border-surface-100 dark:border-surface-700 overflow-hidden max-h-[60vh] overflow-y-auto"
-            style={{ top: agentDropdownPos.top, right: agentDropdownPos.right }}
+            className="fixed z-[70] w-56 sm:w-60 bg-white dark:bg-surface-800 rounded-xl shadow-card-hover border border-surface-100 dark:border-surface-700 overflow-hidden max-h-[60vh] overflow-y-auto"
+            style={{ top: agentDropdownPos.top, right: Math.max(agentDropdownPos.right, 8) }}
           >
             {agents.map((agent) => {
               const AgentIcon = agentIcons[agent.id] || IconAI;

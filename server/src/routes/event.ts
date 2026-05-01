@@ -21,6 +21,9 @@ interface CreateEventBody {
   courseTeacher?: string;
   courseLocation?: string;
   courseAdjust?: string;
+  courseWeekType?: string;
+  courseSemesterStart?: string;
+  courseTimeConfig?: string;
 }
 
 interface UpdateEventBody {
@@ -42,6 +45,9 @@ interface UpdateEventBody {
   courseTeacher?: string;
   courseLocation?: string;
   courseAdjust?: string;
+  courseWeekType?: string;
+  courseSemesterStart?: string;
+  courseTimeConfig?: string;
 }
 
 interface EventQuery {
@@ -94,7 +100,8 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
     preHandler: authMiddleware,
   }, async (request, reply) => {
     const { title, description, startTime, endTime, isAllDay, recurrenceRule, goalId, reminderMinutes, color,
-      isCourse, courseWeekStart, courseWeekEnd, courseDayOfWeek, courseStartSec, courseEndSec, courseTeacher, courseLocation, courseAdjust } = request.body;
+      isCourse, courseWeekStart, courseWeekEnd, courseDayOfWeek, courseStartSec, courseEndSec, courseTeacher, courseLocation, courseAdjust,
+      courseWeekType, courseSemesterStart, courseTimeConfig } = request.body;
 
     if (!title || !startTime || !endTime) {
       return reply.status(400).send({ success: false, message: '请提供标题、开始和结束时间' });
@@ -138,6 +145,9 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
         courseTeacher: courseTeacher || null,
         courseLocation: courseLocation || null,
         courseAdjust: courseAdjust || '{}',
+        courseWeekType: courseWeekType || 'ALL',
+        courseSemesterStart: courseSemesterStart || null,
+        courseTimeConfig: courseTimeConfig || '{}',
       },
       include: { goal: { select: { id: true, title: true } } },
     });
@@ -179,6 +189,9 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.courseTeacher !== undefined) updateData.courseTeacher = body.courseTeacher;
     if (body.courseLocation !== undefined) updateData.courseLocation = body.courseLocation;
     if (body.courseAdjust !== undefined) updateData.courseAdjust = body.courseAdjust;
+    if (body.courseWeekType !== undefined) updateData.courseWeekType = body.courseWeekType;
+    if (body.courseSemesterStart !== undefined) updateData.courseSemesterStart = body.courseSemesterStart;
+    if (body.courseTimeConfig !== undefined) updateData.courseTimeConfig = body.courseTimeConfig;
 
     const finalStart = updateData.startTime ? new Date(body.startTime as string) : existing.startTime;
     const finalEnd = updateData.endTime ? new Date(body.endTime as string) : existing.endTime;

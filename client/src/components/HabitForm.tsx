@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import type { Habit } from '../types';
+import { useState, useEffect } from 'react';
+import type { Habit, Goal } from '../types';
+import { goalApi } from '../api/goal';
+
 interface HabitFormProps {
     habit?: Habit;
     onSubmit: (data: { title: string; description?: string; frequency: string; targetDays: number; goalId?: string }) => void;
@@ -19,6 +21,16 @@ function HabitForm({ habit, onSubmit, onDelete, onCancel }: HabitFormProps) {
     const [description, setDescription] = useState(habit?.description || '');
     const [frequency, setFrequency] = useState(habit?.frequency || 'DAILY');
     const [targetDays, setTargetDays] = useState(habit?.targetDays || 30);
+    const [goalId, setGoalId] = useState(habit?.goalId || '');
+    const [goals, setGoals] = useState<Goal[]>([]);
+
+    useEffect(() => {
+        goalApi.getList().then(res => {
+            if (res.success && res.data) {
+                setGoals(res.data.filter(g => g.status === 'ACTIVE'));
+            }
+        }).catch(() => { });
+    }, []);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,11 +40,12 @@ function HabitForm({ habit, onSubmit, onDelete, onCancel }: HabitFormProps) {
             description: description.trim() || undefined,
             frequency,
             targetDays,
+            goalId: goalId || undefined,
         });
     };
 
     return (
-        <form onSubmit={handleSubmit} className="card p-6">
+        <form onSubmit={handleSubmit} className="card p-4 sm:p-6">
             <h3 className="text-lg font-semibold text-surface-800 mb-5">
                 {habit ? '编辑习惯' : '新建习惯'}
             </h3>
@@ -88,6 +101,23 @@ function HabitForm({ habit, onSubmit, onDelete, onCancel }: HabitFormProps) {
                         min={1}
                         max={365}
                         className="input-field" />
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-surface-600 mb-2">关联目标（可选）</label>
+                    <select
+                        value={goalId}
+                        onChange={(e) => setGoalId(e.target.value)}
+                        className="input-field"
+                    >
+                        <option value="">不关联目标</option>
+                        {goals.map(g => (
+                            <option key={g.id} value={g.id}>{g.title}</option>
+                        ))}
+                    </select>
+                    {goals.length === 0 && (
+                        <p className="text-2xs text-surface-400 mt-1">暂无进行中的目标，可先在目标页面创建</p>
+                    )}
                 </div>
             </div>
 
