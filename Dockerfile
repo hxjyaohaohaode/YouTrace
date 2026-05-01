@@ -21,12 +21,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json ./server/
 
-RUN npm ci --omit=dev && cd server && npm install prisma @prisma/client
+RUN npm ci --omit=dev
 
 COPY --from=builder /app/server/prisma ./server/prisma
-COPY --from=builder /app/server/node_modules/.prisma ./server/node_modules/.prisma
 COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/client/dist ./server/public
+
+RUN cd server && npm install prisma @prisma/client && npx prisma generate
 
 RUN mkdir -p server/uploads/thumbnails
 
