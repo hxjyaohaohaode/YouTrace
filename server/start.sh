@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 
+if [ -n "$JWT_SECRET" ] && [ ${#JWT_SECRET} -lt 32 ]; then
+  echo "JWT_SECRET is too short (${#JWT_SECRET} chars), auto-generating a secure one..."
+  export JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
+  echo "Generated JWT_SECRET (${#JWT_SECRET} chars)"
+fi
+
 MAX_RETRIES=10
 RETRY_INTERVAL=5
 
