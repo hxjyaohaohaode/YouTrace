@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: youji-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci && npx prisma generate && npx tsc && cd ../client && npm ci && npm run build && cp -r dist ../server/public
+    startCommand: npx prisma db push --accept-data-loss && node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: youji-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: MIMO_API_KEY
+        sync: false
+      - key: MIMO_BASE_URL
+        value: https://token-plan-cn.xiaomimimo.com/v1
+      - key: AMAP_KEY
+        sync: false
+      - key: QWEATHER_API_KEY
+        sync: false
+      - key: QWEATHER_API_HOST
+        sync: false
+      - key: ALIYUN_SMS_ACCESS_KEY_ID
+        sync: false
+      - key: ALIYUN_SMS_ACCESS_KEY_SECRET
+        sync: false
+      - key: ALIYUN_SMS_ENDPOINT
+        value: dypnsapi.aliyuncs.com
+      - key: ALIYUN_SMS_SIGN_NAME
+        sync: false
+      - key: ALIYUN_SMS_TEMPLATE_CODE
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:youji@app.com
+      - key: CORS_ORIGIN
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+
+databases:
+  - name: youji-db
+    plan: free
+    databaseName: youji
+    user: youji_user

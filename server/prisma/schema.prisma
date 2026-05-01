@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  password  String
+  name      String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile           Profile?
+  diaries           Diary[]
+  events            Event[]
+  goals             Goal[]
+  habits            Habit[]
+  notifications     Notification[]
+  triggers          Trigger[]
+  pushSubscriptions PushSubscription[]
+  chatMessages      ChatMessage[]
+  memoryItems       MemoryItem[]
+  conversations     Conversation[]
+  attachments       Attachment[]
+
+  @@map("users")
+}
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  preferences     String   @default("{}")
+  aiPersona       String   @default("default")
+  nickname        String   @default("")
+  personality     String   @default("")
+  height          String   @default("")
+  weight          String   @default("")
+  hobbies         String   @default("")
+  occupation      String   @default("")
+  bio             String   @default("")
+  birthday        String   @default("")
+  gender          String   @default("")
+  location        String   @default("")
+  education       String   @default("")
+  relationship    String   @default("")
+  healthCondition String   @default("")
+  dietPreference  String   @default("")
+  sleepSchedule   String   @default("")
+  workSchedule    String   @default("")
+  favoriteFoods   String   @default("")
+  dislikedFoods   String   @default("")
+  favoriteMusic   String   @default("")
+  favoriteSports  String   @default("")
+  lifeGoals       String   @default("")
+  aiMemorySummary String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model MemoryItem {
+  id         String   @id @default(cuid())
+  userId     String
+  category   String
+  key        String
+  value      String
+  source     String   @default("manual")
+  confidence Int      @default(100)
+  isVerified Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, key])
+  @@index([userId, category])
+  @@map("memory_items")
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String?
+  role           String
+  content        String
+  agentType      String   @default("default")
+  metadata       String   @default("{}")
+  createdAt      DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  attachments  Attachment[]
+
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String   @default("新对话")
+  agentType String   @default("default")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("conversations")
+}
+
+model Diary {
+  id           String    @id @default(cuid())
+  userId       String
+  content      String
+  emotionScore Float     @default(0)
+  emotionTags  String    @default("[]")
+  aiInsight    String?
+  mediaUrls    String    @default("[]")
+  isDeleted    Boolean   @default(false)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+
+  @@index([userId, createdAt])
+  @@index([userId, isDeleted])
+  @@map("diaries")
+}
+
+model Event {
+  id              String   @id @default(cuid())
+  userId          String
+  title           String
+  description     String?
+  startTime       DateTime
+  endTime         DateTime
+  isAllDay        Boolean  @default(false)
+  recurrenceRule  String?
+  color           String?
+  goalId          String?
+  reminderMinutes Int      @default(0)
+  isAiCreated     Boolean  @default(false)
+  aiSuggestion    String?
+  isCourse        Boolean  @default(false)
+  courseWeekStart Int?
+  courseWeekEnd   Int?
+  courseDayOfWeek Int?
+  courseStartSec  Int?
+  courseEndSec    Int?
+  courseTeacher   String?
+  courseLocation  String?
+  courseAdjust    String   @default("{}")
+  isHoliday       Boolean  @default(false)
+  holidayName     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal Goal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startTime])
+  @@map("events")
+}
+
+model Goal {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  deadline    DateTime?
+  progress    Int       @default(0)
+  aiBreakdown String    @default("{}")
+  status      String    @default("ACTIVE")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events Event[]
+  habits Habit[]
+
+  @@index([userId, deadline])
+  @@map("goals")
+}
+
+model Habit {
+  id            String   @id @default(cuid())
+  userId        String
+  title         String
+  description   String?
+  frequency     String   @default("DAILY")
+  targetDays    Int      @default(30)
+  goalId        String?
+  streakCurrent Int      @default(0)
+  streakLongest Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal Goal?      @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  logs HabitLog[]
+
+  @@map("habits")
+}
+
+model HabitLog {
+  id          String   @id @default(cuid())
+  habitId     String
+  logDate     DateTime
+  isCompleted Boolean  @default(false)
+  note        String?
+  createdAt   DateTime @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@index([habitId, logDate])
+  @@map("habit_logs")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  content   String
+  actionUrl String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Trigger {
+  id              String    @id @default(cuid())
+  userId          String
+  type            String
+  config          String    @default("{}")
+  isActive        Boolean   @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("triggers")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model Attachment {
+  id               String   @id @default(cuid())
+  userId           String
+  chatMessageId    String?
+  diaryId          String?
+  fileName         String
+  originalName     String
+  mimeType         String
+  fileSize         Int
+  fileType         String
+  filePath         String
+  thumbnailPath    String?
+  aiAnnotation     String   @default("")
+  annotationStatus String   @default("pending")
+  createdAt        DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatMessage ChatMessage? @relation(fields: [chatMessageId], references: [id], onDelete: SetNull)
+  diary       Diary?       @relation(fields: [diaryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([chatMessageId])
+  @@map("attachments")
+}

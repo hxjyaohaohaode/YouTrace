@@ -1,0 +1,29 @@
+{
+  "name": "youji",
+  "version": "1.0.0",
+  "description": "AI驱动的日记/日程/目标管理PWA应用",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"client,server\" -c \"blue,green\" \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "build": "npm run build --workspace=client && npm run build --workspace=server",
+    "lint": "npm run lint --workspaces",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "prepare": "husky install || true"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "husky": "^9.0.11",
+    "prettier": "^3.2.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}

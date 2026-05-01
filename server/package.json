@@ -1,0 +1,49 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@alicloud/dypnsapi20170525": "^1.2.3",
+    "@alicloud/openapi-client": "^0.4.15",
+    "@alicloud/tea-util": "^1.4.11",
+    "@fastify/cors": "^8.5.0",
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.26.2",
+    "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.0",
+    "node-cron": "^4.2.1",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.13.1",
+    "sharp": "^0.34.5",
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.12.7",
+    "@types/node-cron": "^3.0.11",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/web-push": "^3.6.4",
+    "@typescript-eslint/eslint-plugin": "^7.6.0",
+    "@typescript-eslint/parser": "^7.6.0",
+    "eslint": "^8.57.0",
+    "prisma": "^5.22.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.4.5"
+  }
+}

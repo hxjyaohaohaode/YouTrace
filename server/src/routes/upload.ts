@@ -1,0 +1,244 @@
+import fs from 'fs';
+import path from 'path';
+import { FastifyPluginAsync } from 'fastify';
+import prisma from '../utils/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
+import {
+  processUploadedFile,
+  annotateWithMimo,
+  getFileType,
+  deleteFile,
+  validateFileMagicBytes,
+  ALLOWED_MIME_TYPES,
+  MAX_FILE_SIZE,
+  MAX_FILES_PER_MESSAGE,
+} from '../services/fileService.js';
+
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+
+const MIME_MAP: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4',
+  '.webm': 'video/webm', '.mov': 'video/quicktime', '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.aac': 'audio/aac',
+  '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.txt': 'text/plain', '.csv': 'text/csv', '.md': 'text/markdown',
+};
+
+const uploadRoutes: FastifyPluginAsync = async (fastify) => {
+  await fastify.register(import('@fastify/multipart'), {
+    limits: {
+      fileSize: MAX_FILE_SIZE,
+      files: MAX_FILES_PER_MESSAGE,
+    },
+  });
+
+  fastify.get('/api/files/:type/:filename', async (request, reply) => {
+    const { type, filename } = request.params as { type: string; filename: string };
+    const safeType = type === 'thumbnails' ? 'thumbnails' : '';
+    if (!safeType) {
+      return reply.status(400).send({ success: false, message: '无效的文件类型' });
+    }
+    const safeName = path.basename(filename);
+    const filePath = path.join(UPLOAD_DIR, safeType, safeName);
+    if (!fs.existsSync(filePath)) {
+      return reply.status(404).send({ success: false, message: '文件不存在' });
+    }
+    const ext = path.extname(safeName).toLowerCase();
+    const contentType = MIME_MAP[ext] || 'application/octet-stream';
+    const stat = fs.statSync(filePath);
+    reply.header('Content-Type', contentType);
+    reply.header('Content-Length', stat.size);
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.send(fs.createReadStream(filePath));
+  });
+
+  fastify.get('/api/attachments/:id/download', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as { inline?: string; token?: string };
+    const attachment = await prisma.attachment.findFirst({
+      where: { id, userId: request.userId },
+    });
+    if (!attachment) {
+      return reply.status(404).send({ success: false, message: '附件不存在' });
+    }
+    if (!fs.existsSync(attachment.filePath)) {
+      return reply.status(404).send({ success: false, message: '文件已丢失' });
+    }
+    const ext = path.extname(attachment.filePath).toLowerCase();
+    const contentType = MIME_MAP[ext] || 'application/octet-stream';
+    const stat = fs.statSync(attachment.filePath);
+    reply.header('Content-Type', contentType);
+    reply.header('Content-Length', stat.size);
+    reply.header('Cache-Control', 'private, max-age=3600');
+    if (query.inline === '1') {
+      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.originalName)}"`);
+    } else {
+      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    }
+    return reply.send(fs.createReadStream(attachment.filePath));
+  });
+
+  fastify.post('/api/upload', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const parts = request.parts();
+    const files: Array<{
+      fieldname: string;
+      filename: string;
+      encoding: string;
+      mimetype: string;
+      buffer: Buffer;
+    }> = [];
+
+    for await (const part of parts) {
+      if (part.type === 'file') {
+        const buffer = await part.toBuffer();
+
+        if (!ALLOWED_MIME_TYPES.includes(part.mimetype)) {
+          return reply.status(400).send({
+            success: false,
+            message: `不支持的文件类型: ${part.mimetype}`,
+          });
+        }
+
+        if (buffer.length > MAX_FILE_SIZE) {
+          return reply.status(400).send({
+            success: false,
+            message: `文件过大: ${part.filename}，最大50MB`,
+          });
+        }
+
+        if (!validateFileMagicBytes(buffer, part.mimetype)) {
+          return reply.status(400).send({
+            success: false,
+            message: `文件内容与声明类型不匹配: ${part.filename}`,
+          });
+        }
+
+        files.push({
+          fieldname: part.fieldname,
+          filename: part.filename,
+          encoding: part.encoding,
+          mimetype: part.mimetype,
+          buffer,
+        });
+      }
+    }
+
+    if (files.length === 0) {
+      return reply.status(400).send({ success: false, message: '未上传任何文件' });
+    }
+
+    if (files.length > MAX_FILES_PER_MESSAGE) {
+      return reply.status(400).send({
+        success: false,
+        message: `最多上传${MAX_FILES_PER_MESSAGE}个文件，当前${files.length}个`,
+      });
+    }
+
+    const results = [];
+
+    for (const file of files) {
+      try {
+        const processed = await processUploadedFile(
+          file.buffer,
+          file.filename,
+          file.mimetype,
+        );
+
+        const fileType = getFileType(file.mimetype);
+
+        const attachment = await prisma.attachment.create({
+          data: {
+            userId: request.userId!,
+            fileName: processed.fileName,
+            originalName: processed.originalName,
+            mimeType: processed.mimeType,
+            fileSize: processed.fileSize,
+            fileType,
+            filePath: processed.filePath,
+            thumbnailPath: processed.thumbnailPath,
+            annotationStatus: 'processing',
+          },
+        });
+
+        const annotation = await annotateWithMimo(
+          processed.filePath,
+          fileType,
+          processed.mimeType,
+          processed.extractedText,
+        );
+
+        await prisma.attachment.update({
+          where: { id: attachment.id },
+          data: {
+            aiAnnotation: annotation,
+            annotationStatus: 'completed',
+          },
+        });
+
+        results.push({
+          id: attachment.id,
+          fileName: processed.fileName,
+          originalName: processed.originalName,
+          mimeType: processed.mimeType,
+          fileSize: processed.fileSize,
+          fileType,
+          thumbnailPath: processed.thumbnailPath,
+          aiAnnotation: annotation,
+          annotationStatus: 'completed',
+        });
+      } catch (e) {
+        results.push({
+          id: null,
+          originalName: file.filename,
+          error: `处理失败: ${(e as Error).message}`,
+          annotationStatus: 'failed',
+        });
+      }
+    }
+
+    return reply.send({ success: true, data: results });
+  });
+
+  fastify.get('/api/attachments/:id', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const attachment = await prisma.attachment.findFirst({
+      where: { id, userId: request.userId },
+    });
+
+    if (!attachment) {
+      return reply.status(404).send({ success: false, message: '附件不存在' });
+    }
+
+    return reply.send({ success: true, data: attachment });
+  });
+
+  fastify.delete('/api/attachments/:id', {
+    preHandler: authMiddleware,
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const attachment = await prisma.attachment.findFirst({
+      where: { id, userId: request.userId },
+    });
+
+    if (!attachment) {
+      return reply.status(404).send({ success: false, message: '附件不存在' });
+    }
+
+    deleteFile(attachment.filePath);
+    if (attachment.thumbnailPath) deleteFile(attachment.thumbnailPath);
+
+    await prisma.attachment.delete({ where: { id } });
+
+    return reply.send({ success: true, message: '附件已删除' });
+  });
+};
+
+export default uploadRoutes;

@@ -1,0 +1,305 @@
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
+import * as pdfParseNs from 'pdf-parse';
+
+interface PdfParseResult {
+  text: string;
+  numpages?: number;
+  info?: Record<string, unknown>;
+}
+
+type PdfParseFn = (buffer: Buffer) => Promise<PdfParseResult>;
+
+interface PdfParseModule extends PdfParseFn {
+  default?: PdfParseModule;
+}
+
+const pdfParseNsUnknown = pdfParseNs as unknown;
+const pdfParseLib: PdfParseFn = (pdfParseNsUnknown as PdfParseModule).default
+  ? (pdfParseNsUnknown as PdfParseModule).default!
+  : (pdfParseNsUnknown as PdfParseFn);
+
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const THUMBNAIL_DIR = path.join(UPLOAD_DIR, 'thumbnails');
+
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(THUMBNAIL_DIR)) fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
+
+type FileType = 'image' | 'video' | 'audio' | 'document';
+
+interface ProcessedFile {
+  fileName: string;
+  originalName: string;
+  filePath: string;
+  thumbnailPath: string | null;
+  mimeType: string;
+  fileSize: number;
+  fileType: FileType;
+  extractedText: string;
+}
+
+export function getFileType(mimeType: string): FileType {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+function generateFileName(originalName: string): string {
+  const ext = path.extname(originalName);
+  const hash = crypto.randomBytes(16).toString('hex');
+  return `${hash}${ext}`;
+}
+
+async function saveFile(buffer: Buffer, fileName: string): Promise<string> {
+  const filePath = path.join(UPLOAD_DIR, fileName);
+  fs.writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+async function extractTextFromDocument(
+  filePath: string,
+  mimeType: string,
+  originalName: string,
+): Promise<string> {
+  try {
+    const ext = path.extname(originalName).toLowerCase();
+
+    if (ext === '.docx' || ext === '.doc' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const result = await mammoth.extractRawText({ path: filePath });
+      return result.value || '';
+    }
+
+    if (ext === '.xlsx' || ext === '.xls' || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+      const workbook = XLSX.readFile(filePath);
+      const texts: string[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        texts.push(`[Sheet: ${sheetName}]\n${csv}`);
+      }
+      return texts.join('\n\n');
+    }
+
+    if (ext === '.pdf' || mimeType === 'application/pdf') {
+      const dataBuffer = fs.readFileSync(filePath);
+      const data = await pdfParseLib(dataBuffer);
+      return data.text || '';
+    }
+
+    if (ext === '.txt' || ext === '.md' || ext === '.csv' || mimeType.startsWith('text/')) {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
+
+    if (ext === '.pptx' || mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+      return '[PowerPoint文件 - 内容需通过多模态模型识别]';
+    }
+
+    return `[不支持的文档格式: ${ext}]`;
+  } catch (e) {
+    return `[文档解析失败: ${(e as Error).message}]`;
+  }
+}
+
+export async function processUploadedFile(
+  buffer: Buffer,
+  originalName: string,
+  mimeType: string,
+): Promise<ProcessedFile> {
+  const fileType = getFileType(mimeType);
+  const fileName = generateFileName(originalName);
+  const filePath = await saveFile(buffer, fileName);
+
+  let extractedText = '';
+  let thumbnailPath: string | null = null;
+
+  if (fileType === 'document') {
+    extractedText = await extractTextFromDocument(filePath, mimeType, originalName);
+  }
+
+  if (fileType === 'image') {
+    try {
+      const sharp = (await import('sharp')).default;
+      const thumbName = `thumb_${fileName}.webp`;
+      const thumbPath = path.join(THUMBNAIL_DIR, thumbName);
+      await sharp(buffer)
+        .resize(200, 200, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toFile(thumbPath);
+      thumbnailPath = thumbPath;
+    } catch {
+      // sharp not available, skip thumbnail
+    }
+  }
+
+  return {
+    fileName,
+    originalName,
+    filePath,
+    thumbnailPath,
+    mimeType,
+    fileSize: buffer.length,
+    fileType,
+    extractedText,
+  };
+}
+
+export async function annotateWithMimo(
+  filePath: string,
+  fileType: FileType,
+  mimeType: string,
+  extractedText: string,
+): Promise<string> {
+  const apiKey = process.env.MIMO_API_KEY;
+  const baseUrl = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
+
+  if (!apiKey) {
+    if (extractedText) return extractedText.slice(0, 2000);
+    return '[无API密钥，无法标注]';
+  }
+
+  try {
+    if (fileType === 'document' && extractedText) {
+      const prompt = `请对以下文档内容进行摘要和关键信息提取，用中文回复，简洁明了：\n\n${extractedText.slice(0, 8000)}`;
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'mimo-v2.5',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 1024,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as { choices: { message: { content: string } }[] };
+        return data.choices?.[0]?.message?.content || extractedText.slice(0, 2000);
+      }
+      return extractedText.slice(0, 2000);
+    }
+
+    const fileBuffer = fs.readFileSync(filePath);
+    const base64Data = fileBuffer.toString('base64');
+    type ChatContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
+    const contentParts: ChatContentPart[] = [];
+
+    if (fileType === 'image') {
+      contentParts.push({
+        type: 'image_url',
+        image_url: { url: `data:${mimeType};base64,${base64Data}` },
+      });
+      contentParts.push({
+        type: 'text',
+        text: '请详细描述这张图片的内容，包括场景、人物、文字、数据等所有可见信息。用中文回复。',
+      });
+    } else if (fileType === 'video') {
+      contentParts.push({
+        type: 'text',
+        text: `[视频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个视频可能包含的内容。注意：当前API可能不支持直接视频输入。`,
+      });
+    } else if (fileType === 'audio') {
+      contentParts.push({
+        type: 'text',
+        text: `[音频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个音频可能包含的内容。注意：当前API可能不支持直接音频输入。`,
+      });
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'mimo-v2.5',
+        messages: [{ role: 'user', content: contentParts }],
+        max_tokens: 1024,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { choices: { message: { content: string } }[] };
+      return data.choices?.[0]?.message?.content || '[标注失败]';
+    }
+
+    const errorBody = await response.text().catch(() => '');
+    return `[标注请求失败: ${response.status} ${errorBody.slice(0, 200)}]`;
+  } catch (e) {
+    if (extractedText) return extractedText.slice(0, 2000);
+    return `[标注异常: ${(e as Error).message}]`;
+  }
+}
+
+export function deleteFile(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // ignore
+  }
+}
+
+export const ALLOWED_MIME_TYPES = [
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo',
+  'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/mp4',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'text/plain', 'text/csv', 'text/markdown',
+];
+
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
+export const MAX_FILES_PER_MESSAGE = 9;
+
+const MAGIC_BYTES: Record<string, { bytes: number[]; offset?: number }[]> = {
+  'image/jpeg': [{ bytes: [0xFF, 0xD8, 0xFF] }],
+  'image/png': [{ bytes: [0x89, 0x50, 0x4E, 0x47] }],
+  'image/gif': [{ bytes: [0x47, 0x49, 0x46] }],
+  'image/webp': [{ bytes: [0x52, 0x49, 0x46, 0x46] }],
+  'image/bmp': [{ bytes: [0x42, 0x4D] }],
+  'video/mp4': [{ bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }],
+  'video/webm': [{ bytes: [0x1A, 0x45, 0xDF, 0xA3] }],
+  'video/quicktime': [{ bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }],
+  'audio/mpeg': [{ bytes: [0xFF, 0xFB] }, { bytes: [0x49, 0x44, 0x33] }],
+  'audio/wav': [{ bytes: [0x52, 0x49, 0x46, 0x46] }],
+  'audio/ogg': [{ bytes: [0x4F, 0x67, 0x67, 0x53] }],
+  'audio/aac': [{ bytes: [0xFF, 0xF1] }, { bytes: [0xFF, 0xF9] }],
+  'application/pdf': [{ bytes: [0x25, 0x50, 0x44, 0x46] }],
+  'application/zip': [{ bytes: [0x50, 0x4B, 0x03, 0x04] }],
+};
+
+export function validateFileMagicBytes(buffer: Buffer, mimeType: string): boolean {
+  const signatures = MAGIC_BYTES[mimeType];
+  if (!signatures) return true;
+
+  for (const sig of signatures) {
+    const offset = sig.offset || 0;
+    if (buffer.length < offset + sig.bytes.length) continue;
+    const slice = buffer.slice(offset, offset + sig.bytes.length);
+    if (sig.bytes.every((byte, i) => slice[i] === byte)) return true;
+  }
+
+  const officeMimeTypes = [
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/msword',
+    'application/vnd.ms-excel',
+  ];
+  if (officeMimeTypes.includes(mimeType)) {
+    const zipSig = MAGIC_BYTES['application/zip'][0];
+    if (buffer.length >= 4 && zipSig.bytes.every((byte, i) => buffer[i] === byte)) return true;
+  }
+
+  return false;
+}
