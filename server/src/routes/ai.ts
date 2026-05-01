@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import fs from 'fs';
 import prisma from '../utils/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
@@ -20,6 +21,7 @@ import {
   type ToolCall,
   type ToolResult,
   type ChatMessage,
+  type ContentPart,
 } from '../services/aiService.js';
 import { getLocation } from '../services/locationService.js';
 import { getWeatherNow, getAirQuality, getWeatherAlerts, getWeatherSummaryText, buildQWeatherLocation } from '../services/weatherService.js';
@@ -324,8 +326,8 @@ async function buildUserContext(userId: string, ip: string | undefined, attachme
           ? a.aiAnnotation
           : a.annotationStatus === 'processing'
             ? '[附件正在分析中]'
-            : '[附件分析未完成]';
-        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
+            : '[附件分析未完成，请根据文件名和类型推断内容]';
+        return `附件${i + 1} [${typeLabel}] ${a.originalName} (MIME: ${a.mimeType}):\n${annotation}`;
       }).join('\n\n');
     }
   }
@@ -607,12 +609,55 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    let userContentWithAttachments = content;
+    let userContentWithAttachments: string | ContentPart[] = content;
     if (attachments.length > 0) {
-      userContentWithAttachments += '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
-        const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
-      }).join('\n\n');
+      const provider = getProvider();
+      const imageAttachments = attachments.filter((a) => a.fileType === 'image');
+      const nonImageAttachments = attachments.filter((a) => a.fileType !== 'image');
+
+      if (provider === 'mimo' && imageAttachments.length > 0) {
+        const contentParts: ContentPart[] = [];
+
+        let textPrefix = content;
+        if (nonImageAttachments.length > 0) {
+          textPrefix += '\n\n我还上传了以下非图片附件:\n' + nonImageAttachments.map((a, i) => {
+            const typeLabel = a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+          }).join('\n\n');
+        }
+        contentParts.push({ type: 'text', text: textPrefix });
+
+        for (const imgAtt of imageAttachments) {
+          const fullAtt = await prisma.attachment.findFirst({
+            where: { id: imgAtt.id, userId: request.userId! },
+            select: { filePath: true, mimeType: true },
+          });
+          try {
+            if (fullAtt?.filePath && fs.existsSync(fullAtt.filePath)) {
+              const fileBuffer = fs.readFileSync(fullAtt.filePath);
+              const base64Data = fileBuffer.toString('base64');
+              contentParts.push({
+                type: 'image_url',
+                image_url: { url: `data:${fullAtt.mimeType};base64,${base64Data}` },
+              });
+              if (imgAtt.aiAnnotation) {
+                contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName} 的AI描述: ${imgAtt.aiAnnotation}]` });
+              }
+            } else {
+              contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${imgAtt.aiAnnotation || '[图片文件无法读取]'}` });
+            }
+          } catch {
+            contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${imgAtt.aiAnnotation || '[图片读取失败]'}` });
+          }
+        }
+
+        userContentWithAttachments = contentParts;
+      } else {
+        userContentWithAttachments = content + '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
+          const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+          return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+        }).join('\n\n');
+      }
     }
 
     messages.push({ role: 'user', content: userContentWithAttachments });
@@ -833,22 +878,73 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         };
       });
 
-      let userContentWithAttachments = content;
+      let userContentWithAttachments: string | ContentPart[] = content;
       if (attachmentIds && attachmentIds.length > 0) {
         const attachments = await prisma.attachment.findMany({
           where: { id: { in: attachmentIds }, userId: request.userId },
-          select: { originalName: true, fileType: true, aiAnnotation: true, annotationStatus: true },
+          select: { id: true, originalName: true, fileType: true, aiAnnotation: true, annotationStatus: true, mimeType: true, filePath: true },
         });
+
         if (attachments.length > 0) {
-          userContentWithAttachments += '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
-            const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-            const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
-              ? a.aiAnnotation
-              : a.annotationStatus === 'processing'
-                ? '[附件正在分析中，请基于文件名和类型给出初步回应]'
-                : '[附件分析未完成，请基于文件名和类型给出初步回应]';
-            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
-          }).join('\n\n');
+          const provider = getProvider();
+          const hasImages = attachments.some((a) => a.fileType === 'image');
+          const imageAttachments = attachments.filter((a) => a.fileType === 'image');
+          const nonImageAttachments = attachments.filter((a) => a.fileType !== 'image');
+
+          if (provider === 'mimo' && hasImages) {
+            const contentParts: ContentPart[] = [];
+
+            let textPrefix = content;
+            if (nonImageAttachments.length > 0) {
+              textPrefix += '\n\n我还上传了以下非图片附件:\n' + nonImageAttachments.map((a, i) => {
+                const typeLabel = a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+                const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
+                  ? a.aiAnnotation
+                  : `[${typeLabel}文件 ${a.originalName}]`;
+                return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
+              }).join('\n\n');
+            }
+            contentParts.push({ type: 'text', text: textPrefix });
+
+            for (const imgAtt of imageAttachments) {
+              try {
+                if (fs.existsSync(imgAtt.filePath)) {
+                  const fileBuffer = fs.readFileSync(imgAtt.filePath);
+                  const base64Data = fileBuffer.toString('base64');
+                  contentParts.push({
+                    type: 'image_url',
+                    image_url: { url: `data:${imgAtt.mimeType};base64,${base64Data}` },
+                  });
+                  const imgAnnotation = imgAtt.annotationStatus === 'completed' && imgAtt.aiAnnotation
+                    ? `\n[图片 ${imgAtt.originalName} 的AI描述: ${imgAtt.aiAnnotation}]`
+                    : '';
+                  if (imgAnnotation) {
+                    contentParts.push({ type: 'text', text: imgAnnotation });
+                  }
+                } else {
+                  const fallback = imgAtt.annotationStatus === 'completed' && imgAtt.aiAnnotation
+                    ? imgAtt.aiAnnotation
+                    : '[图片文件无法读取]';
+                  contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${fallback}` });
+                }
+              } catch {
+                const fallback = imgAtt.aiAnnotation || '[图片读取失败]';
+                contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${fallback}` });
+              }
+            }
+
+            userContentWithAttachments = contentParts;
+          } else {
+            userContentWithAttachments = content + '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
+              const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+              const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
+                ? a.aiAnnotation
+                : a.annotationStatus === 'processing'
+                  ? '[附件正在分析中，请基于文件名和类型给出初步回应]'
+                  : '[附件分析未完成，请基于文件名和类型给出初步回应]';
+              return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
+            }).join('\n\n');
+          }
         }
       }
 

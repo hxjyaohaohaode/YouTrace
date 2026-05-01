@@ -44,9 +44,15 @@ function setCache(key: string, result: unknown): void {
   cache.set(key, { result, timestamp: Date.now() });
 }
 
+export interface ContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string };
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: string | ContentPart[];
   name?: string;
 }
 
@@ -65,6 +71,11 @@ async function callDeepSeek(messages: ChatMessage[]): Promise<string> {
 
   if (!apiKey) throw new Error('DEEPSEEK_API_KEY not configured');
 
+  const serialized = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   const response = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: {
@@ -73,7 +84,7 @@ async function callDeepSeek(messages: ChatMessage[]): Promise<string> {
     },
     body: JSON.stringify({
       model: 'deepseek-chat',
-      messages,
+      messages: serialized,
       max_tokens: 4096,
       temperature: 0.7,
     }),
@@ -98,6 +109,11 @@ async function callMiMo(messages: ChatMessage[]): Promise<string> {
 
   if (!apiKey) throw new Error('MIMO_API_KEY not configured');
 
+  const serialized = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -106,7 +122,7 @@ async function callMiMo(messages: ChatMessage[]): Promise<string> {
     },
     body: JSON.stringify({
       model: 'mimo-v2.5',
-      messages,
+      messages: serialized,
       max_tokens: 4096,
     }),
   });
@@ -166,7 +182,10 @@ export async function callAIChat(messages: ChatMessage[], provider?: AIProvider)
 
   if (p === 'local') {
     const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
-    return lastUserMsg?.content || '';
+    if (!lastUserMsg) return '';
+    return typeof lastUserMsg.content === 'string'
+      ? lastUserMsg.content
+      : lastUserMsg.content.filter((c) => c.type === 'text').map((c) => c.text || '').join('');
   }
 
   try {
@@ -189,7 +208,12 @@ export async function* callAIChatStream(messages: ChatMessage[], provider?: AIPr
 
   if (p === 'local') {
     const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
-    if (lastUserMsg) yield lastUserMsg.content;
+    if (lastUserMsg) {
+      const textContent = typeof lastUserMsg.content === 'string'
+        ? lastUserMsg.content
+        : lastUserMsg.content.filter((c) => c.type === 'text').map((c) => c.text || '').join('');
+      yield textContent;
+    }
     return;
   }
 
@@ -211,8 +235,17 @@ export async function* callAIChatStream(messages: ChatMessage[], provider?: AIPr
     return;
   }
 
+  const serialized = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const streamUrl = p === 'deepseek'
+      ? `${baseUrl}/v1/chat/completions`
+      : `${baseUrl}/chat/completions`;
+
+    const response = await fetch(streamUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -220,7 +253,7 @@ export async function* callAIChatStream(messages: ChatMessage[], provider?: AIPr
       },
       body: JSON.stringify({
         model,
-        messages,
+        messages: serialized,
         stream: true,
         temperature: 0.7,
         max_tokens: 2000,

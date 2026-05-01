@@ -163,7 +163,16 @@ export async function annotateWithMimo(
 
   try {
     if (fileType === 'document' && extractedText) {
-      const prompt = `请对以下文档内容进行摘要和关键信息提取，用中文回复，简洁明了：\n\n${extractedText.slice(0, 8000)}`;
+      const prompt = `请对以下文档内容进行详细摘要和关键信息提取。要求：
+1. 提取文档的核心主题和要点
+2. 列出所有关键数据、数字、日期
+3. 如果是表格数据，保留关键行列信息
+4. 如果是课表/日程，提取所有时间安排
+5. 保留重要细节，不要过度压缩
+
+用中文回复，详细且结构化：
+
+${extractedText.slice(0, 8000)}`;
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -197,7 +206,7 @@ export async function annotateWithMimo(
       });
       contentParts.push({
         type: 'text',
-        text: '请详细描述这张图片的内容，包括场景、人物、文字、数据等所有可见信息。用中文回复。',
+        text: '请非常详细地描述这张图片的所有内容，包括：1.场景和环境 2.人物及其动作/表情 3.所有可见文字（逐字抄录） 4.数据/图表/表格的具体数值 5.颜色和布局 6.如果是课表/日程表，请提取所有课程信息（课程名、时间、地点、教师） 7.如果是文档截图，请完整抄录文字内容。用中文回复，尽可能详尽。',
       });
     } else if (fileType === 'video') {
       contentParts.push({
