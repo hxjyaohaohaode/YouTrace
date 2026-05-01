@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -14,20 +14,8 @@ COPY client ./client
 RUN cd server && npx prisma generate && npx tsc
 RUN cd client && npm run build && cp -r dist ../server/public
 
-FROM node:20-alpine AS runner
-
-WORKDIR /app
-
-COPY package.json package-lock.json ./
-COPY server/package.json ./server/
-
-RUN npm ci --omit=dev
-
-COPY --from=builder /app/server/prisma ./server/prisma
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/client/dist ./server/public
-
-RUN cd server && npm install prisma @prisma/client && npx prisma generate
+RUN rm -rf client/node_modules client/src server/src
+RUN rm -rf /root/.npm
 
 RUN mkdir -p server/uploads/thumbnails
 
