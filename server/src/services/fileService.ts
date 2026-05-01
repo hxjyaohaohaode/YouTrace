@@ -152,7 +152,7 @@ export async function annotateWithMimo(
   fileType: FileType,
   mimeType: string,
   extractedText: string,
-  retries = 3,
+  retries = 4,
 ): Promise<string> {
   const apiKey = process.env.MIMO_API_KEY;
   const baseUrl = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
@@ -178,7 +178,7 @@ export async function annotateWithMimo(
 
 ${extractedText.slice(0, 8000)}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000);
+        const timeout = setTimeout(() => controller.abort(), 60000);
         try {
           const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
@@ -261,7 +261,7 @@ ${extractedText.slice(0, 8000)}`;
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 45000);
+      const timeout = setTimeout(() => controller.abort(), 90000);
       try {
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',

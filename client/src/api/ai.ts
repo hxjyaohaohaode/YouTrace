@@ -2,6 +2,13 @@ import client from './client';
 import { getSecureToken } from '../utils/secureStorage';
 import type { ApiResponse, Profile, MemoryItem, AgentInfo, Conversation } from '../types';
 
+export interface AttachmentMeta {
+  id: string;
+  originalName: string;
+  fileType: string;
+  thumbnailPath: string | null;
+}
+
 export interface ChatMessage {
   id: string;
   userId: string;
@@ -12,6 +19,7 @@ export interface ChatMessage {
   metadata: Record<string, unknown>;
   attachmentIds?: string[];
   attachmentNames?: string[];
+  attachmentMeta?: AttachmentMeta[];
   createdAt: string;
 }
 

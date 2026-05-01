@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAIStore } from '../stores/aiStore';
-import { uploadApi, getThumbnailUrl, type AttachmentResult } from '../api/upload';
+import { uploadApi, getThumbnailUrl, getAttachmentDownloadUrl, type AttachmentResult } from '../api/upload';
 import { IconAI, IconCalendar, IconHeart, IconBolt, IconTarget, IconWeather, IconSend, IconCheck, IconSparkles, IconXMark, IconPlus, IconTrash } from '../components/Icons';
 import type { Conversation } from '../types';
 
@@ -496,15 +496,57 @@ export default function AIPage() {
                         {msg.content}
                       </div>
                       {msg.role === 'user' && msg.attachmentIds && msg.attachmentIds.length > 0 && (
-                        <div className="px-4 pb-1 flex flex-wrap gap-1">
-                          {msg.attachmentIds.map((attId, i) => {
-                            const attName = msg.attachmentNames?.[i] || `附件${i + 1}`;
-                            return (
-                              <span key={attId} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px] text-white/70">
-                                📎 {attName}
-                              </span>
-                            );
-                          })}
+                        <div className="px-4 pb-1">
+                          {msg.attachmentMeta && msg.attachmentMeta.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {msg.attachmentMeta.map((att) => {
+                                const thumbUrl = getThumbnailUrl(att.thumbnailPath);
+                                const fileUrl = getAttachmentDownloadUrl(att.id, true);
+                                if (att.fileType === 'image') {
+                                  return (
+                                    <a
+                                      key={att.id}
+                                      href={fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block w-16 h-16 rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
+                                    >
+                                      {thumbUrl ? (
+                                        <img src={thumbUrl} alt={att.originalName} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <div className="w-full h-full bg-white/10 flex items-center justify-center text-white/60">
+                                          <span className="text-lg">🖼️</span>
+                                        </div>
+                                      )}
+                                    </a>
+                                  );
+                                }
+                                return (
+                                  <a
+                                    key={att.id}
+                                    href={fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors max-w-[140px]"
+                                  >
+                                    <span>{getFileTypeIcon(att.fileType)}</span>
+                                    <span className="truncate">{att.originalName}</span>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {msg.attachmentIds.map((attId, i) => {
+                                const attName = msg.attachmentNames?.[i] || `附件${i + 1}`;
+                                return (
+                                  <span key={attId} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px] text-white/70">
+                                    📎 {attName}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className={`px-4 pb-2 text-[10px] ${msg.role === 'user' ? 'text-white/50' : 'text-surface-300'}`}>

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { authApi } from '../api/auth';
 import { setSecureToken, getSecureToken, setUserData, getUserData, clearAuthData } from '../utils/secureStorage';
+import { setCachedToken } from '../api/client';
 import type { User } from '../types';
 import { extractErrorMessage } from '../utils/error';
 
@@ -32,6 +33,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         const { user, token } = response.data;
         await setSecureToken(token);
         await setUserData(user);
+        setCachedToken(token);
         set({ user, token, isAuthenticated: true, isLoading: false });
       } else {
         const msg = response.message || '登录失败';
@@ -53,6 +55,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         const { user, token } = response.data;
         await setSecureToken(token);
         await setUserData(user);
+        setCachedToken(token);
         set({ user, token, isAuthenticated: true, isLoading: false });
       } else {
         const msg = response.message || '注册失败';
@@ -74,6 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         const { user, token } = response.data;
         await setSecureToken(token);
         await setUserData(user);
+        setCachedToken(token);
         set({ user, token, isAuthenticated: true, isLoading: false });
       } else {
         const msg = response.message || '登录失败';
@@ -89,6 +93,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     clearAuthData();
+    setCachedToken(null);
     set({ user: null, token: null, isAuthenticated: false });
   },
 
@@ -106,9 +111,37 @@ export const useAuthStore = create<AuthState>((set) => ({
         await setUserData(response.data);
         set({ user: response.data, token, isAuthenticated: true });
       }
-    } catch {
-      clearAuthData();
-      set({ isAuthenticated: false, user: null, token: null });
+    } catch (error: unknown) {
+      const axiosErr = error as { response?: { status?: number } };
+      const status = axiosErr?.response?.status;
+      if (status === 401) {
+        try {
+          const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+          const refreshURL = baseURL ? `${baseURL}/api/auth/refresh` : '/api/auth/refresh';
+          const refreshResponse = await fetch(refreshURL, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (refreshResponse.ok) {
+            const data = await refreshResponse.json();
+            if (data.success && data.data?.token) {
+              await setSecureToken(data.data.token);
+              setCachedToken(data.data.token);
+              if (data.data.user) await setUserData(data.data.user);
+              set({ token: data.data.token, user: data.data.user || (cachedUser as User), isAuthenticated: true });
+              return;
+            }
+          }
+        } catch {
+          // refresh also failed
+        }
+        clearAuthData();
+        setCachedToken(null);
+        set({ isAuthenticated: false, user: null, token: null });
+      }
     }
   },
 }));

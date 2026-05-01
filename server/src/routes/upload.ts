@@ -270,10 +270,12 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     let extractedText = '';
     if (fileType === 'document') {
       try {
-        const { processUploadedFile } = await import('../services/fileService.js');
-        extractedText = '';
+        const ext = path.extname(attachment.originalName).toLowerCase();
+        if (ext === '.txt' || ext === '.md' || ext === '.csv' || attachment.mimeType.startsWith('text/')) {
+          extractedText = fs.readFileSync(attachment.filePath, 'utf-8').slice(0, 8000);
+        }
       } catch {
-        // ignore
+        // ignore text extraction errors
       }
     }
 

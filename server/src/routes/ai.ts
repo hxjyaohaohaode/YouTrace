@@ -435,6 +435,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
             metadata,
             attachmentIds: (metadata.attachmentIds as string[]) || undefined,
             attachmentNames: (metadata.attachmentNames as string[]) || undefined,
+            attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }>) || undefined,
           };
         }),
       },
@@ -504,6 +505,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
           metadata,
           attachmentIds: (metadata.attachmentIds as string[]) || undefined,
           attachmentNames: (metadata.attachmentNames as string[]) || undefined,
+          attachmentMeta: (metadata.attachmentMeta as Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }>) || undefined,
         };
       }),
     });
@@ -559,6 +561,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         metadata: JSON.stringify({
           attachmentIds: attachments.map((a) => a.id),
           attachmentNames: attachments.map((a) => a.originalName),
+          attachmentMeta: attachments.map((a) => ({ id: a.id, originalName: a.originalName, fileType: a.fileType, thumbnailPath: null })),
         }),
       },
     });
@@ -816,7 +819,6 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
     let fullContent = '';
     let activeConversationId: string | undefined = conversationId;
-    let savedUserMessage: Record<string, unknown> | null = null;
 
     try {
       const selectedAgent = getAgentById(agentType || 'default');
@@ -833,12 +835,14 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       let attachmentNames: string[] = [];
+      let attachmentMeta: Array<{ id: string; originalName: string; fileType: string; thumbnailPath: string | null }> = [];
       if (attachmentIds && attachmentIds.length > 0) {
         const attMeta = await prisma.attachment.findMany({
           where: { id: { in: attachmentIds }, userId: request.userId },
-          select: { originalName: true },
+          select: { id: true, originalName: true, fileType: true, thumbnailPath: true },
         });
         attachmentNames = attMeta.map((a) => a.originalName);
+        attachmentMeta = attMeta;
       }
 
       const userMessage = await prisma.chatMessage.create({
@@ -851,11 +855,11 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
           metadata: JSON.stringify({
             attachmentIds: attachmentIds || [],
             attachmentNames,
+            attachmentMeta,
           }),
         },
       });
 
-      savedUserMessage = { ...userMessage, metadata: JSON.parse(userMessage.metadata) };
       sendSSE('conversation', { conversationId: activeConversationId, userMessage });
 
       const recentMessages = await prisma.chatMessage.findMany({

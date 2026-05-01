@@ -28,6 +28,10 @@ function shouldRetry(error: AxiosError): boolean {
 
 let cachedToken: string | null = null;
 
+export function setCachedToken(token: string | null) {
+  cachedToken = token;
+}
+
 client.interceptors.request.use(async (config) => {
   if (!cachedToken) {
     cachedToken = await getSecureToken();
