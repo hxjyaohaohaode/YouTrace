@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { EventItem, EventColor } from '../types';
 import { EVENT_COLORS } from '../types';
 
@@ -60,11 +60,20 @@ function parseTimeConfig(json: string): SectionTimeConfig[] {
     return DEFAULT_SECTION_TIMES;
 }
 
+function formatLocalDateTime(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${d}T${h}:${min}`;
+}
+
 function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
     const [title, setTitle] = useState(event?.title || '');
     const [description, setDescription] = useState(event?.description || '');
-    const [startTime, setStartTime] = useState(event?.startTime ? new Date(event.startTime).toISOString().slice(0, 16) : '');
-    const [endTime, setEndTime] = useState(event?.endTime ? new Date(event.endTime).toISOString().slice(0, 16) : '');
+    const [startTime, setStartTime] = useState(event?.startTime ? formatLocalDateTime(new Date(event.startTime)) : '');
+    const [endTime, setEndTime] = useState(event?.endTime ? formatLocalDateTime(new Date(event.endTime)) : '');
     const [isAllDay, setIsAllDay] = useState(event?.isAllDay || false);
     const [color, setColor] = useState<EventColor | ''>(event?.color as EventColor || '');
     const [reminderMinutes, setReminderMinutes] = useState(event?.reminderMinutes || 0);
@@ -84,8 +93,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
     const [sectionDuration, setSectionDuration] = useState(45);
     const [breakDuration, setBreakDuration] = useState(10);
     const [showTimeConfig, setShowTimeConfig] = useState(false);
-
-    const currentSectionTimes = useMemo(() => sectionTimes, [sectionTimes]);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     const autoGenerateSectionTimes = (firstClassStart: string, duration: number, breakMin: number, bigBreakAfter: number[], bigBreakMin: number) => {
         const times: SectionTimeConfig[] = [];
@@ -105,11 +113,11 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
         setSectionTimes(times);
     };
 
-    const computeCourseTime = () => {
+    const computeCourseTime = useCallback(() => {
         if (!courseSemesterStart) return;
         const startIdx = Math.max(0, courseStartSec - 1);
         const endIdx = Math.max(0, courseEndSec - 1);
-        if (startIdx >= currentSectionTimes.length || endIdx >= currentSectionTimes.length) return;
+        if (startIdx >= sectionTimes.length || endIdx >= sectionTimes.length) return;
 
         const semesterStartDate = new Date(courseSemesterStart + 'T00:00:00');
         const startDay = semesterStartDate.getDay();
@@ -123,15 +131,21 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
         };
 
         const firstWeekDate = computeDateForWeek(courseWeekStart);
-        const [sh, sm] = currentSectionTimes[startIdx].start.split(':').map(Number);
-        const [eh, em] = currentSectionTimes[endIdx].end.split(':').map(Number);
+        const [sh, sm] = sectionTimes[startIdx].start.split(':').map(Number);
+        const [eh, em] = sectionTimes[endIdx].end.split(':').map(Number);
 
         const computedStart = new Date(firstWeekDate.getFullYear(), firstWeekDate.getMonth(), firstWeekDate.getDate(), sh, sm);
         const computedEnd = new Date(firstWeekDate.getFullYear(), firstWeekDate.getMonth(), firstWeekDate.getDate(), eh, em);
 
-        setStartTime(computedStart.toISOString().slice(0, 16));
-        setEndTime(computedEnd.toISOString().slice(0, 16));
-    };
+        setStartTime(formatLocalDateTime(computedStart));
+        setEndTime(formatLocalDateTime(computedEnd));
+    }, [courseSemesterStart, courseStartSec, courseEndSec, courseDayOfWeek, courseWeekStart, sectionTimes]);
+
+    useEffect(() => {
+        if (isCourse && courseSemesterStart) {
+            computeCourseTime();
+        }
+    }, [isCourse, courseSemesterStart, computeCourseTime]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -154,19 +168,19 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
             courseLocation: isCourse ? courseLocation.trim() || undefined : undefined,
             courseWeekType: isCourse ? courseWeekType : undefined,
             courseSemesterStart: isCourse ? courseSemesterStart || undefined : undefined,
-            courseTimeConfig: isCourse ? JSON.stringify(currentSectionTimes) : undefined,
+            courseTimeConfig: isCourse ? JSON.stringify(sectionTimes) : undefined,
         });
     };
 
     return (
         <form onSubmit={handleSubmit} className="p-4 sm:p-6">
-            <h3 className="text-lg font-semibold text-surface-800 mb-5">
+            <h3 className="text-lg font-semibold text-surface-800 dark:text-surface-100 mb-5">
                 {event ? '编辑日程' : '新建日程'}
             </h3>
 
             <div className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-surface-600 mb-2">标题</label>
+                    <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">标题</label>
                     <input
                         type="text"
                         value={title}
@@ -178,7 +192,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-surface-600 mb-2">描述（可选）</label>
+                    <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">描述（可选）</label>
                     <textarea
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
@@ -196,7 +210,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                         <div
                             className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isAllDay ? 'translate-x-4' : 'translate-x-1'}`} />
                     </button>
-                    <label className="text-sm text-surface-600 font-medium">全天事件</label>
+                    <label className="text-sm text-surface-600 dark:text-surface-300 font-medium">全天事件</label>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -208,13 +222,13 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                         <div
                             className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isCourse ? 'translate-x-4' : 'translate-x-1'}`} />
                     </button>
-                    <label className="text-sm text-surface-600 font-medium">课程日程</label>
+                    <label className="text-sm text-surface-600 dark:text-surface-300 font-medium">课程日程</label>
                 </div>
 
                 {isCourse && (
-                    <div className="space-y-3 p-4 bg-purple-50 dark:bg-purple-950/20 rounded-xl">
+                    <div className="space-y-3 p-3 sm:p-4 bg-purple-50 dark:bg-purple-950/20 rounded-xl">
                         <div>
-                            <label className="block text-xs font-medium text-surface-600 mb-1">学期开始日期</label>
+                            <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">学期开始日期</label>
                             <input
                                 type="date"
                                 value={courseSemesterStart}
@@ -223,9 +237,9 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-2">
                             <div>
-                                <label className="block text-xs font-medium text-surface-600 mb-1">起始周</label>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">起始周</label>
                                 <input
                                     type="number"
                                     value={courseWeekStart}
@@ -236,7 +250,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-surface-600 mb-1">结束周</label>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">结束周</label>
                                 <input
                                     type="number"
                                     value={courseWeekEnd}
@@ -246,98 +260,90 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                     className="input-field text-sm"
                                 />
                             </div>
+                            <div>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">周次类型</label>
+                                <select
+                                    value={courseWeekType}
+                                    onChange={(e) => setCourseWeekType(e.target.value)}
+                                    className="input-field text-sm"
+                                >
+                                    <option value="ALL">每周</option>
+                                    <option value="ODD">单周</option>
+                                    <option value="EVEN">双周</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div>
-                            <label className="block text-xs font-medium text-surface-600 mb-1.5">周次类型</label>
-                            <div className="flex gap-2">
-                                {[
-                                    { value: 'ALL', label: '每周' },
-                                    { value: 'ODD', label: '单周' },
-                                    { value: 'EVEN', label: '双周' },
-                                ].map((opt) => (
+                            <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">星期</label>
+                            <div className="grid grid-cols-7 gap-1">
+                                {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => (
                                     <button
-                                        key={opt.value}
+                                        key={d}
                                         type="button"
-                                        onClick={() => setCourseWeekType(opt.value)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${courseWeekType === opt.value
+                                        onClick={() => setCourseDayOfWeek(i + 1)}
+                                        className={`py-1.5 rounded-lg text-xs font-medium transition-all ${courseDayOfWeek === i + 1
                                             ? 'bg-purple-500 text-white shadow-sm'
-                                            : 'bg-white dark:bg-surface-800 text-surface-600 dark:text-surface-300 border border-surface-200 dark:border-surface-700'
+                                            : 'bg-white dark:bg-surface-800 text-surface-500 dark:text-surface-400 border border-surface-200 dark:border-surface-700'
                                             }`}
                                     >
-                                        {opt.label}
+                                        {d}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-medium text-surface-600 mb-1">星期</label>
-                            <select
-                                value={courseDayOfWeek}
-                                onChange={(e) => setCourseDayOfWeek(Number(e.target.value))}
-                                className="input-field text-sm"
-                            >
-                                <option value={1}>周一</option>
-                                <option value={2}>周二</option>
-                                <option value={3}>周三</option>
-                                <option value={4}>周四</option>
-                                <option value={5}>周五</option>
-                                <option value={6}>周六</option>
-                                <option value={7}>周日</option>
-                            </select>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <label className="block text-xs font-medium text-surface-600 mb-1">开始节次</label>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">开始节次</label>
                                 <select
                                     value={courseStartSec}
                                     onChange={(e) => setCourseStartSec(Number(e.target.value))}
                                     className="input-field text-sm"
                                 >
-                                    {currentSectionTimes.map((sec, i) => (
-                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.start}-{sec.end})</option>
+                                    {sectionTimes.map((sec, i) => (
+                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.start})</option>
                                     ))}
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-surface-600 mb-1">结束节次</label>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">结束节次</label>
                                 <select
                                     value={courseEndSec}
                                     onChange={(e) => setCourseEndSec(Number(e.target.value))}
                                     className="input-field text-sm"
                                 >
-                                    {currentSectionTimes.map((sec, i) => (
-                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.start}-{sec.end})</option>
+                                    {sectionTimes.map((sec, i) => (
+                                        <option key={i} value={i + 1}>第{i + 1}节 ({sec.end})</option>
                                     ))}
                                 </select>
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-medium text-surface-600 mb-1">教师</label>
-                            <input
-                                type="text"
-                                value={courseTeacher}
-                                onChange={(e) => setCourseTeacher(e.target.value)}
-                                placeholder="教师姓名"
-                                className="input-field text-sm"
-                            />
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">教师</label>
+                                <input
+                                    type="text"
+                                    value={courseTeacher}
+                                    onChange={(e) => setCourseTeacher(e.target.value)}
+                                    placeholder="教师姓名"
+                                    className="input-field text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-surface-600 dark:text-surface-300 mb-1">教室</label>
+                                <input
+                                    type="text"
+                                    value={courseLocation}
+                                    onChange={(e) => setCourseLocation(e.target.value)}
+                                    placeholder="上课地点"
+                                    className="input-field text-sm"
+                                />
+                            </div>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-medium text-surface-600 mb-1">教室</label>
-                            <input
-                                type="text"
-                                value={courseLocation}
-                                onChange={(e) => setCourseLocation(e.target.value)}
-                                placeholder="上课地点"
-                                className="input-field text-sm"
-                            />
-                        </div>
-
-                        <div className="border-t border-purple-200 dark:border-purple-800 pt-3">
+                        <div className="border-t border-purple-200 dark:border-purple-800 pt-2">
                             <button
                                 type="button"
                                 onClick={() => setShowTimeConfig(!showTimeConfig)}
@@ -354,12 +360,12 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                             <div className="space-y-3 p-3 bg-white dark:bg-surface-800 rounded-lg border border-purple-200 dark:border-purple-800">
                                 <p className="text-2xs text-surface-400">配置每节课的时长和课间休息时间，系统会自动计算各节次的时间</p>
 
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="block text-2xs font-medium text-surface-500 mb-1">第一节课开始时间</label>
                                         <input
                                             type="time"
-                                            value={currentSectionTimes[0]?.start || '08:00'}
+                                            value={sectionTimes[0]?.start || '08:00'}
                                             onChange={(e) => {
                                                 autoGenerateSectionTimes(e.target.value, sectionDuration, breakDuration, [4, 8], 20);
                                             }}
@@ -374,7 +380,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                             onChange={(e) => {
                                                 const d = Number(e.target.value);
                                                 setSectionDuration(d);
-                                                autoGenerateSectionTimes(currentSectionTimes[0]?.start || '08:00', d, breakDuration, [4, 8], 20);
+                                                autoGenerateSectionTimes(sectionTimes[0]?.start || '08:00', d, breakDuration, [4, 8], 20);
                                             }}
                                             min={20}
                                             max={120}
@@ -383,7 +389,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="block text-2xs font-medium text-surface-500 mb-1">课间休息(分钟)</label>
                                         <input
@@ -392,7 +398,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                             onChange={(e) => {
                                                 const b = Number(e.target.value);
                                                 setBreakDuration(b);
-                                                autoGenerateSectionTimes(currentSectionTimes[0]?.start || '08:00', sectionDuration, b, [4, 8], 20);
+                                                autoGenerateSectionTimes(sectionTimes[0]?.start || '08:00', sectionDuration, b, [4, 8], 20);
                                             }}
                                             min={0}
                                             max={30}
@@ -412,21 +418,21 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                     </div>
                                 </div>
 
-                                <div className="mt-2 max-h-32 overflow-y-auto">
+                                <div className="mt-2 max-h-28 overflow-y-auto">
                                     <table className="w-full text-2xs">
                                         <thead>
                                             <tr className="text-surface-400">
-                                                <th className="text-left py-1 font-medium">节次</th>
-                                                <th className="text-left py-1 font-medium">上课</th>
-                                                <th className="text-left py-1 font-medium">下课</th>
+                                                <th className="text-left py-0.5 font-medium">节次</th>
+                                                <th className="text-left py-0.5 font-medium">上课</th>
+                                                <th className="text-left py-0.5 font-medium">下课</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {currentSectionTimes.map((sec, i) => (
+                                            {sectionTimes.map((sec, i) => (
                                                 <tr key={i} className="border-t border-surface-100 dark:border-surface-700">
-                                                    <td className="py-1 text-surface-600">第{i + 1}节</td>
-                                                    <td className="py-1 text-surface-700 font-mono">{sec.start}</td>
-                                                    <td className="py-1 text-surface-700 font-mono">{sec.end}</td>
+                                                    <td className="py-0.5 text-surface-600">第{i + 1}节</td>
+                                                    <td className="py-0.5 text-surface-700 font-mono">{sec.start}</td>
+                                                    <td className="py-0.5 text-surface-700 font-mono">{sec.end}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -435,48 +441,48 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                             </div>
                         )}
 
-                        {courseSemesterStart && (
-                            <button
-                                type="button"
-                                onClick={computeCourseTime}
-                                className="w-full py-2 text-sm font-medium text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
-                            >
-                                自动计算上课时间
-                            </button>
+                        {startTime && endTime && (
+                            <div className="p-2 bg-purple-100/50 dark:bg-purple-900/20 rounded-lg text-xs text-purple-700 dark:text-purple-300">
+                                自动计算时间：{new Date(startTime).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                {' - '}
+                                {new Date(endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
                         )}
                     </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
-                    <div>
-                        <label className="block text-sm font-medium text-surface-600 mb-2">开始时间</label>
-                        <input
-                            type={isAllDay ? 'date' : 'datetime-local'}
-                            value={startTime}
-                            onChange={(e) => setStartTime(e.target.value)}
-                            className="input-field"
-                            required
-                        />
+                {!isCourse && (
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">开始时间</label>
+                            <input
+                                type={isAllDay ? 'date' : 'datetime-local'}
+                                value={startTime}
+                                onChange={(e) => setStartTime(e.target.value)}
+                                className="input-field"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">结束时间</label>
+                            <input
+                                type={isAllDay ? 'date' : 'datetime-local'}
+                                value={endTime}
+                                onChange={(e) => setEndTime(e.target.value)}
+                                className="input-field"
+                                required
+                            />
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-surface-600 mb-2">结束时间</label>
-                        <input
-                            type={isAllDay ? 'date' : 'datetime-local'}
-                            value={endTime}
-                            onChange={(e) => setEndTime(e.target.value)}
-                            className="input-field"
-                            required
-                        />
-                    </div>
-                </div>
+                )}
 
                 <div>
-                    <label className="block text-sm font-medium text-surface-600 mb-2">分类颜色</label>
-                    <div className="flex gap-2 flex-wrap">
+                    <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">分类颜色</label>
+                    <div className="flex gap-1.5 flex-wrap">
                         <button
                             type="button"
                             onClick={() => setColor('')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${color === '' ? 'bg-surface-600 text-white shadow-sm' : 'bg-surface-100 text-surface-500'
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${color === '' ? 'bg-surface-600 text-white shadow-sm' : 'bg-surface-100 text-surface-500'
                                 }`}
                         >
                             默认
@@ -486,7 +492,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                                 key={key}
                                 type="button"
                                 onClick={() => setColor(key)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${val.bg} ${val.text} ${color === key ? 'ring-2 ring-offset-2 ring-brand-400' : ''
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${val.bg} ${val.text} ${color === key ? 'ring-2 ring-offset-1 ring-brand-400' : ''
                                     }`}
                             >
                                 {val.label}
@@ -496,7 +502,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-surface-600 mb-2">提前提醒</label>
+                    <label className="block text-sm font-medium text-surface-600 dark:text-surface-300 mb-1.5">提前提醒</label>
                     <select
                         value={reminderMinutes}
                         onChange={(e) => setReminderMinutes(Number(e.target.value))}
@@ -512,7 +518,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                 </div>
             </div>
 
-            <div className="flex gap-3 mt-7">
+            <div className="flex gap-3 mt-6">
                 <button
                     type="button"
                     onClick={onCancel}
@@ -523,7 +529,7 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                 {event && onDelete && (
                     <button
                         type="button"
-                        onClick={onDelete}
+                        onClick={() => setShowDeleteConfirm(true)}
                         className="px-4 py-2.5 text-sm text-red-500 dark:text-red-400 font-medium rounded-xl hover:bg-red-50 dark:hover:bg-red-950/30"
                     >
                         删除
@@ -537,6 +543,19 @@ function EventForm({ event, onSubmit, onDelete, onCancel }: EventFormProps) {
                     {event ? '更新' : '创建'}
                 </button>
             </div>
+
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/25" onClick={() => setShowDeleteConfirm(false)}>
+                    <div className="bg-white dark:bg-surface-900 rounded-2xl p-5 max-w-xs mx-4 scale-in" onClick={(e) => e.stopPropagation()}>
+                        <h4 className="text-base font-semibold text-surface-800 dark:text-surface-100 mb-2">确认删除</h4>
+                        <p className="text-sm text-surface-500 dark:text-surface-400 mb-4">删除后无法恢复，确定要删除这个日程吗？</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowDeleteConfirm(false)} className="btn-secondary flex-1 py-2 text-sm">取消</button>
+                            <button onClick={() => { onDelete?.(); setShowDeleteConfirm(false); }} className="flex-1 bg-red-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-red-600">删除</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </form>
     );
 }

@@ -1,84 +1,172 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useGoalStore } from '../stores/goalStore';
 import { useHabitStore } from '../stores/habitStore';
-import { diaryApi } from '../api/diary';
+import { diaryApi, type DiaryStats } from '../api/diary';
 import { aiApi } from '../api/ai';
-import { getScoreLabel, getScoreColor } from '../utils/emotionUtils';
 
-interface StatsData {
-  totalDiaries: number;
-  averageScore: number;
-  streak: number;
-  thisMonthCount: number;
-  emotionTrend: { date: string; score: number }[];
-  topEmotions: { score: number; count: number }[];
-  wordCloud: { word: string; count: number }[];
+function LineChart({ data }: { data: { date: string; score: number }[] }) {
+  if (data.length === 0) return null;
+
+  const width = 100;
+  const height = 60;
+  const padding = { top: 5, right: 2, bottom: 12, left: 2 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  const scores = data.map((d) => d.score);
+  const minScore = Math.max(0, Math.min(...scores) - 10);
+  const maxScore = Math.min(100, Math.max(...scores) + 10);
+  const range = maxScore - minScore || 1;
+
+  const points = data.map((d, i) => ({
+    x: padding.left + (data.length > 1 ? (i / (data.length - 1)) * chartW : chartW / 2),
+    y: padding.top + chartH - ((d.score - minScore) / range) * chartH,
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = `${linePath} L${points[points.length - 1].x},${padding.top + chartH} L${points[0].x},${padding.top + chartH} Z`;
+
+  const labelInterval = Math.max(1, Math.floor(data.length / 6));
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#e8941e" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#e8941e" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+        const y = padding.top + chartH * (1 - ratio);
+        return (
+          <line
+            key={ratio}
+            x1={padding.left}
+            y1={y}
+            x2={width - padding.right}
+            y2={y}
+            stroke="currentColor"
+            strokeOpacity="0.06"
+            strokeWidth="0.3"
+          />
+        );
+      })}
+      <path d={areaPath} fill="url(#areaGrad)" />
+      <path d={linePath} fill="none" stroke="#e8941e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="1.2" fill="#e8941e" />
+      ))}
+      {data.map((d, i) => {
+        if (i % labelInterval !== 0 && i !== data.length - 1) return null;
+        const x = points[i].x;
+        return (
+          <text
+            key={`label-${i}`}
+            x={x}
+            y={height - 1}
+            textAnchor="middle"
+            className="fill-surface-400"
+            fontSize="3"
+            fontFamily="system-ui"
+          >
+            {d.date.slice(5)}
+          </text>
+        );
+      })}
+    </svg>
+  );
 }
 
+const EMOTION_TAG_COLORS: Record<string, string> = {
+  '开心': 'bg-yellow-100 text-yellow-700',
+  '快乐': 'bg-yellow-100 text-yellow-700',
+  '幸福': 'bg-amber-100 text-amber-700',
+  '满足': 'bg-green-100 text-green-700',
+  '平静': 'bg-teal-100 text-teal-700',
+  '感恩': 'bg-emerald-100 text-emerald-700',
+  '焦虑': 'bg-orange-100 text-orange-700',
+  '担忧': 'bg-orange-100 text-orange-700',
+  '紧张': 'bg-red-100 text-red-700',
+  '愤怒': 'bg-red-100 text-red-700',
+  '生气': 'bg-red-100 text-red-700',
+  '悲伤': 'bg-blue-100 text-blue-700',
+  '难过': 'bg-blue-100 text-blue-700',
+  '孤独': 'bg-indigo-100 text-indigo-700',
+  '疲惫': 'bg-gray-100 text-gray-700',
+  '无聊': 'bg-gray-100 text-gray-700',
+  '惊喜': 'bg-purple-100 text-purple-700',
+  '兴奋': 'bg-pink-100 text-pink-700',
+  '感动': 'bg-rose-100 text-rose-700',
+  '思念': 'bg-violet-100 text-violet-700',
+};
+
 function StatsPage() {
-  const { diaries } = useDiaryStore();
+  const diariesRef = useRef(useDiaryStore.getState().diaries);
+  useEffect(() => { diariesRef.current = useDiaryStore.getState().diaries; });
   const { goals } = useGoalStore();
   const { habits } = useHabitStore();
   const [period, setPeriod] = useState<'7' | '30' | '90'>('30');
-  const [stats, setStats] = useState<StatsData | null>(null);
+  const [stats, setStats] = useState<DiaryStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadStats = async () => {
-      setIsLoading(true);
-      try {
-        const response = await diaryApi.stats(period);
-        if (response.success && response.data) {
-          setStats(response.data as StatsData);
-        }
-      } catch {
-        const now = new Date();
-        const periodDays = parseInt(period);
-        const cutoff = new Date(now.getTime() - periodDays * 86400000);
-        const filtered = diaries.filter((d) => new Date(d.createdAt) >= cutoff);
-        const avgScore = filtered.length > 0 ? Math.round(filtered.reduce((s, d) => s + d.emotionScore, 0) / filtered.length) : 0;
-
-        const trendMap = new Map<string, { total: number; count: number }>();
-        for (const d of filtered) {
-          const dateKey = new Date(d.createdAt).toISOString().slice(0, 10);
-          const entry = trendMap.get(dateKey) || { total: 0, count: 0 };
-          entry.total += d.emotionScore;
-          entry.count += 1;
-          trendMap.set(dateKey, entry);
-        }
-        const emotionTrend = Array.from(trendMap.entries())
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, { total, count }]) => ({ date, score: Math.round(total / count) }));
-
-        const emotionBuckets: Record<number, number> = {};
-        for (const d of filtered) {
-          const bucket = Math.round(d.emotionScore / 10) * 10;
-          emotionBuckets[bucket] = (emotionBuckets[bucket] || 0) + 1;
-        }
-        const topEmotions = Object.entries(emotionBuckets)
-          .map(([score, count]) => ({ score: parseInt(score), count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 5);
-
-        setStats({
-          totalDiaries: filtered.length,
-          averageScore: avgScore,
-          streak: 0,
-          thisMonthCount: filtered.filter((d) => new Date(d.createdAt).getMonth() === now.getMonth()).length,
-          emotionTrend,
-          topEmotions,
-          wordCloud: [],
-        });
-      } finally {
-        setIsLoading(false);
+  const loadStats = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await diaryApi.stats(period);
+      if (response.success && response.data) {
+        setStats(response.data as DiaryStats);
       }
-    };
+    } catch {
+      const now = new Date();
+      const periodDays = parseInt(period);
+      const cutoff = new Date(now.getTime() - periodDays * 86400000);
+      const filtered = diariesRef.current.filter((d) => new Date(d.createdAt) >= cutoff);
+      const avgScore = filtered.length > 0 ? Math.round(filtered.reduce((s, d) => s + d.emotionScore, 0) / filtered.length) : 0;
+
+      const trendMap = new Map<string, { total: number; count: number }>();
+      for (const d of filtered) {
+        const dateKey = new Date(d.createdAt).toISOString().slice(0, 10);
+        const entry = trendMap.get(dateKey) || { total: 0, count: 0 };
+        entry.total += d.emotionScore;
+        entry.count += 1;
+        trendMap.set(dateKey, entry);
+      }
+      const emotionTrend = Array.from(trendMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, { total, count }]) => ({ date, score: Math.round(total / count) }));
+
+      const tagCounts: Record<string, number> = {};
+      for (const d of filtered) {
+        for (const t of d.emotionTags) {
+          tagCounts[t] = (tagCounts[t] || 0) + 1;
+        }
+      }
+      const topEmotions = Object.entries(tagCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([tag, count]) => ({ tag, count }));
+
+      setStats({
+        totalDiaries: filtered.length,
+        averageScore: avgScore,
+        streak: 0,
+        thisMonthCount: filtered.filter((d) => new Date(d.createdAt).getMonth() === now.getMonth()).length,
+        emotionTrend,
+        topEmotions,
+        wordCloud: [],
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [period]);
+
+  useEffect(() => {
     loadStats();
-  }, [period, diaries]);
+  }, [loadStats]);
 
   const handleAIAnalysis = async () => {
     setIsAnalyzing(true);
@@ -118,6 +206,9 @@ function StatsPage() {
             <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">数据分析</h1>
             <p className="text-xs text-surface-400 mt-0.5">全面了解你的生活状态</p>
           </div>
+          <button onClick={() => loadStats()} className="text-xs text-brand-500 hover:text-brand-600 font-medium px-2.5 py-1 rounded-lg hover:bg-brand-50 transition-colors">
+            刷新
+          </button>
         </div>
       </header>
 
@@ -232,18 +323,11 @@ function StatsPage() {
             {stats.emotionTrend.length > 0 && (
               <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-3 sm:mb-4">情绪趋势</h3>
-                <div className="flex items-end gap-1 h-24 sm:h-32">
-                  {stats.emotionTrend.map((d: { date: string; score: number }, i: number) => (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <div
-                        className={`w-full rounded-t-md min-h-[4px] ${getScoreColor(d.score)}`}
-                        style={{ height: `${d.score}%` }}
-                      />
-                      {i % Math.max(1, Math.floor(stats.emotionTrend.length / 7)) === 0 && (
-                        <span className="text-2xs text-surface-400">{d.date.slice(5)}</span>
-                      )}
-                    </div>
-                  ))}
+                <LineChart data={stats.emotionTrend} />
+                <div className="flex items-center justify-between mt-2 text-2xs text-surface-400">
+                  <span>低落</span>
+                  <span>平静</span>
+                  <span>愉悦</span>
                 </div>
               </div>
             )}
@@ -251,20 +335,19 @@ function StatsPage() {
             {stats.topEmotions.length > 0 && (
               <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">情绪分布</h3>
-                <div className="space-y-3">
-                  {stats.topEmotions.map((em: { score: number; count: number }, i: number) => {
+                <div className="flex flex-wrap gap-2">
+                  {stats.topEmotions.map((em, i) => {
+                    const colorClass = EMOTION_TAG_COLORS[em.tag] || 'bg-surface-100 text-surface-600';
                     const maxCount = stats.topEmotions[0]?.count || 1;
+                    const size = 0.75 + (em.count / maxCount) * 0.5;
                     return (
-                      <div key={i} className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-surface-600 w-16">{getScoreLabel(em.score)}</span>
-                        <div className="flex-1 progress-bar h-2.5">
-                          <div
-                            className={`h-full rounded-full ${getScoreColor(em.score)}`}
-                            style={{ width: `${(em.count / maxCount) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-surface-400 font-medium w-8 text-right">{em.count}</span>
-                      </div>
+                      <span
+                        key={i}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium ${colorClass}`}
+                        style={{ fontSize: `${size}rem` }}
+                      >
+                        {em.tag} <span className="opacity-60">{em.count}</span>
+                      </span>
                     );
                   })}
                 </div>
@@ -275,15 +358,19 @@ function StatsPage() {
               <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">高频词汇</h3>
                 <div className="flex flex-wrap gap-2">
-                  {stats.wordCloud.map((w: { word: string; count: number }, i: number) => (
-                    <span
-                      key={i}
-                      className="px-3 py-1.5 rounded-full bg-brand-50 text-brand-600 text-sm font-medium"
-                      style={{ fontSize: `${Math.min(0.875 + w.count * 0.05, 1.5)}rem` }}
-                    >
-                      {w.word}
-                    </span>
-                  ))}
+                  {stats.wordCloud.map((w, i) => {
+                    const maxCount = stats.wordCloud[0]?.count || 1;
+                    const size = 0.75 + (w.count / maxCount) * 0.5;
+                    return (
+                      <span
+                        key={i}
+                        className="px-3 py-1.5 rounded-full bg-brand-50 text-brand-600 font-medium"
+                        style={{ fontSize: `${size}rem` }}
+                      >
+                        {w.word}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}

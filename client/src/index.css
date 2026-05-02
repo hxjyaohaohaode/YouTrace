@@ -77,14 +77,7 @@
   }
 
   .page-header {
-    @apply sticky top-0 z-30;
-    background-color: rgba(248, 250, 252, 0.92);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-  }
-
-  .dark .page-header {
-    background-color: rgba(15, 23, 42, 0.92);
+    @apply relative z-30;
   }
 
   .card {

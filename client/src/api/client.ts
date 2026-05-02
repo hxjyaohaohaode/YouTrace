@@ -81,15 +81,31 @@ client.interceptors.response.use(
 
         const baseURL = import.meta.env.VITE_API_BASE_URL || '';
         const refreshURL = baseURL ? `${baseURL}/api/auth/refresh` : '/api/auth/refresh';
-        const response = await fetch(refreshURL, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
 
-        if (!response.ok) throw new Error('Refresh failed');
+        let response: Response | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            response = await fetch(refreshURL, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (response.ok) break;
+            if (attempt === 0 && !response.ok) {
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          } catch {
+            if (attempt === 0) {
+              await new Promise((r) => setTimeout(r, 1000));
+              continue;
+            }
+            throw new Error('Refresh network error');
+          }
+        }
+
+        if (!response || !response.ok) throw new Error('Refresh failed');
 
         const data = await response.json();
         if (data.success && data.data?.token) {

@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
-      includeAssets: ['pwa-512x512.svg'],
+      registerType: 'autoUpdate',
+      includeAssets: ['pwa-512x512.svg', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
         name: '有迹 YouTrace - 你来生活我来记',
         short_name: '有迹',
@@ -23,21 +23,21 @@ export default defineConfig({
         dir: 'ltr',
         icons: [
           {
-            src: 'pwa-512x512.svg',
+            src: 'pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'any',
           },
           {
-            src: 'pwa-512x512.svg',
+            src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'any',
           },
           {
-            src: 'pwa-512x512.svg',
+            src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'maskable',
           },
         ],

@@ -7,7 +7,7 @@ export interface DiaryStats {
   streak: number;
   thisMonthCount: number;
   emotionTrend: { date: string; score: number }[];
-  topEmotions: { score: number; count: number }[];
+  topEmotions: { tag: string; count: number }[];
   wordCloud: { word: string; count: number }[];
 }
 

@@ -26,8 +26,10 @@ import HabitListPage from './pages/HabitListPage';
 import WeatherPage from './pages/WeatherPage';
 import Layout from './components/Layout';
 
+const TOKEN_REFRESH_INTERVAL = 5 * 60 * 1000;
+
 function App() {
-  const { checkAuth, isAuthenticated } = useAuthStore();
+  const { checkAuth, isAuthenticated, refreshToken } = useAuthStore();
   const [isInitializing, setIsInitializing] = useState(true);
   const initNetworkListener = useSyncStore((s) => s.initNetworkListener);
   const { refreshAll, isLoading: weatherLoading } = useWeatherStore();
@@ -46,6 +48,34 @@ function App() {
     const cleanup = initNetworkListener();
     return cleanup;
   }, [initNetworkListener]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const lastRefreshRef = { current: 0 };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastRefreshRef.current > 60 * 1000) {
+          lastRefreshRef.current = now;
+          refreshToken();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const intervalId = setInterval(() => {
+      lastRefreshRef.current = Date.now();
+      refreshToken();
+    }, TOKEN_REFRESH_INTERVAL);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated, refreshToken]);
 
   const weatherInitRef = useRef(false);
 

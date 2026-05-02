@@ -78,9 +78,6 @@ function CalendarPage() {
     if (view === 'month') {
       setCurrentDate(date);
       setView('day');
-    } else {
-      setEditingEvent(null);
-      setShowForm(true);
     }
   };
 

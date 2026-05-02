@@ -33,7 +33,6 @@ function DiaryListPage() {
 
     const handleDiarySearch = useCallback((keyword: string) => {
         setSearch(keyword);
-        setDebouncedSearch(keyword);
     }, []);
 
     useEffect(() => {
@@ -133,7 +132,7 @@ function DiaryListPage() {
                 </div>
             </header>
 
-            {(goals.filter(g => g.status === 'ACTIVE').length > 0 || habits.length > 0) && (
+            {!search && !emotionFilter && (goals.filter(g => g.status === 'ACTIVE').length > 0 || habits.length > 0) && (
                 <section className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 pt-4 sm:pt-5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {goals.filter(g => g.status === 'ACTIVE').length > 0 && (

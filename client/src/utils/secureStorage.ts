@@ -1,18 +1,38 @@
-function getKey(): string {
-  const stored = localStorage.getItem('_ek');
-  if (stored) return stored;
-  const key = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  localStorage.setItem('_ek', key);
-  return key;
+const TOKEN_KEY = 'youji_auth';
+const USER_KEY = 'youji_user_data';
+const KEY_ID_KEY = '_ek_id';
+
+function getKeyId(): string {
+  let keyId = localStorage.getItem(KEY_ID_KEY);
+  if (!keyId) {
+    keyId = `youji_${Date.now()}_${crypto.getRandomValues(new Uint8Array(16)).reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')}`;
+    localStorage.setItem(KEY_ID_KEY, keyId);
+  }
+  return keyId;
 }
 
 async function getSubtleKey(): Promise<CryptoKey> {
-  const keyStr = getKey();
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(keyStr.slice(0, 32));
-  return crypto.subtle.importKey('raw', keyData, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  const keyId = getKeyId();
+  const domain = location.hostname || 'localhost';
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(`${domain}:${keyId}`),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: new TextEncoder().encode(`youji_salt_${domain}`),
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
 function isSecureContext(): boolean {
@@ -53,9 +73,6 @@ async function decryptData(encrypted: string): Promise<string | null> {
     return null;
   }
 }
-
-const TOKEN_KEY = 'youji_auth';
-const USER_KEY = 'youji_user_data';
 
 export async function setSecureToken(token: string): Promise<void> {
   const encrypted = await encryptData(token);

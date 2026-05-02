@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useState, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 const NAV_ITEMS = [
@@ -80,6 +80,37 @@ function Layout() {
     return localStorage.getItem('youji_sidebar_collapsed') === 'true';
   });
 
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchNavigatedRef = useRef(false);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+    touchNavigatedRef.current = false;
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent, path: string) => {
+    if (!touchStartRef.current) return;
+    const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    touchStartRef.current = null;
+    if (distance < 15) {
+      touchNavigatedRef.current = true;
+      navigate(path);
+    }
+  }, [navigate]);
+
+  const handleNavClick = useCallback((path: string) => {
+    if (touchNavigatedRef.current) {
+      touchNavigatedRef.current = false;
+      return;
+    }
+    navigate(path);
+  }, [navigate]);
+
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
@@ -107,7 +138,9 @@ function Layout() {
             return (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onTouchStart={handleTouchStart}
+                onTouchEnd={(e) => handleTouchEnd(e, item.path)}
+                onClick={() => handleNavClick(item.path)}
                 className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-2xl transition-all duration-200 min-w-0 ${active ? 'nav-item-active' : 'nav-item-inactive'
                   }`}
               >

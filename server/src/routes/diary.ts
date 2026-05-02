@@ -75,7 +75,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     if (emotionTag) {
-      where.emotionTags = { contains: emotionTag };
+      where.emotionTags = { contains: `"${emotionTag}"` };
     }
 
     const [diaries, total] = await Promise.all([
@@ -337,10 +337,17 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const thisMonthCount = diaries.filter((d) => d.createdAt >= thisMonthStart).length;
 
-    const emotionTrend = diaries.map((d) => ({
-      date: d.createdAt.toLocaleDateString('zh-CN'),
-      score: d.emotionScore,
-    }));
+    const emotionTrendMap = new Map<string, { total: number; count: number }>();
+    diaries.forEach((d) => {
+      const dateKey = d.createdAt.toISOString().slice(0, 10);
+      const entry = emotionTrendMap.get(dateKey) || { total: 0, count: 0 };
+      entry.total += d.emotionScore;
+      entry.count += 1;
+      emotionTrendMap.set(dateKey, entry);
+    });
+    const emotionTrend = Array.from(emotionTrendMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, { total, count }]) => ({ date, score: Math.round(total / count) }));
 
     const tagCounts: Record<string, number> = {};
     diaries.forEach((d) => {
@@ -349,15 +356,15 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     });
     const topEmotions = Object.entries(tagCounts)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
+      .slice(0, 8)
       .map(([tag, count]) => ({ tag, count }));
 
     let streak = 0;
     const today = new Date();
     for (let i = 0; i < 365; i++) {
       const checkDate = new Date(today.getTime() - i * 86400000);
-      const dateStr = checkDate.toLocaleDateString('zh-CN');
-      const hasDiary = diaries.some((d) => d.createdAt.toLocaleDateString('zh-CN') === dateStr);
+      const dateStr = checkDate.toISOString().slice(0, 10);
+      const hasDiary = diaries.some((d) => d.createdAt.toISOString().slice(0, 10) === dateStr);
       if (hasDiary) {
         streak++;
       } else if (i > 0) {
@@ -365,12 +372,31 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    const STOP_WORDS = new Set([
+      '今天', '昨天', '明天', '现在', '然后', '所以', '因为', '但是', '虽然',
+      '如果', '就是', '可以', '已经', '还是', '这个', '那个', '什么', '怎么',
+      '没有', '不是', '一个', '一些', '这些', '那些', '自己', '他们', '我们',
+      '你们', '她们', '它们', '这样', '那样', '怎样', '这么', '那么', '非常',
+      '真的', '其实', '时候', '地方', '东西', '感觉', '知道', '觉得', '认为',
+      '应该', '可能', '需要', '开始', '出来', '起来', '下来', '上去', '过来',
+      '回去', '回来', '出去', '进去', '过去', '以后', '之前', '的话', '一样',
+      '一直', '不断', '不过', '而且', '或者', '以及', '也是', '又是', '还要',
+      '只有', '只要', '还有', '只是', '然而', '并且', '比较', '更加', '特别',
+      '相当', '十分', '极其', '尤其', '格外', '确实', '的确', '实在', '真正',
+      '当然', '显然', '毕竟', '反正', '总之', '大概', '也许', '必须', '一定',
+      '肯定', '绝对', '相对',
+    ]);
     const wordMap: Record<string, number> = {};
     diaries.forEach((d) => {
       const words = d.content.match(/[\u4e00-\u9fff]{2,4}/g) || [];
-      words.forEach((w) => { wordMap[w] = (wordMap[w] || 0) + 1; });
+      words.forEach((w) => {
+        if (!STOP_WORDS.has(w)) {
+          wordMap[w] = (wordMap[w] || 0) + 1;
+        }
+      });
     });
     const wordCloud = Object.entries(wordMap)
+      .filter(([, count]) => count >= 2)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 30)
       .map(([word, count]) => ({ word, count }));

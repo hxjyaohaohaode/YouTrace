@@ -69,6 +69,90 @@ function checkConflict(
   return { hasConflict: conflicts.length > 0, conflicts };
 }
 
+interface RawEvent {
+  id: string;
+  userId: string;
+  title: string;
+  description: string | null;
+  startTime: Date;
+  endTime: Date;
+  isAllDay: boolean;
+  recurrenceRule: string | null;
+  goalId: string | null;
+  reminderMinutes: number;
+  color: string | null;
+  isCourse: boolean;
+  courseWeekStart: number | null;
+  courseWeekEnd: number | null;
+  courseDayOfWeek: number | null;
+  courseStartSec: number | null;
+  courseEndSec: number | null;
+  courseTeacher: string | null;
+  courseLocation: string | null;
+  courseAdjust: string | null;
+  courseWeekType: string | null;
+  courseSemesterStart: string | null;
+  courseTimeConfig: string | null;
+  isHoliday: boolean;
+  holidayType: string | null;
+  holidayDescription: string | null;
+  isAiCreated: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  goal: { id: string; title: string } | null;
+}
+
+function expandCourseEvents(events: RawEvent[], rangeStart: Date, rangeEnd: Date): RawEvent[] {
+  const result: RawEvent[] = [];
+
+  for (const event of events) {
+    if (!event.isCourse || !event.courseSemesterStart || !event.courseDayOfWeek) {
+      result.push(event);
+      continue;
+    }
+
+    const semesterStart = new Date(event.courseSemesterStart + 'T00:00:00');
+    const startDay = semesterStart.getDay();
+    const startDayMon = startDay === 0 ? 7 : startDay;
+    const offsetToMonday = 1 - startDayMon;
+    const mondayOfWeek1 = new Date(semesterStart.getTime() + offsetToMonday * 86400000);
+
+    const weekStart = event.courseWeekStart || 1;
+    const weekEnd = event.courseWeekEnd || 16;
+    const dayOfWeek = event.courseDayOfWeek;
+    const weekType = event.courseWeekType || 'ALL';
+
+    const origStart = event.startTime;
+    const origEnd = event.endTime;
+    const startHour = origStart.getHours();
+    const startMin = origStart.getMinutes();
+    const endHour = origEnd.getHours();
+    const endMin = origEnd.getMinutes();
+
+    for (let week = weekStart; week <= weekEnd; week++) {
+      if (weekType === 'ODD' && week % 2 === 0) continue;
+      if (weekType === 'EVEN' && week % 2 === 1) continue;
+
+      const targetOffset = (week - 1) * 7 + (dayOfWeek - 1);
+      const targetDate = new Date(mondayOfWeek1.getTime() + targetOffset * 86400000);
+
+      const instanceStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), startHour, startMin);
+      const instanceEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), endHour, endMin);
+
+      if (instanceStart > rangeEnd || instanceEnd < rangeStart) continue;
+
+      result.push({
+        ...event,
+        id: `${event.id}_w${week}`,
+        startTime: instanceStart,
+        endTime: instanceEnd,
+      });
+    }
+  }
+
+  return result;
+}
+
 const eventRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: EventQuery }>('/api/events', {
     preHandler: authMiddleware,
@@ -76,13 +160,19 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
     const { start, end } = request.query;
     const where: Record<string, unknown> = { userId: request.userId };
 
+    let rangeStart = start ? new Date(start) : new Date(Date.now() - 90 * 86400000);
+    let rangeEnd = end ? new Date(end) : new Date(Date.now() + 90 * 86400000);
+
     if (start && end) {
       const startDate = new Date(start);
       const endDate = new Date(end);
+      const courseBufferStart = new Date(startDate.getTime() - 180 * 86400000);
+      const courseBufferEnd = new Date(endDate.getTime() + 180 * 86400000);
+
       where.OR = [
-        { startTime: { gte: startDate, lte: endDate } },
-        { endTime: { gte: startDate, lte: endDate } },
-        { startTime: { lte: startDate }, endTime: { gte: endDate } },
+        { startTime: { gte: courseBufferStart, lte: courseBufferEnd } },
+        { endTime: { gte: courseBufferStart, lte: courseBufferEnd } },
+        { startTime: { lte: courseBufferStart }, endTime: { gte: courseBufferEnd } },
       ];
     } else if (start) {
       where.startTime = { gte: new Date(start) };
@@ -94,7 +184,9 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
       include: { goal: { select: { id: true, title: true } } },
     });
 
-    return reply.send({ success: true, data: events.map((e) => eventToLocalISO(e as unknown as Record<string, unknown>)) });
+    const expandedEvents = expandCourseEvents(events as unknown as RawEvent[], rangeStart, rangeEnd);
+
+    return reply.send({ success: true, data: expandedEvents.map((e) => eventToLocalISO(e as unknown as Record<string, unknown>)) });
   });
 
   fastify.post<{ Body: CreateEventBody }>('/api/events', {
@@ -163,8 +255,12 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put<{ Params: { id: string }; Body: UpdateEventBody }>('/api/events/:id', {
     preHandler: authMiddleware,
   }, async (request, reply) => {
-    const { id } = request.params;
+    let { id } = request.params;
     const body = request.body;
+
+    if (id.includes('_w')) {
+      id = id.split('_w')[0];
+    }
 
     const existing = await prisma.event.findFirst({ where: { id, userId: request.userId } });
     if (!existing) {
@@ -228,7 +324,11 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string } }>('/api/events/:id', {
     preHandler: authMiddleware,
   }, async (request, reply) => {
-    const { id } = request.params;
+    let { id } = request.params;
+
+    if (id.includes('_w')) {
+      id = id.split('_w')[0];
+    }
 
     const existing = await prisma.event.findFirst({ where: { id, userId: request.userId } });
     if (!existing) {
