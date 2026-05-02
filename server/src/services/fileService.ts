@@ -1,390 +1,302 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
-import mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
-import * as pdfParseNs from 'pdf-parse';
-
-interface PdfParseResult {
-  text: string;
-  numpages?: number;
-  info?: Record<string, unknown>;
-}
-
-type PdfParseFn = (buffer: Buffer) => Promise<PdfParseResult>;
-
-interface PdfParseModule extends PdfParseFn {
-  default?: PdfParseModule;
-}
-
-const pdfParseNsUnknown = pdfParseNs as unknown;
-const pdfParseLib: PdfParseFn = (pdfParseNsUnknown as PdfParseModule).default
-  ? (pdfParseNsUnknown as PdfParseModule).default!
-  : (pdfParseNsUnknown as PdfParseFn);
+import { execSync } from 'child_process';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-const THUMBNAIL_DIR = path.join(UPLOAD_DIR, 'thumbnails');
 
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(THUMBNAIL_DIR)) fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
-
-type FileType = 'image' | 'video' | 'audio' | 'document';
-
-interface ProcessedFile {
-  fileName: string;
-  originalName: string;
-  filePath: string;
-  thumbnailPath: string | null;
-  mimeType: string;
-  fileSize: number;
-  fileType: FileType;
-  extractedText: string;
+function ensureDir(dir: string) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
-export function getFileType(mimeType: string): FileType {
+export function getFileType(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
   return 'document';
 }
 
-function generateFileName(originalName: string): string {
-  const ext = path.extname(originalName);
-  const hash = crypto.randomBytes(16).toString('hex');
-  return `${hash}${ext}`;
-}
-
-async function saveFile(buffer: Buffer, fileName: string): Promise<string> {
-  const filePath = path.join(UPLOAD_DIR, fileName);
-  fs.writeFileSync(filePath, buffer);
-  return filePath;
-}
-
-async function extractTextFromDocument(
-  filePath: string,
-  mimeType: string,
-  originalName: string,
-): Promise<string> {
-  try {
-    const ext = path.extname(originalName).toLowerCase();
-
-    if (ext === '.docx' || ext === '.doc' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const result = await mammoth.extractRawText({ path: filePath });
-      return result.value || '';
-    }
-
-    if (ext === '.xlsx' || ext === '.xls' || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-      const workbook = XLSX.readFile(filePath);
-      const texts: string[] = [];
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        const csv = XLSX.utils.sheet_to_csv(sheet);
-        texts.push(`[Sheet: ${sheetName}]\n${csv}`);
-      }
-      return texts.join('\n\n');
-    }
-
-    if (ext === '.pdf' || mimeType === 'application/pdf') {
-      const dataBuffer = fs.readFileSync(filePath);
-      const data = await pdfParseLib(dataBuffer);
-      return data.text || '';
-    }
-
-    if (ext === '.txt' || ext === '.md' || ext === '.csv' || mimeType.startsWith('text/')) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
-
-    if (ext === '.pptx' || mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-      return '[PowerPoint文件 - 内容需通过多模态模型识别]';
-    }
-
-    return `[不支持的文档格式: ${ext}]`;
-  } catch (e) {
-    return `[文档解析失败: ${(e as Error).message}]`;
-  }
-}
-
-export async function processUploadedFile(
-  buffer: Buffer,
-  originalName: string,
-  mimeType: string,
-): Promise<ProcessedFile> {
-  const fileType = getFileType(mimeType);
-  const fileName = generateFileName(originalName);
-  const filePath = await saveFile(buffer, fileName);
-
-  let extractedText = '';
-  let thumbnailPath: string | null = null;
-
-  if (fileType === 'document') {
-    extractedText = await extractTextFromDocument(filePath, mimeType, originalName);
-  }
-
-  if (fileType === 'image') {
-    try {
-      const sharp = (await import('sharp')).default;
-      const thumbName = `thumb_${fileName}.webp`;
-      const thumbPath = path.join(THUMBNAIL_DIR, thumbName);
-      await sharp(buffer)
-        .resize(200, 200, { fit: 'cover' })
-        .webp({ quality: 80 })
-        .toFile(thumbPath);
-      thumbnailPath = thumbPath;
-    } catch {
-      // sharp not available, skip thumbnail
-    }
-  }
-
-  return {
-    fileName,
-    originalName,
-    filePath,
-    thumbnailPath,
-    mimeType,
-    fileSize: buffer.length,
-    fileType,
-    extractedText,
-  };
-}
-
-export async function annotateWithMimo(
-  filePath: string,
-  fileType: FileType,
-  mimeType: string,
-  extractedText: string,
-  retries = 4,
-): Promise<string> {
-  const apiKey = process.env.MIMO_API_KEY;
-  const baseUrl = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
-
-  if (!apiKey) {
-    if (extractedText) return extractedText.slice(0, 2000);
-    return '[无API密钥，无法标注]';
-  }
-
-  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      if (fileType === 'document' && extractedText) {
-        const prompt = `请对以下文档内容进行详细摘要和关键信息提取。要求：
-1. 提取文档的核心主题和要点
-2. 列出所有关键数据、数字、日期
-3. 如果是表格数据，保留关键行列信息
-4. 如果是课表/日程，提取所有时间安排
-5. 保留重要细节，不要过度压缩
-
-用中文回复，详细且结构化：
-
-${extractedText.slice(0, 8000)}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60000);
-        try {
-          const response = await fetch(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'mimo-v2.5',
-              messages: [{ role: 'user', content: prompt }],
-              max_tokens: 1024,
-            }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-
-          if (response.ok) {
-            const data = await response.json() as { choices: { message: { content: string } }[] };
-            return data.choices?.[0]?.message?.content || extractedText.slice(0, 2000);
-          }
-          if (attempt < retries) {
-            console.warn(`文档标注第${attempt}次失败 (${response.status}), ${retries - attempt}次重试剩余`);
-            await delay(2000 * attempt);
-            continue;
-          }
-          return extractedText.slice(0, 2000);
-        } catch (fetchErr) {
-          clearTimeout(timeout);
-          if ((fetchErr as Error).name === 'AbortError' && attempt < retries) {
-            console.warn(`文档标注第${attempt}次超时, ${retries - attempt}次重试剩余`);
-            await delay(2000 * attempt);
-            continue;
-          }
-          throw fetchErr;
-        }
-      }
-
-      const fileBuffer = fs.readFileSync(filePath);
-      const base64Data = fileBuffer.toString('base64');
-      type ChatContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
-
-      const contentParts: ChatContentPart[] = [];
-
-      if (fileType === 'image') {
-        let finalBase64 = base64Data;
-        let finalMime = mimeType;
-        try {
-          const sharp = (await import('sharp')).default;
-          const stats = fs.statSync(filePath);
-          if (stats.size > 1024 * 1024) {
-            const resized = await sharp(fileBuffer)
-              .resize(1536, 1536, { fit: 'inside', withoutEnlargement: true })
-              .jpeg({ quality: 80 })
-              .toBuffer();
-            finalBase64 = resized.toString('base64');
-            finalMime = 'image/jpeg';
-          }
-        } catch {
-          // sharp not available, use original
-        }
-
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: `data:${finalMime};base64,${finalBase64}` },
-        });
-        contentParts.push({
-          type: 'text',
-          text: '请非常详细地描述这张图片的所有内容，包括：1.场景和环境 2.人物及其动作/表情 3.所有可见文字（逐字抄录） 4.数据/图表/表格的具体数值 5.颜色和布局 6.如果是课表/日程表，请提取所有课程信息（课程名、时间、地点、教师） 7.如果是文档截图，请完整抄录文字内容。用中文回复，尽可能详尽。',
-        });
-      } else if (fileType === 'video') {
-        contentParts.push({
-          type: 'text',
-          text: `[视频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个视频可能包含的内容。注意：当前API可能不支持直接视频输入。`,
-        });
-      } else if (fileType === 'audio') {
-        contentParts.push({
-          type: 'text',
-          text: `[音频文件 - 大小${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB] 请描述这个音频可能包含的内容。注意：当前API可能不支持直接音频输入。`,
-        });
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 90000);
-      try {
-        const response = await fetch(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'mimo-v2.5',
-            messages: [{ role: 'user', content: contentParts }],
-            max_tokens: 1024,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          const data = await response.json() as { choices: { message: { content: string } }[] };
-          const result = data.choices?.[0]?.message?.content;
-          if (result) return result;
-          if (attempt < retries) {
-            await delay(2000 * attempt);
-            continue;
-          }
-          return '[标注失败]';
-        }
-
-        if (attempt < retries) {
-          const errorBody = await response.text().catch(() => '');
-          console.warn(`图片标注第${attempt}次失败 (${response.status}), ${retries - attempt}次重试剩余: ${errorBody.slice(0, 200)}`);
-          await delay(2000 * attempt);
-          continue;
-        }
-
-        const errorBody = await response.text().catch(() => '');
-        return `[标注请求失败: ${response.status} ${errorBody.slice(0, 200)}]`;
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        if ((fetchErr as Error).name === 'AbortError' && attempt < retries) {
-          console.warn(`图片标注第${attempt}次超时, ${retries - attempt}次重试剩余`);
-          await delay(2000 * attempt);
-          continue;
-        }
-        throw fetchErr;
-      }
-    } catch (e) {
-      if (attempt < retries) {
-        console.warn(`标注第${attempt}次异常: ${(e as Error).message}, ${retries - attempt}次重试剩余`);
-        await delay(2000 * attempt);
-        continue;
-      }
-      if (extractedText) return extractedText.slice(0, 2000);
-      return `[标注异常: ${(e as Error).message}]`;
-    }
-  }
-
-  if (extractedText) return extractedText.slice(0, 2000);
-  return '[标注失败]';
-}
-
-export function deleteFile(filePath: string): void {
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch {
-    // ignore
-  }
-}
-
 export const ALLOWED_MIME_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
-  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'video/mp4', 'video/webm', 'video/quicktime',
   'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/mp4',
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/msword',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain', 'text/csv', 'text/markdown',
 ];
 
 export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 9;
 
-const MAGIC_BYTES: Record<string, { bytes: number[]; offset?: number }[]> = {
-  'image/jpeg': [{ bytes: [0xFF, 0xD8, 0xFF] }],
-  'image/png': [{ bytes: [0x89, 0x50, 0x4E, 0x47] }],
-  'image/gif': [{ bytes: [0x47, 0x49, 0x46] }],
-  'image/webp': [{ bytes: [0x52, 0x49, 0x46, 0x46] }],
-  'image/bmp': [{ bytes: [0x42, 0x4D] }],
-  'video/mp4': [{ bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }],
-  'video/webm': [{ bytes: [0x1A, 0x45, 0xDF, 0xA3] }],
-  'video/quicktime': [{ bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }],
-  'audio/mpeg': [{ bytes: [0xFF, 0xFB] }, { bytes: [0x49, 0x44, 0x33] }],
-  'audio/wav': [{ bytes: [0x52, 0x49, 0x46, 0x46] }],
-  'audio/ogg': [{ bytes: [0x4F, 0x67, 0x67, 0x53] }],
-  'audio/aac': [{ bytes: [0xFF, 0xF1] }, { bytes: [0xFF, 0xF9] }],
-  'application/pdf': [{ bytes: [0x25, 0x50, 0x44, 0x46] }],
-  'application/zip': [{ bytes: [0x50, 0x4B, 0x03, 0x04] }],
+const MAGIC_BYTES: Record<string, number[][]> = {
+  'image/jpeg': [[0xFF, 0xD8, 0xFF]],
+  'image/png': [[0x89, 0x50, 0x4E, 0x47]],
+  'image/gif': [[0x47, 0x49, 0x46, 0x38]],
+  'image/webp': [[0x52, 0x49, 0x46, 0x46]],
+  'video/mp4': [[0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]],
+  'video/webm': [[0x1A, 0x45, 0xDF, 0xA3]],
+  'video/quicktime': [
+    [0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70],
+    [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70],
+  ],
+  'audio/mpeg': [[0xFF, 0xFB], [0xFF, 0xF3], [0xFF, 0xF2], [0x49, 0x44, 0x33]],
+  'audio/wav': [[0x52, 0x49, 0x46, 0x46]],
+  'audio/ogg': [[0x4F, 0x67, 0x67, 0x53]],
+  'audio/aac': [[0xFF, 0xF1], [0xFF, 0xF9]],
+  'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
 };
 
 export function validateFileMagicBytes(buffer: Buffer, mimeType: string): boolean {
-  const signatures = MAGIC_BYTES[mimeType];
-  if (!signatures) return true;
+  const patterns = MAGIC_BYTES[mimeType];
+  if (!patterns) return true;
+  return patterns.some((p) => p.every((b, i) => buffer[i] === b));
+}
 
-  for (const sig of signatures) {
-    const offset = sig.offset || 0;
-    if (buffer.length < offset + sig.bytes.length) continue;
-    const slice = buffer.slice(offset, offset + sig.bytes.length);
-    if (sig.bytes.every((byte, i) => slice[i] === byte)) return true;
+export function deleteFile(filePath: string) {
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    if (filePath.endsWith('.jpg')) {
+      const base = filePath.replace(/\.jpg$/, '');
+      const imgExts = ['.png', '.gif', '.webp', '.mp4', '.webm', '.mov', '.pdf', '.docx', '.xlsx', '.pptx'];
+      for (const ext of imgExts) {
+        const altPath = base + ext;
+        if (fs.existsSync(altPath)) fs.unlinkSync(altPath);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function generateThumbnail(filePath: string, thumbPath: string, fileType: string): string | null {
+  try {
+    if (fileType === 'image') {
+      const sharp = require('sharp');
+      sharp(filePath).resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFile(thumbPath);
+      return fs.existsSync(thumbPath) ? thumbPath : null;
+    }
+    if (fileType === 'video') {
+      execSync(
+        `ffmpeg -i "${filePath}" -ss 00:00:01 -vframes 1 -vf "scale=400:-1" -q:v 3 "${thumbPath}" -y`,
+        { timeout: 15000, stdio: 'pipe' }
+      );
+      return fs.existsSync(thumbPath) ? thumbPath : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getMediaMetadata(filePath: string): string | null {
+  try {
+    const output = execSync(
+      `ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`,
+      { timeout: 8000, stdio: 'pipe' }
+    ).toString();
+    const info = JSON.parse(output);
+    const videoStream = info.streams?.find((s: { codec_type: string }) => s.codec_type === 'video');
+    const audioStream = info.streams?.find((s: { codec_type: string }) => s.codec_type === 'audio');
+    const duration = info.format?.duration
+      ? `${Math.floor(parseFloat(info.format.duration) / 60)}分${Math.round(parseFloat(info.format.duration) % 60)}秒`
+      : '未知时长';
+    const lines: string[] = [`时长: ${duration}`];
+    if (videoStream) {
+      lines.push(`分辨率: ${videoStream.width || '?'}x${videoStream.height || '?'}`);
+      lines.push(`编码: ${videoStream.codec_name || '未知'}`);
+    }
+    if (audioStream && !videoStream) {
+      lines.push(`编码: ${audioStream.codec_name || '未知'}`);
+      lines.push(`采样率: ${audioStream.sample_rate || '未知'}Hz`);
+    }
+    return lines.join('; ');
+  } catch {
+    return null;
+  }
+}
+
+async function extractDocumentText(filePath: string, mimeType: string): Promise<string | null> {
+  try {
+    if (mimeType === 'application/pdf') {
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(fs.readFileSync(filePath));
+      return data.text?.slice(0, 5000) || null;
+    }
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ path: filePath });
+      return result.value?.slice(0, 5000) || null;
+    }
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      || mimeType === 'application/vnd.ms-excel') {
+      const XLSX = require('xlsx');
+      const workbook = XLSX.readFile(filePath);
+      let text = '';
+      for (const sheetName of workbook.SheetNames.slice(0, 3)) {
+        const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+        text += `[工作表: ${sheetName}]\n${csv}\n\n`;
+      }
+      return text.slice(0, 5000);
+    }
+    if (mimeType === 'text/plain' || mimeType === 'text/csv' || mimeType === 'text/markdown') {
+      return fs.readFileSync(filePath, 'utf-8').slice(0, 5000);
+    }
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+      return '演示文稿文件';
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function callAIModel(
+  prompt: string, filePath: string | null, fileType: string, mimeType: string
+): Promise<string | null> {
+  const aiApiKey = process.env.MIMO_API_KEY || '';
+  const aiBaseUrl = process.env.MIMO_BASE_URL || 'https://api.mimo.run/v1';
+
+  try {
+    const messages: { role: string; content: unknown }[] = [
+      { role: 'system', content: '你是一个专业的文件分析助手，请用中文回复，简洁专业。' },
+    ];
+
+    if (fileType === 'image' && filePath && fs.existsSync(filePath)) {
+      const buffer = fs.readFileSync(filePath);
+      const base64 = buffer.toString('base64');
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+        ],
+      });
+    } else {
+      messages.push({ role: 'user', content: prompt });
+    }
+
+    const response = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiApiKey}` },
+      body: JSON.stringify({ model: 'mimo-v2', messages, max_tokens: 500, temperature: 0.5 }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[fileService] AI API error:', response.status, errText.slice(0, 200));
+      return null;
+    }
+
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    return data?.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    console.error('[fileService] callAIModel error:', err);
+    return null;
+  }
+}
+
+export async function annotateWithMimo(
+  filePath: string, fileType: string, mimeType: string, extractedText: string
+): Promise<string> {
+  let prompt = '';
+
+  if (fileType === 'document') {
+    prompt = `请用中文简要分析这份文档的内容和用途。`;
+    if (extractedText) {
+      prompt += `\n\n文档内容摘录:\n${extractedText.slice(0, 3000)}`;
+    }
+    prompt += '\n\n请用3-5句话总结核心内容，然后另起一行给出"标签: 关键词1, 关键词2, 关键词3"。';
+  } else if (fileType === 'video') {
+    const metadata = getMediaMetadata(filePath);
+    prompt = `请分析这个视频文件（MIME: ${mimeType}）。\n文件名: ${path.basename(filePath)}`;
+    if (metadata) prompt += `\n元数据: ${metadata}`;
+    prompt += '\n\n请根据文件名和元数据推断视频可能的内容类型和用途（3-4句话），然后给出"标签: 关键词1, 关键词2"。';
+  } else if (fileType === 'audio') {
+    const metadata = getMediaMetadata(filePath);
+    prompt = `请分析这个音频文件（MIME: ${mimeType}）。\n文件名: ${path.basename(filePath)}`;
+    if (metadata) prompt += `\n元数据: ${metadata}`;
+    prompt += '\n\n请根据文件名和元数据推断音频可能的内容类型和用途（3-4句话），然后给出"标签: 关键词1, 关键词2"。';
+  } else if (fileType === 'image') {
+    prompt = `请用中文简要描述这张图片的内容，包括主要对象、场景、氛围等（3-5句话），然后给出"标签: 关键词1, 关键词2"。`;
   }
 
-  const officeMimeTypes = [
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/msword',
-    'application/vnd.ms-excel',
-  ];
-  if (officeMimeTypes.includes(mimeType)) {
-    const zipSig = MAGIC_BYTES['application/zip'][0];
-    if (buffer.length >= 4 && zipSig.bytes.every((byte, i) => buffer[i] === byte)) return true;
+  const annotation = await callAIModel(prompt, filePath, fileType, mimeType);
+
+  if (annotation) return annotation;
+
+  if (fileType === 'document' && extractedText) {
+    return `文档内容: ${extractedText.slice(0, 200).replace(/\n/g, ' ')}...`;
+  }
+  if (fileType === 'video') {
+    const meta = getMediaMetadata(filePath);
+    return `视频文件` + (meta ? `（${meta}）` : '');
+  }
+  if (fileType === 'audio') {
+    const meta = getMediaMetadata(filePath);
+    return `音频文件` + (meta ? `（${meta}）` : '');
+  }
+  return `文件 ${path.basename(filePath)}`;
+}
+
+function getFileExtension(mimeType: string): string {
+  const map: Record<string, string> = {
+    'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+    'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/ogg': '.ogg', 'audio/webm': '.weba',
+    'audio/aac': '.aac', 'audio/mp4': '.m4a',
+    'application/pdf': '.pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/vnd.ms-excel': '.xls',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'text/plain': '.txt', 'text/csv': '.csv', 'text/markdown': '.md',
+  };
+  return map[mimeType] || '.bin';
+}
+
+export async function processUploadedFile(
+  buffer: Buffer,
+  originalName: string,
+  mimeType: string,
+) {
+  ensureDir(UPLOAD_DIR);
+  ensureDir(path.join(UPLOAD_DIR, 'thumbnails'));
+
+  const fileType = getFileType(mimeType);
+  const ext = getFileExtension(mimeType);
+  const timestamp = Date.now();
+  const safeName = `${timestamp}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const filePath = path.join(UPLOAD_DIR, safeName);
+  const fileSize = buffer.length;
+
+  fs.writeFileSync(filePath, buffer);
+
+  let thumbnailPath: string | null = null;
+  if (fileType === 'image' || fileType === 'video') {
+    const thumbName = `thumb_${safeName.replace(ext, '.jpg')}`;
+    const thumbFilePath = path.join(UPLOAD_DIR, 'thumbnails', thumbName);
+    thumbnailPath = generateThumbnail(filePath, thumbFilePath, fileType);
   }
 
-  return false;
+  let extractedText = '';
+  if (fileType === 'document') {
+    const text = await extractDocumentText(filePath, mimeType);
+    if (text) extractedText = text;
+  }
+
+  return {
+    fileName: safeName,
+    originalName,
+    mimeType,
+    fileSize,
+    filePath,
+    thumbnailPath,
+    extractedText,
+  };
 }

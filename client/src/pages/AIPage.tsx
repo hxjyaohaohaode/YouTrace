@@ -504,12 +504,12 @@ export default function AIPage() {
                             <div className="flex flex-wrap gap-1.5">
                               {msg.attachmentMeta.map((att) => {
                                 const thumbUrl = getThumbnailUrl(att.thumbnailPath);
-                                const originalUrl = att.fileType === 'image' ? getOriginalFileUrl(att.filePath) : getAttachmentDownloadUrl(att.id, true);
+                                const downloadUrl = att.fileType === 'image' ? getOriginalFileUrl(att.filePath) : getAttachmentDownloadUrl(att.id, true);
                                 if (att.fileType === 'image') {
                                   return (
                                     <a
                                       key={att.id}
-                                      href={originalUrl || '#'}
+                                      href={downloadUrl || '#'}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="block w-16 h-16 rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
@@ -524,16 +524,53 @@ export default function AIPage() {
                                     </a>
                                   );
                                 }
+                                if (att.fileType === 'video') {
+                                  return (
+                                    <a
+                                      key={att.id}
+                                      href={downloadUrl || '#'}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors group"
+                                    >
+                                      <span className="text-lg">🎬</span>
+                                      <div className="min-w-0">
+                                        <span className="truncate block max-w-[100px]">{att.originalName}</span>
+                                        <span className="text-white/40 text-[9px]">点击下载观看</span>
+                                      </div>
+                                    </a>
+                                  );
+                                }
+                                if (att.fileType === 'audio') {
+                                  return (
+                                    <a
+                                      key={att.id}
+                                      href={downloadUrl || '#'}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors group"
+                                    >
+                                      <span className="text-lg">🎵</span>
+                                      <div className="min-w-0">
+                                        <span className="truncate block max-w-[100px]">{att.originalName}</span>
+                                        <span className="text-white/40 text-[9px]">点击下载收听</span>
+                                      </div>
+                                    </a>
+                                  );
+                                }
                                 return (
                                   <a
                                     key={att.id}
-                                    href={originalUrl || '#'}
+                                    href={downloadUrl || '#'}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 px-2 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors max-w-[140px]"
+                                    className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors group"
                                   >
-                                    <span>{getFileTypeIcon(att.fileType)}</span>
-                                    <span className="truncate">{att.originalName}</span>
+                                    <span className="text-lg">{getFileTypeIcon(att.fileType)}</span>
+                                    <div className="min-w-0">
+                                      <span className="truncate block max-w-[100px]">{att.originalName}</span>
+                                      <span className="text-white/40 text-[9px]">点击下载查看</span>
+                                    </div>
                                   </a>
                                 );
                               })}
@@ -542,10 +579,19 @@ export default function AIPage() {
                             <div className="flex flex-wrap gap-1">
                               {msg.attachmentIds.map((attId, i) => {
                                 const attName = msg.attachmentNames?.[i] || `附件${i + 1}`;
+                                const downloadUrl = getAttachmentDownloadUrl(attId, true);
                                 return (
-                                  <span key={attId} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded text-[10px] text-white/70">
-                                    📎 {attName}
-                                  </span>
+                                  <a
+                                    key={attId}
+                                    href={downloadUrl || '#'}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-[10px] text-white/80 transition-colors"
+                                  >
+                                    <span>📎</span>
+                                    <span className="truncate max-w-[100px]">{attName}</span>
+                                    <svg className="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                  </a>
                                 );
                               })}
                             </div>
@@ -605,36 +651,59 @@ export default function AIPage() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        AI分析中...
+                        AI 分析中...
+                      </span>
+                    )}
+                    {!pendingAttachments.some((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending') && (
+                      <span className="text-[10px] text-green-500 font-medium flex items-center gap-0.5">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        分析完成
                       </span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {pendingAttachments.map((att) => {
                       const thumbUrl = getThumbnailUrl(att.thumbnailPath);
+                      const isProcessing = att.annotationStatus === 'processing' || att.annotationStatus === 'pending';
                       return (
                         <div
                           key={att.id}
                           className="relative group"
                         >
                           {att.fileType === 'image' && thumbUrl ? (
-                            <div className="w-12 h-12 rounded-lg overflow-hidden border border-surface-200 dark:border-surface-700">
-                              <img src={thumbUrl} alt={att.originalName} className="w-full h-full object-cover" />
+                            <div className={`w-12 h-12 rounded-lg overflow-hidden border ${isProcessing ? 'border-brand-200 dark:border-brand-800 ring-1 ring-brand-100' : 'border-surface-200 dark:border-surface-700'}`}>
+                              <img src={thumbUrl} alt={att.originalName} className={`w-full h-full object-cover ${isProcessing ? 'opacity-60' : ''}`} />
+                              {isProcessing && (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-brand-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                </div>
+                              )}
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-surface-700 border border-surface-200 dark:border-surface-600 rounded-lg text-xs max-w-[160px]">
+                            <div className={`flex items-center gap-1 px-2 py-1 bg-white dark:bg-surface-700 border border-surface-200 dark:border-surface-600 rounded-lg text-xs max-w-[160px] ${isProcessing ? 'border-brand-200 dark:border-brand-800' : ''}`}>
                               <span>{getFileTypeIcon(att.fileType)}</span>
                               <span className="truncate text-surface-700 dark:text-surface-300">{att.originalName}</span>
+                              {isProcessing && (
+                                <svg className="w-3 h-3 text-brand-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                              )}
                             </div>
                           )}
-                          <button
-                            onClick={() => removeAttachment(att.id)}
-                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
+                          {att.annotationStatus !== 'processing' && att.annotationStatus !== 'pending' && (
+                            <button
+                              onClick={() => removeAttachment(att.id)}
+                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
                           {att.annotationStatus === 'completed' && (
                             <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-green-500 flex items-center justify-center">
                               <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -646,15 +715,25 @@ export default function AIPage() {
                       );
                     })}
                   </div>
-                  {pendingAttachments.some((a) => a.aiAnnotation) && (
-                    <div className="mt-1.5 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
-                      {pendingAttachments.filter((a) => a.aiAnnotation).map((att) => (
-                        <p key={att.id} className="text-[10px] text-blue-600 dark:text-blue-400">
-                          <span className="font-medium">{att.originalName}:</span> {att.aiAnnotation.slice(0, 60)}{att.aiAnnotation.length > 60 ? '...' : ''}
-                        </p>
-                      ))}
+                  {pendingAttachments.some((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending') && (
+                    <div className="mt-2 p-2 bg-brand-50 dark:bg-brand-950/30 rounded-lg border border-brand-100 dark:border-brand-900/50">
+                      <p className="text-[10px] text-brand-600 dark:text-brand-400 leading-relaxed">
+                        <span className="font-medium">⏳ 正在分析附件内容...</span>
+                        <br />分析完成后即可发送消息，AI 将更好地理解你的附件内容。请稍候。
+                      </p>
                     </div>
                   )}
+                  {!pendingAttachments.some((a) => a.annotationStatus === 'processing' || a.annotationStatus === 'pending')
+                    && pendingAttachments.some((a) => a.aiAnnotation)
+                    && (
+                      <div className="mt-1.5 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg">
+                        {pendingAttachments.filter((a) => a.aiAnnotation).map((att) => (
+                          <p key={att.id} className="text-[10px] text-blue-600 dark:text-blue-400">
+                            <span className="font-medium">{att.originalName}:</span> {att.aiAnnotation.slice(0, 60)}{att.aiAnnotation.length > 60 ? '...' : ''}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                 </div>
               )}
               {isDragOver && (
