@@ -10,12 +10,20 @@ interface CreateDiaryBody {
   content: string;
   mediaUrls?: string[];
   attachmentIds?: string[];
+  weather?: Record<string, unknown>;
+  locationName?: string;
+  locationLat?: number;
+  locationLng?: number;
 }
 
 interface UpdateDiaryBody {
   content?: string;
   mediaUrls?: string[];
   attachmentIds?: string[];
+  weather?: Record<string, unknown>;
+  locationName?: string;
+  locationLat?: number;
+  locationLng?: number;
 }
 
 interface PaginationQuery {
@@ -113,7 +121,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: CreateDiaryBody }>('/api/diaries', {
     preHandler: authMiddleware,
   }, async (request, reply) => {
-    const { content, mediaUrls, attachmentIds } = request.body;
+    const { content, mediaUrls, attachmentIds, weather, locationName, locationLat, locationLng } = request.body;
     if (!content || content.trim().length === 0) {
       return reply.status(400).send({ success: false, message: '日记内容不能为空' });
     }
@@ -136,6 +144,10 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
         emotionTags: JSON.stringify(emotion.tags),
         aiInsight: emotion.insight || null,
         mediaUrls: JSON.stringify(mediaUrls || []),
+        weather: JSON.stringify(weather || {}),
+        locationName: locationName || '',
+        locationLat: locationLat || null,
+        locationLng: locationLng || null,
       },
     });
 
@@ -165,7 +177,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     preHandler: authMiddleware,
   }, async (request, reply) => {
     const { id } = request.params;
-    const { content, mediaUrls, attachmentIds } = request.body;
+    const { content, mediaUrls, attachmentIds, weather, locationName, locationLat, locationLng } = request.body;
 
     const existing = await prisma.diary.findFirst({ where: { id, userId: request.userId, isDeleted: false } });
     if (!existing) {
@@ -188,6 +200,10 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
       updateData.aiInsight = result.insight || existing.aiInsight;
     }
     if (mediaUrls !== undefined) updateData.mediaUrls = JSON.stringify(mediaUrls);
+    if (weather !== undefined) updateData.weather = JSON.stringify(weather);
+    if (locationName !== undefined) updateData.locationName = locationName;
+    if (locationLat !== undefined) updateData.locationLat = locationLat;
+    if (locationLng !== undefined) updateData.locationLng = locationLng;
 
     await prisma.diary.update({ where: { id }, data: updateData });
 

@@ -20,6 +20,7 @@ import weatherRoutes from './routes/weather.js';
 import uploadRoutes from './routes/upload.js';
 import smsRoutes from './routes/sms.js';
 import scheduleRoutes from './routes/schedule.js';
+import searchRoutes from './routes/search.js';
 import { startCronTriggers, stopCronTriggers } from './services/triggerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +69,7 @@ await fastify.register(weatherRoutes);
 await fastify.register(uploadRoutes);
 await fastify.register(smsRoutes);
 await fastify.register(scheduleRoutes);
+await fastify.register(searchRoutes);
 
 const publicDir = path.join(__dirname, '..', 'public');
 if (process.env.NODE_ENV === 'production') {

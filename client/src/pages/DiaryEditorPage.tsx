@@ -1,6 +1,8 @@
 ﻿import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
+import { useWeatherStore } from '../stores/weatherStore';
+import { useLocationStore } from '../stores/locationStore';
 import { uploadApi, getThumbnailUrl, type AttachmentResult } from '../api/upload';
 
 const MAX_ATTACHMENTS = 9;
@@ -12,6 +14,8 @@ function DiaryEditorPage() {
   const navigate = useNavigate();
   const isEditing = !!id;
   const { currentDiary, fetchDiary, createDiary, updateDiary, error } = useDiaryStore();
+  const { currentWeather } = useWeatherStore();
+  const { location } = useLocationStore();
   const [content, setContent] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentResult[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -191,11 +195,23 @@ function DiaryEditorPage() {
     if (!content.trim() || isSaving) return;
     setIsSaving(true);
     const attachmentIds = pendingAttachments.map((a) => a.id);
+
+    const weatherData = currentWeather?.now ? {
+      temp: currentWeather.now.temp,
+      text: currentWeather.now.text,
+      icon: currentWeather.now.icon,
+      humidity: currentWeather.now.humidity,
+      windDir: currentWeather.now.windDir,
+      windScale: currentWeather.now.windScale,
+    } : undefined;
+
+    const locName = location ? (location.city || location.district || location.formattedAddress) : undefined;
+
     try {
       if (isEditing && id) {
         await updateDiary(id, content, attachmentIds.length > 0 ? attachmentIds : undefined);
       } else {
-        await createDiary(content, attachmentIds.length > 0 ? attachmentIds : undefined);
+        await createDiary(content, attachmentIds.length > 0 ? attachmentIds : undefined, weatherData ? JSON.stringify(weatherData) : undefined, locName);
       }
       if (!useDiaryStore.getState().error) {
         navigate('/');

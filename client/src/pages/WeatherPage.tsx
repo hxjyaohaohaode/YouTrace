@@ -20,7 +20,7 @@ const WEATHER_ICONS: Record<string, string> = {
   '900': '🥵', '901': '🥶', '999': '❓',
 };
 
-function getWeatherIcon(code: string): string {
+export function getWeatherIcon(code: string): string {
   return WEATHER_ICONS[code] || '❓';
 }
 
@@ -219,6 +219,19 @@ function getLifeSuggestions(
   return suggestions;
 }
 
+const WATCHLIST_KEY = 'youji_weather_watchlist';
+
+function loadWatchlist(): Array<{ name: string; lng: number; lat: number }> {
+  try {
+    const raw = localStorage.getItem(WATCHLIST_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveWatchlist(list: Array<{ name: string; lng: number; lat: number }>) {
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+}
+
 function WeatherPage() {
   const { currentWeather, forecast, isLoading, error, refreshAll } = useWeatherStore();
   const { location, coords, searchResults, permissionStatus, requestBrowserLocation, searchCity, clearSearch } = useLocationStore();
@@ -229,6 +242,8 @@ function WeatherPage() {
   const [selectedLocation, setSelectedLocation] = useState<LocationInfo | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [watchlist, setWatchlist] = useState(loadWatchlist);
+  const [showWatchlist, setShowWatchlist] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
 
@@ -400,6 +415,15 @@ function WeatherPage() {
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
+                onClick={() => setShowWatchlist(!showWatchlist)}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${watchlist.length > 0 ? 'text-star-500' : 'text-surface-400 hover:text-yellow-500'}`}
+                title="关注城市"
+              >
+                <svg className="w-5 h-5" fill={watchlist.length > 0 ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+              </button>
+              <button
                 onClick={() => setShowSearch(!showSearch)}
                 className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500 transition-colors"
                 title="搜索城市"
@@ -446,6 +470,50 @@ function WeatherPage() {
             </div>
           </div>
 
+          {showWatchlist && (
+            <div ref={searchRef} className="mt-3">
+              <div className="bg-white dark:bg-surface-800 rounded-xl border border-surface-200 dark:border-surface-700 shadow-card overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-surface-50 dark:border-surface-700">
+                  <span className="text-sm font-semibold text-surface-700 dark:text-surface-200">关注城市</span>
+                  <span className="text-xs text-surface-400">{watchlist.length}个城市</span>
+                </div>
+                {watchlist.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-xs text-surface-400">
+                    还没有关注城市，搜索城市后点击"添加关注"即可快速切换
+                  </p>
+                ) : (
+                  watchlist.map((city, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setSelectedLocation(null);
+                        setShowWatchlist(false);
+                        refreshAll({ lng: city.lng, lat: city.lat });
+                      }}
+                      className="w-full px-4 py-3 text-left hover:bg-surface-50 dark:hover:bg-surface-700 transition-colors border-b border-surface-50 dark:border-surface-700 last:border-0 flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-surface-700 dark:text-surface-200">{city.name}</p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newList = watchlist.filter((_, i) => i !== idx);
+                          setWatchlist(newList);
+                          saveWatchlist(newList);
+                        }}
+                        className="w-6 h-6 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-surface-400 hover:text-red-500 flex items-center justify-center text-xs"
+                        title="移除"
+                      >
+                        ×
+                      </button>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           {showSearch && (
             <div ref={searchRef} className="mt-3">
               <div className="relative">
@@ -467,12 +535,31 @@ function WeatherPage() {
                     <button
                       key={index}
                       onClick={() => handleSelectCity(result)}
-                      className="w-full px-4 py-3 text-left hover:bg-surface-50 dark:hover:bg-surface-700 transition-colors border-b border-surface-50 dark:border-surface-700 last:border-0"
+                      className="w-full px-4 py-3 text-left hover:bg-surface-50 dark:hover:bg-surface-700 transition-colors border-b border-surface-50 dark:border-surface-700 last:border-0 flex items-center justify-between"
                     >
-                      <p className="text-sm font-medium text-surface-700 dark:text-surface-200">{result.formattedAddress}</p>
-                      <p className="text-xs text-surface-400 mt-0.5">
-                        {result.longitude && result.latitude ? `${result.longitude.toFixed(4)}, ${result.latitude.toFixed(4)}` : ''}
-                      </p>
+                      <div>
+                        <p className="text-sm font-medium text-surface-700 dark:text-surface-200">{result.formattedAddress}</p>
+                        <p className="text-xs text-surface-400 mt-0.5">
+                          {result.longitude && result.latitude ? `${result.longitude.toFixed(4)}, ${result.latitude.toFixed(4)}` : ''}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (result.longitude && result.latitude) {
+                            const entry = { name: result.city || result.district || result.formattedAddress, lng: result.longitude, lat: result.latitude };
+                            if (!watchlist.find(w => w.lng === entry.lng && w.lat === entry.lat)) {
+                              const newList = [...watchlist, entry];
+                              setWatchlist(newList);
+                              saveWatchlist(newList);
+                            }
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 text-yellow-600 dark:text-yellow-400 text-xs font-medium hover:bg-yellow-100 dark:hover:bg-yellow-950/50 transition-colors"
+                        title="添加关注"
+                      >
+                        + 关注
+                      </button>
                     </button>
                   ))}
                 </div>

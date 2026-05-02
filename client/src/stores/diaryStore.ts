@@ -12,8 +12,8 @@ interface DiaryState {
   totalPages: number;
   fetchDiaries: (page?: number, pageSize?: number, search?: string, emotionTag?: string) => Promise<void>;
   fetchDiary: (id: string) => Promise<void>;
-  createDiary: (content: string, attachmentIds?: string[]) => Promise<void>;
-  updateDiary: (id: string, content: string, attachmentIds?: string[]) => Promise<void>;
+  createDiary: (content: string, attachmentIds?: string[], weather?: string, location?: string) => Promise<void>;
+  updateDiary: (id: string, content: string, attachmentIds?: string[], weather?: string, location?: string) => Promise<void>;
   deleteDiary: (id: string) => Promise<void>;
   analyzeDiary: (id: string) => Promise<void>;
   clearError: () => void;
@@ -56,10 +56,11 @@ export const useDiaryStore = create<DiaryState>((set) => ({
     }
   },
 
-  createDiary: async (content, attachmentIds) => {
+  createDiary: async (content: string, attachmentIds?: string[], weatherJson?: string, locationName?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await diaryApi.createDiary({ content, attachmentIds });
+      const weather = weatherJson ? (() => { try { return JSON.parse(weatherJson) as Record<string, unknown>; } catch { return undefined; } })() : undefined;
+      const response = await diaryApi.createDiary({ content, attachmentIds, weather, locationName });
       if (response.success && response.data) {
         const newDiary = response.data;
         set((state) => ({
@@ -72,10 +73,11 @@ export const useDiaryStore = create<DiaryState>((set) => ({
     }
   },
 
-  updateDiary: async (id, content, attachmentIds) => {
+  updateDiary: async (id: string, content: string, attachmentIds?: string[], weatherJson?: string, locationName?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await diaryApi.updateDiary(id, { content, attachmentIds });
+      const weather = weatherJson ? (() => { try { return JSON.parse(weatherJson) as Record<string, unknown>; } catch { return undefined; } })() : undefined;
+      const response = await diaryApi.updateDiary(id, { content, attachmentIds, weather, locationName });
       if (response.success && response.data) {
         set({ currentDiary: response.data, isLoading: false });
       }

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import prisma from '../utils/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { eventToLocalISO } from '../utils/date.js';
 
 interface CreateEventBody {
   title: string;
@@ -93,7 +94,7 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
       include: { goal: { select: { id: true, title: true } } },
     });
 
-    return reply.send({ success: true, data: events });
+    return reply.send({ success: true, data: events.map((e) => eventToLocalISO(e as unknown as Record<string, unknown>)) });
   });
 
   fastify.post<{ Body: CreateEventBody }>('/api/events', {
@@ -154,7 +155,7 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(201).send({
       success: true,
-      data: { ...event, hasConflict, conflicts },
+      data: { ...eventToLocalISO(event as unknown as Record<string, unknown>), hasConflict, conflicts },
       message: hasConflict ? '日程创建成功，但存在时间冲突' : '日程创建成功',
     });
   });
@@ -219,7 +220,7 @@ const eventRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({
       success: true,
-      data: { ...event, hasConflict, conflicts },
+      data: { ...eventToLocalISO(event as unknown as Record<string, unknown>), hasConflict, conflicts },
       message: '日程更新成功',
     });
   });

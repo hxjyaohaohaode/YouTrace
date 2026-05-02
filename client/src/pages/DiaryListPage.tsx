@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useGoalStore } from '../stores/goalStore';
 import { useHabitStore } from '../stores/habitStore';
 import DiaryCard from '../components/DiaryCard';
+import GlobalSearch from '../components/GlobalSearch';
 import { diaryApi } from '../api/diary';
 import { EmotionIcon, type EmotionIconName } from '../utils/emotion';
 
@@ -29,6 +30,11 @@ function DiaryListPage() {
     const [page, setPage] = useState(1);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+
+    const handleDiarySearch = useCallback((keyword: string) => {
+        setSearch(keyword);
+        setDebouncedSearch(keyword);
+    }, []);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -107,27 +113,7 @@ function DiaryListPage() {
                 </div>
 
                 <div className="md:max-w-3xl lg:max-w-4xl mx-auto px-4 sm:px-8 lg:px-12 pb-3 sm:pb-4">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="搜索日记内容..."
-                            className="input-field pl-10" />
-                        <svg className="w-4 h-4 text-surface-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        {search && (
-                            <button
-                                onClick={() => setSearch('')}
-                                className="absolute right-3.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-surface-200 flex items-center justify-center text-surface-500 hover:bg-surface-300 transition-colors"
-                            >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        )}
-                    </div>
+                    <GlobalSearch onDiarySearch={handleDiarySearch} />
 
                     <div className="flex gap-2 mt-3.5 overflow-x-auto scrollbar-hide pb-1">
                         {EMOTION_FILTERS.map((filter) => (

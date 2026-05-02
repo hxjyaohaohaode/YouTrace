@@ -113,7 +113,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ user: response.data, token, isAuthenticated: true });
       }
     } catch (error: unknown) {
-      const axiosErr = error as { response?: { status?: number } };
+      const axiosErr = error as { response?: { status?: number }; code?: string };
       const status = axiosErr?.response?.status;
       if (status === 401) {
         try {
@@ -143,6 +143,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         setCachedToken(null);
         set({ isAuthenticated: false, user: null, token: null });
       }
+      // Network errors or other non-401 errors: keep the user logged in with cached data
     }
   },
 }));

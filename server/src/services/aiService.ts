@@ -423,6 +423,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       year: { type: 'number', description: '年份', required: true },
     },
   },
+  {
+    name: 'web_search',
+    description: '联网搜索最新的真实信息。当你需要获取实时资讯、最新新闻、事实核查、专业知识等超出你知识截止日期范围的信息时使用此工具。搜索结果会包含标题、摘要和来源链接。',
+    parameters: {
+      query: { type: 'string', description: '搜索关键词，用简洁的语言描述你想搜索的内容', required: true },
+      count: { type: 'number', description: '返回结果数量，默认5，最大10' },
+    },
+  },
 ];
 
 export function getToolDescriptionsText(): string {

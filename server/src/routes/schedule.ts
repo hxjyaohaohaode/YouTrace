@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import prisma from '../utils/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { callAI, getProvider } from '../services/aiService.js';
+import { eventToLocalISO } from '../utils/date.js';
 
 interface RecognizeScheduleBody {
   attachmentId: string;
@@ -337,7 +338,7 @@ ${attachment.aiAnnotation}
 
     return reply.send({
       success: true,
-      data: { createdCount: createdEvents.length, events: createdEvents },
+      data: { createdCount: createdEvents.length, events: createdEvents.map((e) => eventToLocalISO(e as unknown as Record<string, unknown>)) },
       message: `成功创建${createdEvents.length}个课表日程`,
     });
   });
@@ -384,7 +385,7 @@ ${attachment.aiAnnotation}
 
     return reply.send({
       success: true,
-      data: { added: created.length, total: holidays.length },
+      data: { added: created.length, total: holidays.length, events: created.map((e) => eventToLocalISO(e as unknown as Record<string, unknown>)) },
       message: `已添加${created.length}个节假日/调休日`,
     });
   });

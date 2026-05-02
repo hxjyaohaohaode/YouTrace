@@ -2,6 +2,8 @@
 import type { EventItem } from '../types';
 import { getDaysInMonth, getFirstDayOfMonth, dateOnlyLocal } from '../utils/date';
 import { EmotionIcon, type EmotionIconName } from '../utils/emotion';
+import { useWeatherStore } from '../stores/weatherStore';
+import { getWeatherIcon } from '../pages/WeatherPage';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const WEEKDAYS_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -59,17 +61,31 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
 
     const eventsByDate = useMemo(() => buildEventsByDateMap(events), [events]);
 
+    const { forecast } = useWeatherStore();
+    const weekdayHeaders = WEEKDAYS.map((d, i) => {
+        const forecastDay = forecast?.daily?.find((fd) => {
+            const fdDate = new Date(fd.fxDate);
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() + (i - targetDate.getDay()));
+            return fdDate.toDateString() === targetDate.toDateString();
+        });
+        return (
+            <div key={d} className="text-center">
+                <span className="text-[10px] font-medium text-surface-400">{d}</span>
+                {forecastDay?.iconDay && (
+                    <span className="block text-sm leading-none mt-0.5">{getWeatherIcon(forecastDay.iconDay)}</span>
+                )}
+            </div>
+        );
+    });
+
     const days: (number | null)[] = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
     for (let i = 1; i <= daysInMonth; i++) days.push(i);
 
     return (
         <div className="grid grid-cols-7 gap-1">
-            {WEEKDAYS.map((day) => (
-                <div key={day} className="py-2 text-center text-xs font-semibold text-surface-400">
-                    {day}
-                </div>
-            ))}
+            {weekdayHeaders}
 
             {days.map((day, i) => {
                 if (day === null) {
@@ -97,11 +113,20 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                                 }`}>
                                 {day}
                             </span>
-                            {diaryInfo && diaryInfo.emotionTags.length > 0 && (
-                                <EmotionIcon emotion={diaryInfo.emotionTags[0] as EmotionIconName} className="w-3 h-3 opacity-60" />
-                            )}
+                            <div className="flex items-center gap-0.5">
+                                {(() => {
+                                    const forecastDay = forecast?.daily?.find(fd => fd.fxDate === dateStr);
+                                    if (forecastDay?.iconDay) {
+                                        return <span className="text-sm leading-none">{getWeatherIcon(forecastDay.iconDay)}</span>;
+                                    }
+                                    return null;
+                                })()}
+                                {diaryInfo && diaryInfo.emotionTags.length > 0 && (
+                                    <EmotionIcon emotion={diaryInfo.emotionTags[0] as EmotionIconName} className="w-3 h-3 opacity-60" />
+                                )}
+                            </div>
                         </div>
-                        <div className="mt-0.5 space-y-0.5">
+                        <div className="mt-0.5 space-y-0.5 overflow-hidden">
                             {diaryInfo && diaryInfo.imageCount && diaryInfo.imageCount > 0 && diaryInfo.thumbnailPaths && diaryInfo.thumbnailPaths.length > 0 && (
                                 <div className="flex gap-0.5 mt-0.5">
                                     {diaryInfo.thumbnailPaths.slice(0, 2).map((thumb, ti) => (
@@ -122,6 +147,7 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                                 <div
                                     key={event.id}
                                     onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
+                                    title={event.title}
                                     className="text-[10px] truncate rounded-md px-1.5 py-0.5 bg-red-100/80 text-red-600 cursor-pointer transition-colors font-medium"
                                 >
                                     🎌 {event.title}
@@ -131,6 +157,7 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                                 <div
                                     key={event.id}
                                     onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
+                                    title={`${event.title}${event.courseTeacher ? ' - ' + event.courseTeacher : ''}${event.courseLocation ? ' @' + event.courseLocation : ''}`}
                                     className="text-[10px] truncate rounded-md px-1.5 py-0.5 bg-purple-100/80 text-purple-700 cursor-pointer transition-colors font-medium"
                                 >
                                     📚 {event.title}
@@ -140,14 +167,29 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                                 <div
                                     key={event.id}
                                     onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
+                                    title={`${event.title}${event.description ? ' - ' + event.description : ''}`}
                                     className="text-[10px] truncate rounded-md px-1.5 py-0.5 bg-brand-100/80 text-brand-700 hover:bg-brand-200 cursor-pointer transition-colors font-medium"
                                 >
                                     {event.title}
                                 </div>
                             ))}
-                            {dayEvents.length > 2 + dayEvents.filter(e => e.isHoliday).length && (
-                                <span className="text-[10px] text-surface-400 font-medium">+{dayEvents.length - 2}更多</span>
-                            )}
+                            {(() => {
+                                const holidaysCount = dayEvents.filter(e => e.isHoliday).length;
+                                const coursesCount = dayEvents.filter(e => e.isCourse).length;
+                                const regularCount = dayEvents.length - holidaysCount - coursesCount;
+                                const shownCourses = Math.min(coursesCount, 2);
+                                const shownRegular = Math.min(regularCount, 2);
+                                const totalShown = holidaysCount + shownCourses + shownRegular;
+                                const hiddenCount = dayEvents.length - totalShown;
+                                if (hiddenCount > 0) {
+                                    return (
+                                        <span className="text-[10px] text-surface-400 font-medium cursor-pointer hover:text-brand-500">
+                                            +{hiddenCount}更多
+                                        </span>
+                                    );
+                                }
+                                return null;
+                            })()}
                         </div>
                     </div>
                 );

@@ -25,6 +25,7 @@ import {
 } from '../services/aiService.js';
 import { getLocation } from '../services/locationService.js';
 import { getWeatherNow, getAirQuality, getWeatherAlerts, getWeatherSummaryText, buildQWeatherLocation } from '../services/weatherService.js';
+import { prismaDateToLocal } from '../utils/date.js';
 
 interface ChatMessageBody {
   content: string;
@@ -124,6 +125,18 @@ const SYSTEM_PROMPT = `你是"有记"App的AI助手——一个极其智能、�
 
 **重要**：在回复前先思考——你是否需要先获取数据（天气、情绪趋势、日程分析等）才能给出专业建议？如果是，先调用分析工具，再基于数据给出建议。
 
+【反幻觉和数据真实性规则】***极其重要，必须严格遵守***
+- 你绝对不能编造、臆测或假设用户的任何数据（日程、目标、习惯、日记、情绪、天气等）
+- 当你需要引用用户的任何数据时，必须先调用相应的工具获取真实数据
+- 用户已有日程→先调用analyze_schedule获取数据后，再基于真实数据回复
+- 用户已有目标→先调用analyze_goal_progress获取数据后，再基于真实数据回复
+- 不要在没有数据支持的情况下说"你的日程显示..."、"根据你的数据..."
+- 如果你不确定某个数据是否存在，先调用工具查询，而不是猜测
+- 如果你调用了工具但没有得到结果（如今天没有日程），要如实告知用户，而不是编造内容
+- 不要说"我看到你的日程表上有XXX"除非你真的调用了工具并获取了该数据
+- 需要最新资讯、事实核查或超出你知识范围的信息→先调用web_search联网搜索权威来源，再基于搜索结果回复
+- 搜索时使用简洁准确的关键词，获得结果后归纳总结告知用户，并附上来源链接
+
 {TOOL_DESCRIPTIONS}
 
 【交互规则】
@@ -194,7 +207,8 @@ async function buildUserContext(userId: string, ip: string | undefined, attachme
   ]);
 
   let contextInfo = '';
-  contextInfo += `\n\n当前时间: ${now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' })}`;
+  const timeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]}`;
+  contextInfo += `\n\n【重要】当前精确时间: ${timeStr}（服务器本地时间，Asia/Shanghai时区）。你必须使用这个时间，不要臆测时间！`;
 
   if (user?.profile) {
     const p = user.profile;
@@ -238,15 +252,26 @@ async function buildUserContext(userId: string, ip: string | undefined, attachme
   }
 
   if (todayEvents.length > 0) {
-    contextInfo += '\n\n今日日程:\n' + todayEvents.map((e) =>
-      `- ${e.title} (${e.isAllDay ? '全天' : `${new Date(e.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - ${new Date(e.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`})`
-    ).join('\n');
+    contextInfo += '\n\n今日日程:\n' + todayEvents.map((e) => {
+      const start = prismaDateToLocal(new Date(e.startTime));
+      const end = prismaDateToLocal(new Date(e.endTime));
+      const sh = String(start.getHours()).padStart(2, '0');
+      const sm = String(start.getMinutes()).padStart(2, '0');
+      const eh = String(end.getHours()).padStart(2, '0');
+      const em = String(end.getMinutes()).padStart(2, '0');
+      return `- ${e.title} (${e.isAllDay ? '全天' : `${sh}:${sm} - ${eh}:${em}`})${e.isCourse && e.courseTeacher ? ' | 教师: ' + e.courseTeacher : ''}${e.isCourse && e.courseLocation ? ' | 教室: ' + e.courseLocation : ''}`;
+    }).join('\n');
   }
 
   if (upcomingEvents.length > 0) {
-    contextInfo += '\n\n即将到来的日程:\n' + upcomingEvents.map((e) =>
-      `- ${e.title} (${new Date(e.startTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })})`
-    ).join('\n');
+    contextInfo += '\n\n即将到来的日程:\n' + upcomingEvents.map((e) => {
+      const start = prismaDateToLocal(new Date(e.startTime));
+      const m = String(start.getMonth() + 1).padStart(2, '0');
+      const d = String(start.getDate()).padStart(2, '0');
+      const h = String(start.getHours()).padStart(2, '0');
+      const min = String(start.getMinutes()).padStart(2, '0');
+      return `- ${e.title} (${m}月${d}日 ${h}:${min})`;
+    }).join('\n');
   }
 
   if (recentDiaries.length > 0) {
@@ -601,8 +626,9 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
     const toolDescriptions = getToolDescriptionsText();
 
     const now = new Date();
+    const currentTimeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]}`;
     let systemContent = SYSTEM_PROMPT
-      .replace('{CURRENT_TIME}', now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' }))
+      .replace('{CURRENT_TIME}', currentTimeStr)
       .replace('{TOOL_DESCRIPTIONS}', toolDescriptions);
 
     if (selectedAgent.systemPromptAddition) {
@@ -870,8 +896,9 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
       const toolDescriptions = getToolDescriptionsText();
       const now = new Date();
+      const currentTimeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]}`;
       let systemContent = SYSTEM_PROMPT
-        .replace('{CURRENT_TIME}', now.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'long' }))
+        .replace('{CURRENT_TIME}', currentTimeStr)
         .replace('{TOOL_DESCRIPTIONS}', toolDescriptions);
 
       if (selectedAgent.systemPromptAddition) {
@@ -1598,27 +1625,33 @@ ${contextInfo}
           if (!category || !key || !value) {
             return { name: toolCall.name, success: false, data: null, message: '缺少必要参数：category, key, value' };
           }
+          const existing = await prisma.memoryItem.findUnique({
+            where: { userId_category_key: { userId, category, key } },
+          });
+          const confidence = existing ? Math.min(existing.confidence + 10, 100) : 80;
           await prisma.memoryItem.upsert({
-            where: {
-              userId_category_key: { userId, category, key },
-            },
+            where: { userId_category_key: { userId, category, key } },
             create: {
-              userId,
-              category,
-              key,
-              value,
-              source: 'ai_tool',
-              confidence: 85,
+              userId, category, key, value,
+              source: 'ai_auto',
+              confidence,
               isVerified: false,
             },
             update: {
               value,
-              source: 'ai_tool',
-              confidence: 85,
+              source: 'ai_auto',
+              confidence,
             },
           });
           await updateProfileFromMemory(userId, category, key, value);
-          return { name: toolCall.name, success: true, data: { category, key, value }, message: `已记忆: ${key} = ${value}` };
+          return {
+            name: toolCall.name,
+            success: true,
+            data: { category, key, value, confidence },
+            message: existing
+              ? `更新记忆: ${category}/${key} = ${value} (置信度${confidence}%)`
+              : `新增记忆: ${category}/${key} = ${value}`,
+          };
         } catch (e) {
           return { name: toolCall.name, success: false, data: null, message: `保存记忆失败: ${(e as Error).message}` };
         }
@@ -1721,24 +1754,34 @@ ${contextInfo}
             orderBy: { startTime: 'asc' },
           });
 
-          const dayMap: Record<string, { count: number; totalMinutes: number; titles: string[] }> = {};
+          const dayMap: Record<string, { count: number; totalMinutes: number; titles: string[]; eventsDetail: string[] }> = {};
           const conflicts: { date: string; event1: string; event2: string }[] = [];
 
           for (let i = 0; i < events.length; i++) {
             const e = events[i];
-            const dateKey = e.startTime.toLocaleDateString('zh-CN');
-            if (!dayMap[dateKey]) dayMap[dateKey] = { count: 0, totalMinutes: 0, titles: [] };
+            const localStart = prismaDateToLocal(new Date(e.startTime));
+            const localEnd = prismaDateToLocal(new Date(e.endTime));
+            const dateKey = localStart.toLocaleDateString('zh-CN');
+            if (!dayMap[dateKey]) dayMap[dateKey] = { count: 0, totalMinutes: 0, titles: [], eventsDetail: [] };
             dayMap[dateKey].count++;
             dayMap[dateKey].titles.push(e.title);
-            dayMap[dateKey].totalMinutes += (e.endTime.getTime() - e.startTime.getTime()) / 60000;
+            const durationMin = Math.round((localEnd.getTime() - localStart.getTime()) / 60000);
+            dayMap[dateKey].totalMinutes += durationMin;
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const timeStr = `${pad(localStart.getHours())}:${pad(localStart.getMinutes())}-${pad(localEnd.getHours())}:${pad(localEnd.getMinutes())}`;
+            dayMap[dateKey].eventsDetail.push(`  ${e.title} | ${timeStr}${e.courseLocation ? ' | ' + e.courseLocation : ''}${e.isCourse ? ' [课程]' : ''}`);
 
             for (let j = i + 1; j < events.length; j++) {
               const e2 = events[j];
               if (e2.startTime < e.endTime && e2.endTime > e.startTime) {
+                const ls1 = prismaDateToLocal(new Date(e.startTime));
+                const le1 = prismaDateToLocal(new Date(e.endTime));
+                const ls2 = prismaDateToLocal(new Date(e2.startTime));
+                const le2 = prismaDateToLocal(new Date(e2.endTime));
                 conflicts.push({
                   date: dateKey,
-                  event1: e.title,
-                  event2: e2.title,
+                  event1: `${e.title}(${ls1.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}-${le1.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })})`,
+                  event2: `${e2.title}(${ls2.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}-${le2.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })})`,
                 });
               }
             }
@@ -1758,6 +1801,7 @@ ${contextInfo}
             success: true,
             data: {
               totalEvents: events.length,
+              daysAnalyzed: days,
               conflicts,
               busyDays,
               freeDays,
@@ -1765,9 +1809,10 @@ ${contextInfo}
                 date,
                 eventCount: v.count,
                 totalHours: Math.round(v.totalMinutes / 60 * 10) / 10,
+                events: v.eventsDetail.join('\n'),
               })),
             },
-            message: `日程分析: ${events.length}个日程, ${conflicts.length}个冲突, ${busyDays.length}天过忙, ${freeDays.length}天空闲`,
+            message: `日程分析完成: 共${events.length}个日程, ${conflicts.length}个冲突${conflicts.length > 0 ? '【需关注】' : ''}, ${busyDays.length}天过忙, ${freeDays.length}天空闲`,
           };
         } catch (e) {
           return { name: toolCall.name, success: false, data: null, message: `日程分析失败: ${(e as Error).message}` };
@@ -1915,6 +1960,70 @@ ${contextInfo}
           };
         } catch (e) {
           return { name: toolCall.name, success: false, data: null, message: `添加节假日失败: ${(e as Error).message}` };
+        }
+      }
+
+      case 'web_search': {
+        try {
+          const query = (args.query as string) || '';
+          const count = Math.min(args.count as number || 5, 10);
+          if (!query.trim()) {
+            return { name: toolCall.name, success: false, data: null, message: '请提供搜索关键词' };
+          }
+
+          const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+          const response = await fetch(searchUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`搜索请求失败: ${response.status}`);
+          }
+
+          const html = await response.text();
+          const results: Array<{ title: string; snippet: string; url: string }> = [];
+
+          const linkRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi;
+          const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+
+          let linkMatch: RegExpExecArray | null;
+          const links: Array<{ title: string; url: string }> = [];
+          while ((linkMatch = linkRegex.exec(html)) !== null && links.length < count) {
+            const url = linkMatch[1].replace(/&amp;/g, '&');
+            const title = linkMatch[2].replace(/<[^>]*>/g, '').trim();
+            if (title && url && !url.startsWith('//duckduckgo.com')) {
+              links.push({ title, url });
+            }
+          }
+
+          let snippetMatch: RegExpExecArray | null;
+          const snippets: string[] = [];
+          while ((snippetMatch = snippetRegex.exec(html)) !== null && snippets.length < count) {
+            snippets.push(snippetMatch[1].replace(/<[^>]*>/g, '').trim());
+          }
+
+          for (let i = 0; i < Math.min(links.length, count); i++) {
+            results.push({
+              title: links[i].title,
+              url: links[i].url.startsWith('//') ? `https:${links[i].url}` : links[i].url,
+              snippet: snippets[i] || '',
+            });
+          }
+
+          if (results.length === 0) {
+            return { name: toolCall.name, success: true, data: { query, results: [], count: 0 }, message: `未找到关于"${query}"的搜索结果` };
+          }
+
+          return {
+            name: toolCall.name,
+            success: true,
+            data: { query, count: results.length, results },
+            message: `找到${results.length}条关于"${query}"的搜索结果`,
+          };
+        } catch (e) {
+          return { name: toolCall.name, success: false, data: null, message: `搜索失败: ${(e as Error).message}` };
         }
       }
 
@@ -2108,9 +2217,10 @@ ${contextInfo}
 
     const scheduleSummary = events.length > 0
       ? events.map(e => {
-        const day = e.startTime.toLocaleDateString('zh-CN', { weekday: 'short', month: 'short', day: 'numeric' });
+        const localDate = prismaDateToLocal(new Date(e.startTime));
+        const day = localDate.toLocaleDateString('zh-CN', { weekday: 'short', month: 'short', day: 'numeric' });
         if (e.isAllDay) return `${day} 全天 ${e.title}`;
-        const start = e.startTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const start = localDate.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         return `${day} ${start} ${e.title}${e.isCourse && e.courseLocation ? `(${e.courseLocation})` : ''}`;
       }).join('\n')
       : '近3天暂无日程安排';

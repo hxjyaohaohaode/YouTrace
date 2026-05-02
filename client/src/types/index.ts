@@ -70,6 +70,10 @@ export interface Diary {
   emotionTags: string[];
   aiInsight: string | null;
   mediaUrls: string[];
+  weather: Record<string, unknown>;
+  locationName: string;
+  locationLat: number | null;
+  locationLng: number | null;
   isDeleted: boolean;
   deletedAt: string | null;
   createdAt: string;
