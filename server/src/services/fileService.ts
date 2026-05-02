@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 

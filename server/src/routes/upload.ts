@@ -175,6 +175,7 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           mimeType: processed.mimeType,
           fileSize: processed.fileSize,
           fileType,
+          filePath: processed.filePath,
           thumbnailPath: processed.thumbnailPath,
           aiAnnotation: '',
           annotationStatus: 'processing',
@@ -240,7 +241,7 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const attachments = await prisma.attachment.findMany({
       where: { id: { in: ids }, userId: request.userId },
-      select: { id: true, annotationStatus: true, aiAnnotation: true, originalName: true, fileType: true, thumbnailPath: true },
+      select: { id: true, annotationStatus: true, aiAnnotation: true, originalName: true, fileType: true, thumbnailPath: true, filePath: true, mimeType: true },
     });
     return reply.send({ success: true, data: attachments });
   });

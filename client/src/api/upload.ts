@@ -9,6 +9,7 @@ export interface AttachmentResult {
   mimeType: string;
   fileSize: number;
   fileType: 'image' | 'video' | 'audio' | 'document';
+  filePath: string | null;
   thumbnailPath: string | null;
   aiAnnotation: string;
   annotationStatus: 'pending' | 'processing' | 'completed' | 'failed';
@@ -62,7 +63,7 @@ export const uploadApi = {
     return response.data;
   },
 
-  batchStatus: async (ids: string[]): Promise<ApiResponse<Array<{ id: string; annotationStatus: string; aiAnnotation: string; originalName: string; fileType: string; thumbnailPath: string | null }>>> => {
+  batchStatus: async (ids: string[]): Promise<ApiResponse<Array<{ id: string; annotationStatus: string; aiAnnotation: string; originalName: string; fileType: string; thumbnailPath: string | null; filePath: string | null; mimeType: string }>>> => {
     const response = await client.post('/api/attachments/batch-status', { ids });
     return response.data;
   },

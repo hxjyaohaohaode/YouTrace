@@ -44,6 +44,7 @@ function DiaryEditorPage() {
           mimeType: a.mimeType,
           fileSize: 0,
           fileType: a.fileType as 'image' | 'video' | 'audio' | 'document',
+          filePath: a.filePath || null,
           thumbnailPath: a.thumbnailPath,
           aiAnnotation: a.aiAnnotation,
           annotationStatus: 'completed' as const,

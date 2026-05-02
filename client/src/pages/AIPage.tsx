@@ -142,6 +142,8 @@ export default function AIPage() {
                     annotationStatus: updated.annotationStatus as AttachmentResult['annotationStatus'],
                     aiAnnotation: updated.aiAnnotation || att.aiAnnotation,
                     thumbnailPath: updated.thumbnailPath ?? att.thumbnailPath,
+                    filePath: updated.filePath ?? att.filePath,
+                    fileType: (updated.fileType as AttachmentResult['fileType']) ?? att.fileType,
                   };
                 }
                 return att;
@@ -174,7 +176,7 @@ export default function AIPage() {
     try {
       const response = await uploadApi.uploadFiles(toUpload);
       if (response.success && response.data) {
-        const successful = response.data.filter((r) => r.id);
+        const successful = response.data.filter((r) => r.id) as AttachmentResult[];
         setPendingAttachments((prev) => [...prev, ...successful]);
       }
     } catch {
@@ -205,6 +207,8 @@ export default function AIPage() {
                   annotationStatus: updated.annotationStatus as AttachmentResult['annotationStatus'],
                   aiAnnotation: updated.aiAnnotation || att.aiAnnotation,
                   thumbnailPath: updated.thumbnailPath ?? att.thumbnailPath,
+                  filePath: updated.filePath ?? att.filePath,
+                  fileType: (updated.fileType as AttachmentResult['fileType']) ?? att.fileType,
                 };
               }
               return att;
