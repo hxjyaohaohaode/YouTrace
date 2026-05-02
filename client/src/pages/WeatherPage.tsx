@@ -5,24 +5,7 @@ import { useEventStore } from '../stores/eventStore';
 import client from '../api/client';
 import type { WeatherAlert, DailyForecast, AirQuality, LocationInfo } from '../types';
 
-const WEATHER_ICONS: Record<string, string> = {
-  '100': '☀️', '101': '🌤️', '102': '🌤️', '103': '⛅', '104': '☁️',
-  '150': '🌙', '151': '🌙', '152': '🌙', '153': '🌙',
-  '300': '🌦️', '301': '🌦️', '302': '⛈️', '303': '⛈️', '304': '🌩️',
-  '305': '🌧️', '306': '🌧️', '307': '🌧️', '308': '🌧️', '309': '🌧️',
-  '310': '🌧️', '311': '🌧️', '312': '🌧️', '313': '🌧️', '314': '🌦️',
-  '399': '🌧️', '400': '🌨️', '401': '🌨️', '402': '❄️', '403': '❄️',
-  '404': '🌧️', '405': '🌧️', '406': '🌨️', '407': '🌨️', '408': '🌨️',
-  '409': '🌨️', '410': '❄️', '499': '❄️',
-  '500': '🌫️', '501': '🌫️', '502': '🌫️', '503': '🌫️', '504': '🌫️',
-  '507': '😷', '508': '😷', '509': '😷', '510': '😷', '511': '🌫️',
-  '512': '🌫️', '513': '🌫️', '514': '🌫️', '515': '🌫️',
-  '900': '🥵', '901': '🥶', '999': '❓',
-};
-
-export function getWeatherIcon(code: string): string {
-  return WEATHER_ICONS[code] || '❓';
-}
+import { getWeatherIcon } from '../utils/weatherIcons';
 
 function getAqiColor(aqi: number): string {
   if (aqi <= 50) return 'text-green-500';
@@ -285,13 +268,7 @@ function WeatherPage() {
     fetchEvents(start, end);
   }, [fetchEvents]);
 
-  useEffect(() => {
-    if (forecast?.daily && forecast.daily.length > 0 && currentWeather?.now) {
-      fetchAiSuggestions();
-    }
-  }, [forecast, currentWeather]);
-
-  const fetchAiSuggestions = async () => {
+  const fetchAiSuggestions = useCallback(async () => {
     if (!forecast?.daily || !currentWeather?.now) return;
     setLoadingSuggestions(true);
     try {
@@ -313,7 +290,13 @@ function WeatherPage() {
     } finally {
       setLoadingSuggestions(false);
     }
-  };
+  }, [forecast, currentWeather]);
+
+  useEffect(() => {
+    if (forecast?.daily && forecast.daily.length > 0 && currentWeather?.now) {
+      fetchAiSuggestions();
+    }
+  }, [forecast, currentWeather, fetchAiSuggestions]);
 
   const handleSearch = useCallback((value: string) => {
     setSearchQuery(value);

@@ -163,8 +163,8 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
           userId,
           isDeleted: false,
           OR: [
-            { content: { contains: keyword, mode: 'insensitive' } },
-            { aiInsight: { contains: keyword, mode: 'insensitive' } },
+            { content: { contains: keyword } },
+            { aiInsight: { contains: keyword } },
           ],
         },
         orderBy: { createdAt: 'desc' },
@@ -196,8 +196,8 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           userId,
           OR: [
-            { originalName: { contains: keyword, mode: 'insensitive' } },
-            { aiAnnotation: { contains: keyword, mode: 'insensitive' } },
+            { originalName: { contains: keyword } },
+            { aiAnnotation: { contains: keyword } },
           ],
         },
         orderBy: { createdAt: 'desc' },
@@ -231,12 +231,12 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           userId,
           OR: [
-            { title: { contains: keyword, mode: 'insensitive' } },
-            { description: { contains: keyword, mode: 'insensitive' } },
-            { aiSuggestion: { contains: keyword, mode: 'insensitive' } },
-            { courseTeacher: { contains: keyword, mode: 'insensitive' } },
-            { courseLocation: { contains: keyword, mode: 'insensitive' } },
-            { holidayName: { contains: keyword, mode: 'insensitive' } },
+            { title: { contains: keyword } },
+            { description: { contains: keyword } },
+            { aiSuggestion: { contains: keyword } },
+            { courseTeacher: { contains: keyword } },
+            { courseLocation: { contains: keyword } },
+            { holidayName: { contains: keyword } },
           ],
         },
         orderBy: { startTime: 'desc' },
@@ -274,7 +274,7 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
       const chatMessages = await prisma.chatMessage.findMany({
         where: {
           userId,
-          content: { contains: keyword, mode: 'insensitive' },
+          content: { contains: keyword },
         },
         orderBy: { createdAt: 'desc' },
         take: maxItems,
@@ -313,9 +313,9 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           userId,
           OR: [
-            { title: { contains: keyword, mode: 'insensitive' } },
-            { description: { contains: keyword, mode: 'insensitive' } },
-            { aiBreakdown: { contains: keyword, mode: 'insensitive' } },
+            { title: { contains: keyword } },
+            { description: { contains: keyword } },
+            { aiBreakdown: { contains: keyword } },
           ],
         },
         orderBy: { updatedAt: 'desc' },
@@ -357,8 +357,8 @@ const searchRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           userId,
           OR: [
-            { title: { contains: keyword, mode: 'insensitive' } },
-            { description: { contains: keyword, mode: 'insensitive' } },
+            { title: { contains: keyword } },
+            { description: { contains: keyword } },
           ],
         },
         orderBy: { updatedAt: 'desc' },

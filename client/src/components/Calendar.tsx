@@ -3,7 +3,7 @@ import type { EventItem } from '../types';
 import { getDaysInMonth, getFirstDayOfMonth, dateOnlyLocal } from '../utils/date';
 import { EmotionIcon, type EmotionIconName } from '../utils/emotion';
 import { useWeatherStore } from '../stores/weatherStore';
-import { getWeatherIcon } from '../pages/WeatherPage';
+import { getWeatherIcon } from '../utils/weatherIcons';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const WEEKDAYS_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];

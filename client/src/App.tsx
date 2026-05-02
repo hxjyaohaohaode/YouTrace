@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import { useSyncStore } from './stores/syncStore';
@@ -47,31 +47,33 @@ function App() {
     return cleanup;
   }, [initNetworkListener]);
 
+  const weatherInitRef = useRef(false);
+
   useEffect(() => {
-    if (isAuthenticated && !weatherLoading) {
-      const initWeather = async () => {
-        try {
-          let lngLat = coords;
-          if (!lngLat) {
-            const result = await requestBrowserLocation();
-            if (result) lngLat = result;
-          }
-          if (lngLat) {
-            await refreshAll({ lng: lngLat.lng, lat: lngLat.lat });
-          } else {
-            await refreshAll();
-          }
-        } catch {
-          try {
-            await refreshAll();
-          } catch {
-            // weather unavailable is OK
-          }
+    if (!isAuthenticated || weatherLoading || weatherInitRef.current) return;
+    weatherInitRef.current = true;
+    const initWeather = async () => {
+      try {
+        let lngLat = coords;
+        if (!lngLat) {
+          const result = await requestBrowserLocation();
+          if (result) lngLat = result;
         }
-      };
-      initWeather();
-    }
-  }, [isAuthenticated]);
+        if (lngLat) {
+          await refreshAll({ lng: lngLat.lng, lat: lngLat.lat });
+        } else {
+          await refreshAll();
+        }
+      } catch {
+        try {
+          await refreshAll();
+        } catch {
+          // weather unavailable is OK
+        }
+      }
+    };
+    initWeather();
+  }, [isAuthenticated, weatherLoading, coords, refreshAll, requestBrowserLocation]);
 
   if (isInitializing) {
     return (
