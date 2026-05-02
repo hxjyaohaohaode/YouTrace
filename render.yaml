@@ -5,7 +5,7 @@ services:
     plan: free
     region: singapore
     branch: main
-    buildCommand: npm ci && cd server && npx prisma generate && npx tsc && cd ../client && npm run build && cp -r dist ../server/public
+    buildCommand: npm ci && cd server && npx prisma generate && npx tsc -p tsconfig.build.json && cd ../client && npm run build && cp -r dist ../server/public
     startCommand: cd server && chmod +x start.sh && ./start.sh
     envVars:
       - key: NODE_ENV

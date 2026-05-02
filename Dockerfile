@@ -13,7 +13,7 @@ RUN npm ci
 COPY server ./server
 COPY client ./client
 
-RUN cd server && npx prisma generate && npx tsc
+RUN cd server && npx prisma generate && npx tsc -p tsconfig.build.json
 RUN cd client && npm run build && cp -r dist ../server/public
 
 RUN rm -rf client/node_modules client/src server/src
