@@ -1,7 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useEventStore } from '../stores/eventStore';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useGoalStore } from '../stores/goalStore';
+import { useWeatherStore } from '../stores/weatherStore';
 import { eventApi } from '../api/event';
 import Calendar, { type CalendarView } from '../components/Calendar';
 import EventForm from '../components/EventForm';
@@ -11,6 +13,8 @@ import { dateOnlyLocal } from '../utils/date';
 import { IconPlus, IconClock } from '../components/Icons';
 
 function CalendarPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { events, fetchEvents, createEvent, updateEvent, deleteEvent } = useEventStore();
   const { diaries, fetchDiaries } = useDiaryStore();
   const { fetchGoals } = useGoalStore();
@@ -21,6 +25,30 @@ function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [addingHolidays, setAddingHolidays] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showEventDetail, setShowEventDetail] = useState<EventItem | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<string>('');
+  const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
+  const { currentWeather } = useWeatherStore();
+
+  useEffect(() => {
+    const dateParam = searchParams.get('date');
+    const eventIdParam = searchParams.get('eventId');
+    if (dateParam) {
+      const parts = dateParam.split('-');
+      if (parts.length === 3) {
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        setCurrentDate(d);
+        setSelectedDate(d);
+        setView('day');
+      }
+    }
+    if (eventIdParam) {
+      const ev = events.find((e) => e.id === eventIdParam);
+      if (ev) {
+        setShowEventDetail(ev);
+      }
+    }
+  }, [searchParams, events]);
 
   useEffect(() => {
     const now = new Date();
@@ -57,6 +85,48 @@ function CalendarPage() {
     });
   }, [events]);
 
+  const tomorrowEvents = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = dateOnlyLocal(tomorrow);
+    return events.filter((e) => {
+      const start = e.startTime.slice(0, 10);
+      const end = e.endTime.slice(0, 10);
+      return tomorrowStr >= start && tomorrowStr <= end;
+    });
+  }, [events]);
+
+  useEffect(() => {
+    const generateSuggestion = () => {
+      setIsLoadingSuggestion(true);
+      try {
+        const weather = currentWeather?.now;
+        const suggestions: string[] = [];
+        if (weather?.text?.includes('雨')) suggestions.push('今天有雨，记得带伞出门！');
+        else if (weather && Number(weather.temp) > 35) suggestions.push('今天高温，注意防暑降温，多喝水！');
+        else if (weather && Number(weather.temp) < 5) suggestions.push('今天寒冷，注意保暖！');
+        if (todayEvents.length > 4) suggestions.push('今日日程较多，注意合理安排休息时间。');
+        if (todayEvents.length > 0 && todayEvents.some((e) => !e.isAllDay)) {
+          const earliest = todayEvents.filter((e) => !e.isAllDay).sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0];
+          if (earliest) {
+            const h = new Date(earliest.startTime).getHours();
+            if (h < 8) suggestions.push(`今天最早日程在${h}点，记得早睡早起！`);
+          }
+        }
+        if (suggestions.length === 0) {
+          if (todayEvents.length === 0) suggestions.push('今天没有日程安排，可以规划一些有意义的事情！');
+          else suggestions.push('保持好心情，合理安排时间！');
+        }
+        setAiSuggestion(suggestions.join(' '));
+      } catch {
+        setAiSuggestion('保持好心情，合理安排时间！');
+      } finally {
+        setIsLoadingSuggestion(false);
+      }
+    };
+    generateSuggestion();
+  }, [todayEvents, currentWeather]);
+
   const selectedDateEvents = useMemo(() => {
     if (!selectedDate) return [];
     const dateStr = dateOnlyLocal(selectedDate);
@@ -84,8 +154,7 @@ function CalendarPage() {
   const handleEventClick = (eventId: string) => {
     const event = events.find((e) => e.id === eventId);
     if (event) {
-      setEditingEvent(event);
-      setShowForm(true);
+      setShowEventDetail(event);
     }
   };
 
@@ -232,6 +301,62 @@ function CalendarPage() {
           </div>
         )}
 
+        {view === 'month' && tomorrowEvents.length > 0 && !selectedDate && (
+          <div className="mt-4 sm:mt-6 fade-in-up">
+            <h3 className="text-sm font-semibold text-surface-500 mb-3 flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+              </svg>
+              明日日程
+            </h3>
+            <div className="space-y-2">
+              {tomorrowEvents.map((event) => (
+                <div
+                  key={event.id}
+                  onClick={() => handleEventClick(event.id)}
+                  className="card-hover p-3 sm:p-4 cursor-pointer flex items-center justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5">
+                      {event.color && (
+                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${(EVENT_COLORS[event.color as EventColor]?.bg || 'bg-surface-400')}`} />
+                      )}
+                      <p className="text-sm font-medium text-surface-800 truncate">{event.title}</p>
+                    </div>
+                    <p className="text-xs text-surface-400 mt-1 ml-5">
+                      {event.isAllDay ? '全天' : `${new Date(event.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - ${new Date(event.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                    {event.isAiCreated && (
+                      <span className="badge bg-brand-50 dark:bg-brand-950/30 text-brand-600 dark:text-brand-400">AI</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {view === 'month' && !selectedDate && (
+          <div className="mt-4 p-3 bg-brand-50 dark:bg-brand-950/30 rounded-xl fade-in-up">
+            <h4 className="text-sm font-medium text-brand-600 dark:text-brand-400 mb-1.5 flex items-center gap-1.5">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+              AI 建议
+            </h4>
+            {isLoadingSuggestion ? (
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs text-brand-500">生成建议中...</span>
+              </div>
+            ) : (
+              <p className="text-xs text-surface-600 dark:text-surface-300 leading-relaxed">{aiSuggestion}</p>
+            )}
+          </div>
+        )}
+
         {selectedDate && (selectedDateEvents.length > 0 || selectedDateDiaries.length > 0) && (
           <div className="mt-4 sm:mt-6 fade-in-up">
             <div className="flex items-center justify-between mb-3">
@@ -308,7 +433,7 @@ function CalendarPage() {
                     return (
                       <div
                         key={diary.id}
-                        onClick={() => window.location.hash = `/diary/${diary.id}`}
+                        onClick={() => navigate(`/diary/${diary.id}`)}
                         className="card-hover p-3 cursor-pointer"
                       >
                         <p className="text-sm text-surface-700 dark:text-surface-300 line-clamp-2">{diary.content}</p>
@@ -414,6 +539,100 @@ function CalendarPage() {
             <div className="flex gap-3">
               <button onClick={() => setShowConflict(null)} className="btn-secondary flex-1 py-2.5 text-sm">知道了</button>
               <button onClick={handleFormClose} className="btn-primary flex-1 py-2.5 text-sm">确认保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEventDetail && (
+        <div className="overlay" onClick={() => setShowEventDetail(null)}>
+          <div className="overlay-content" onClick={(e) => e.stopPropagation()}>
+            <div className="overlay-handle" />
+            <div className="p-5">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  {showEventDetail.color && (
+                    <div className={`w-3 h-3 rounded-full ${(EVENT_COLORS[showEventDetail.color as EventColor]?.bg || 'bg-surface-400')}`} />
+                  )}
+                  <h3 className="text-lg font-semibold text-surface-800 dark:text-surface-100">{showEventDetail.title}</h3>
+                </div>
+                <button onClick={() => setShowEventDetail(null)} className="text-surface-400 hover:text-surface-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+
+              <div className="space-y-3 mb-5">
+                <div className="flex items-center gap-2.5 text-sm text-surface-600 dark:text-surface-300">
+                  <svg className="w-4 h-4 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {showEventDetail.isAllDay
+                    ? `全天 · ${new Date(showEventDetail.startTime).toLocaleDateString('zh-CN')}`
+                    : `${new Date(showEventDetail.startTime).toLocaleDateString('zh-CN')} ${new Date(showEventDetail.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} - ${new Date(showEventDetail.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+                  }
+                </div>
+
+                {showEventDetail.description && (
+                  <p className="text-sm text-surface-500 leading-relaxed">{showEventDetail.description}</p>
+                )}
+
+                {showEventDetail.isCourse && (
+                  <div className="space-y-1.5">
+                    {showEventDetail.courseTeacher && (
+                      <div className="flex items-center gap-2 text-sm text-surface-600 dark:text-surface-300">
+                        <span className="text-surface-400">👨‍🏫</span>
+                        教师：{showEventDetail.courseTeacher}
+                      </div>
+                    )}
+                    {showEventDetail.courseLocation && (
+                      <div className="flex items-center gap-2 text-sm text-surface-600 dark:text-surface-300">
+                        <span className="text-surface-400">📍</span>
+                        教室：{showEventDetail.courseLocation}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showEventDetail.isHoliday && showEventDetail.holidayDescription && (
+                  <p className="text-sm text-amber-600 dark:text-amber-400">{showEventDetail.holidayDescription}</p>
+                )}
+
+                <div className="flex flex-wrap gap-1.5">
+                  {showEventDetail.isCourse && (
+                    <span className="badge bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400">课程</span>
+                  )}
+                  {showEventDetail.isHoliday && (
+                    <span className="badge bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400">
+                      {showEventDetail.holidayType === 'WORKDAY' ? '⚡调休' : '🎉假日'}
+                    </span>
+                  )}
+                  {showEventDetail.isAiCreated && (
+                    <span className="badge bg-brand-50 dark:bg-brand-950/30 text-brand-600 dark:text-brand-400">AI创建</span>
+                  )}
+                  {showEventDetail.goal && (
+                    <span className="badge bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400">{showEventDetail.goal.title}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setEditingEvent(showEventDetail);
+                    setShowEventDetail(null);
+                    setShowForm(true);
+                  }}
+                  className="btn-secondary flex-1 py-2.5 text-sm"
+                >
+                  编辑
+                </button>
+                <button
+                  onClick={() => setShowEventDetail(null)}
+                  className="btn-primary flex-1 py-2.5 text-sm"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
           </div>
         </div>

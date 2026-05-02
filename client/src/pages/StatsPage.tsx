@@ -5,103 +5,185 @@ import { useHabitStore } from '../stores/habitStore';
 import { diaryApi, type DiaryStats } from '../api/diary';
 import { aiApi } from '../api/ai';
 
-function LineChart({ data }: { data: { date: string; score: number }[] }) {
+function EmotionLineChart({ data }: { data: { date: string; score: number }[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
   if (data.length === 0) return null;
 
-  const width = 100;
-  const height = 60;
-  const padding = { top: 5, right: 2, bottom: 12, left: 2 };
+  const width = 600;
+  const height = 240;
+  const padding = { top: 20, right: 20, bottom: 35, left: 40 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
 
-  const scores = data.map((d) => d.score);
-  const minScore = Math.max(0, Math.min(...scores) - 10);
-  const maxScore = Math.min(100, Math.max(...scores) + 10);
+  const minScore = 0;
+  const maxScore = 100;
   const range = maxScore - minScore || 1;
 
   const points = data.map((d, i) => ({
     x: padding.left + (data.length > 1 ? (i / (data.length - 1)) * chartW : chartW / 2),
     y: padding.top + chartH - ((d.score - minScore) / range) * chartH,
+    score: d.score,
+    date: d.date,
   }));
 
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
   const areaPath = `${linePath} L${points[points.length - 1].x},${padding.top + chartH} L${points[0].x},${padding.top + chartH} Z`;
 
-  const labelInterval = Math.max(1, Math.floor(data.length / 6));
+  const labelInterval = Math.max(1, Math.floor(data.length / 8));
+
+  const getScoreColor = (score: number) => {
+    if (score >= 70) return '#22c55e';
+    if (score >= 50) return '#e8941e';
+    if (score >= 30) return '#f97316';
+    return '#ef4444';
+  };
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#e8941e" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#e8941e" stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-        const y = padding.top + chartH * (1 - ratio);
-        return (
-          <line
-            key={ratio}
-            x1={padding.left}
-            y1={y}
-            x2={width - padding.right}
-            y2={y}
-            stroke="currentColor"
-            strokeOpacity="0.06"
-            strokeWidth="0.3"
+    <div className="relative">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="xMidYMid meet"
+        onMouseLeave={() => setHoveredIndex(null)}
+      >
+        <defs>
+          <linearGradient id="emotionAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#e8941e" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#e8941e" stopOpacity="0.02" />
+          </linearGradient>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {[0, 25, 50, 75, 100].map((val) => {
+          const y = padding.top + chartH - ((val - minScore) / range) * chartH;
+          return (
+            <g key={val}>
+              <line
+                x1={padding.left}
+                y1={y}
+                x2={width - padding.right}
+                y2={y}
+                stroke="currentColor"
+                strokeOpacity="0.08"
+                strokeWidth="1"
+              />
+              <text
+                x={padding.left - 8}
+                y={y + 3}
+                textAnchor="end"
+                className="fill-surface-400"
+                fontSize="10"
+                fontFamily="system-ui"
+              >
+                {val}
+              </text>
+            </g>
+          );
+        })}
+
+        <path d={areaPath} fill="url(#emotionAreaGrad)" />
+        <path d={linePath} fill="none" stroke="#e8941e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" filter="url(#glow)" />
+
+        {points.map((p, i) => (
+          <circle
+            key={i}
+            cx={p.x}
+            cy={p.y}
+            r={hoveredIndex === i ? 5 : 3}
+            fill={getScoreColor(p.score)}
+            stroke="white"
+            strokeWidth={hoveredIndex === i ? 2 : 1.5}
+            className="cursor-pointer transition-all"
+            onMouseEnter={() => setHoveredIndex(i)}
           />
-        );
-      })}
-      <path d={areaPath} fill="url(#areaGrad)" />
-      <path d={linePath} fill="none" stroke="#e8941e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="1.2" fill="#e8941e" />
-      ))}
-      {data.map((d, i) => {
-        if (i % labelInterval !== 0 && i !== data.length - 1) return null;
-        const x = points[i].x;
-        return (
-          <text
-            key={`label-${i}`}
-            x={x}
-            y={height - 1}
-            textAnchor="middle"
-            className="fill-surface-400"
-            fontSize="3"
-            fontFamily="system-ui"
-          >
-            {d.date.slice(5)}
-          </text>
-        );
-      })}
-    </svg>
+        ))}
+
+        {data.map((d, i) => {
+          if (i % labelInterval !== 0 && i !== data.length - 1) return null;
+          const x = points[i].x;
+          return (
+            <text
+              key={`label-${i}`}
+              x={x}
+              y={height - 8}
+              textAnchor="middle"
+              className="fill-surface-400"
+              fontSize="10"
+              fontFamily="system-ui"
+            >
+              {d.date.slice(5)}
+            </text>
+          );
+        })}
+      </svg>
+
+      {hoveredIndex !== null && points[hoveredIndex] && (
+        <div
+          className="absolute pointer-events-none bg-white dark:bg-surface-800 rounded-lg shadow-lg border border-surface-200 dark:border-surface-700 px-3 py-2 text-xs z-10"
+          style={{
+            left: `${(points[hoveredIndex].x / width) * 100}%`,
+            top: `${(points[hoveredIndex].y / height) * 100 - 10}%`,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <p className="font-medium text-surface-700 dark:text-surface-200">{points[hoveredIndex].date}</p>
+          <p className="text-brand-600 dark:text-brand-400">情绪指数: {points[hoveredIndex].score}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
-const EMOTION_TAG_COLORS: Record<string, string> = {
-  '开心': 'bg-yellow-100 text-yellow-700',
-  '快乐': 'bg-yellow-100 text-yellow-700',
-  '幸福': 'bg-amber-100 text-amber-700',
-  '满足': 'bg-green-100 text-green-700',
-  '平静': 'bg-teal-100 text-teal-700',
-  '感恩': 'bg-emerald-100 text-emerald-700',
-  '焦虑': 'bg-orange-100 text-orange-700',
-  '担忧': 'bg-orange-100 text-orange-700',
-  '紧张': 'bg-red-100 text-red-700',
-  '愤怒': 'bg-red-100 text-red-700',
-  '生气': 'bg-red-100 text-red-700',
-  '悲伤': 'bg-blue-100 text-blue-700',
-  '难过': 'bg-blue-100 text-blue-700',
-  '孤独': 'bg-indigo-100 text-indigo-700',
-  '疲惫': 'bg-gray-100 text-gray-700',
-  '无聊': 'bg-gray-100 text-gray-700',
-  '惊喜': 'bg-purple-100 text-purple-700',
-  '兴奋': 'bg-pink-100 text-pink-700',
-  '感动': 'bg-rose-100 text-rose-700',
-  '思念': 'bg-violet-100 text-violet-700',
-};
+function WordCloud({ words }: { words: { word: string; count: number }[] }) {
+  if (words.length === 0) return null;
+
+  const maxCount = words[0]?.count || 1;
+  const colors = [
+    'text-brand-600 dark:text-brand-400',
+    'text-emerald-600 dark:text-emerald-400',
+    'text-purple-600 dark:text-purple-400',
+    'text-orange-600 dark:text-orange-400',
+    'text-blue-600 dark:text-blue-400',
+    'text-rose-600 dark:text-rose-400',
+    'text-teal-600 dark:text-teal-400',
+    'text-amber-600 dark:text-amber-400',
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 py-4">
+      {words.map((w, i) => {
+        const size = 0.75 + (w.count / maxCount) * 1.0;
+        const rotation = (i % 3 === 0) ? -3 : (i % 3 === 1) ? 0 : 3;
+        return (
+          <span
+            key={i}
+            className={`font-bold ${colors[i % colors.length]} transition-transform hover:scale-110 cursor-default`}
+            style={{
+              fontSize: `${size}rem`,
+              transform: `rotate(${rotation}deg)`,
+              opacity: 0.7 + (w.count / maxCount) * 0.3,
+            }}
+            title={`${w.word}: ${w.count}次`}
+          >
+            {w.word}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 function StatsPage() {
+  interface AnalysisRecord {
+    id: string;
+    analysis: string;
+    createdAt: string;
+  }
+
   const diariesRef = useRef(useDiaryStore.getState().diaries);
   useEffect(() => { diariesRef.current = useDiaryStore.getState().diaries; });
   const { goals } = useGoalStore();
@@ -112,6 +194,8 @@ function StatsPage() {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisRecord[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const loadStats = useCallback(async () => {
     setIsLoading(true);
@@ -168,13 +252,33 @@ function StatsPage() {
     loadStats();
   }, [loadStats]);
 
+  useEffect(() => {
+    const saved = localStorage.getItem('ai_analysis_history');
+    if (saved) {
+      try {
+        setAnalysisHistory(JSON.parse(saved));
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
   const handleAIAnalysis = async () => {
     setIsAnalyzing(true);
     setAnalysisError(null);
     try {
       const response = await aiApi.comprehensiveAnalysis();
       if (response.success && response.data) {
-        setAiAnalysis(response.data.analysis);
+        const analysisText = response.data.analysis;
+        setAiAnalysis(analysisText);
+        const newRecord: AnalysisRecord = {
+          id: Date.now().toString(),
+          analysis: analysisText,
+          createdAt: new Date().toISOString(),
+        };
+        const updatedHistory = [newRecord, ...analysisHistory].slice(0, 20);
+        setAnalysisHistory(updatedHistory);
+        localStorage.setItem('ai_analysis_history', JSON.stringify(updatedHistory));
       } else {
         setAnalysisError(response.message || '分析失败');
       }
@@ -322,12 +426,12 @@ function StatsPage() {
 
             {stats.emotionTrend.length > 0 && (
               <div className="card card-responsive mb-4 sm:mb-6">
-                <h3 className="text-sm font-semibold text-surface-700 mb-3 sm:mb-4">情绪趋势</h3>
-                <LineChart data={stats.emotionTrend} />
-                <div className="flex items-center justify-between mt-2 text-2xs text-surface-400">
-                  <span>低落</span>
-                  <span>平静</span>
-                  <span>愉悦</span>
+                <h3 className="text-sm font-semibold text-surface-700 mb-3 sm:mb-4">情绪走势</h3>
+                <EmotionLineChart data={stats.emotionTrend} />
+                <div className="flex items-center justify-between mt-2 text-2xs text-surface-400 px-2">
+                  <span>😔 低落</span>
+                  <span>😐 平静</span>
+                  <span>😊 愉悦</span>
                 </div>
               </div>
             )}
@@ -335,43 +439,14 @@ function StatsPage() {
             {stats.topEmotions.length > 0 && (
               <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">情绪分布</h3>
-                <div className="flex flex-wrap gap-2">
-                  {stats.topEmotions.map((em, i) => {
-                    const colorClass = EMOTION_TAG_COLORS[em.tag] || 'bg-surface-100 text-surface-600';
-                    const maxCount = stats.topEmotions[0]?.count || 1;
-                    const size = 0.75 + (em.count / maxCount) * 0.5;
-                    return (
-                      <span
-                        key={i}
-                        className={`px-3 py-1.5 rounded-full text-sm font-medium ${colorClass}`}
-                        style={{ fontSize: `${size}rem` }}
-                      >
-                        {em.tag} <span className="opacity-60">{em.count}</span>
-                      </span>
-                    );
-                  })}
-                </div>
+                <WordCloud words={stats.topEmotions.map((e) => ({ word: e.tag, count: e.count }))} />
               </div>
             )}
 
             {stats.wordCloud.length > 0 && (
               <div className="card card-responsive mb-4 sm:mb-6">
                 <h3 className="text-sm font-semibold text-surface-700 mb-4">高频词汇</h3>
-                <div className="flex flex-wrap gap-2">
-                  {stats.wordCloud.map((w, i) => {
-                    const maxCount = stats.wordCloud[0]?.count || 1;
-                    const size = 0.75 + (w.count / maxCount) * 0.5;
-                    return (
-                      <span
-                        key={i}
-                        className="px-3 py-1.5 rounded-full bg-brand-50 text-brand-600 font-medium"
-                        style={{ fontSize: `${size}rem` }}
-                      >
-                        {w.word}
-                      </span>
-                    );
-                  })}
-                </div>
+                <WordCloud words={stats.wordCloud} />
               </div>
             )}
 
@@ -385,15 +460,52 @@ function StatsPage() {
                   </div>
                   AI 深度分析
                 </h3>
-                {!aiAnalysis && !isAnalyzing && (
-                  <button
-                    onClick={handleAIAnalysis}
-                    className="btn-primary px-4 py-1.5 text-xs"
-                  >
-                    开始分析
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {analysisHistory.length > 0 && (
+                    <button
+                      onClick={() => setShowHistory(!showHistory)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${showHistory ? 'bg-brand-50 text-brand-600 dark:bg-brand-950/30 dark:text-brand-400' : 'text-surface-400 hover:text-surface-600 hover:bg-surface-50'}`}
+                    >
+                      历史记录 ({analysisHistory.length})
+                    </button>
+                  )}
+                  {!aiAnalysis && !isAnalyzing && (
+                    <button
+                      onClick={handleAIAnalysis}
+                      className="btn-primary px-4 py-1.5 text-xs"
+                    >
+                      开始分析
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {showHistory && analysisHistory.length > 0 && (
+                <div className="mb-4 border border-surface-200 dark:border-surface-700 rounded-xl overflow-hidden">
+                  <div className="bg-surface-50 dark:bg-surface-800 px-3 py-2 border-b border-surface-200 dark:border-surface-700">
+                    <span className="text-xs font-medium text-surface-500">历史分析记录</span>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto divide-y divide-surface-100 dark:divide-surface-800">
+                    {analysisHistory.map((record) => (
+                      <div
+                        key={record.id}
+                        onClick={() => {
+                          setAiAnalysis(record.analysis);
+                          setShowHistory(false);
+                        }}
+                        className="px-3 py-2.5 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800/60 transition-colors"
+                      >
+                        <p className="text-xs text-surface-400 mb-1">
+                          {new Date(record.createdAt).toLocaleString('zh-CN')}
+                        </p>
+                        <p className="text-xs text-surface-600 dark:text-surface-300 line-clamp-2">
+                          {record.analysis.replace(/\*\*/g, '').slice(0, 100)}...
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isAnalyzing && (
                 <div className="flex items-center gap-3 py-6 justify-center">
@@ -410,26 +522,36 @@ function StatsPage() {
               )}
 
               {aiAnalysis && !isAnalyzing && (
-                <div className="prose prose-sm max-w-none text-surface-700">
-                  {aiAnalysis.split('\n').map((line, i) => {
-                    const trimmed = line.trim();
-                    if (!trimmed) return <div key={i} className="h-2" />;
-                    if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
-                      return <h4 key={i} className="text-sm font-semibold text-surface-800 mt-3 mb-1">{trimmed.replace(/\*\*/g, '')}</h4>;
-                    }
-                    if (trimmed.startsWith('**')) {
-                      const parts = trimmed.split('**');
-                      return (
-                        <p key={i} className="text-sm leading-relaxed mb-1">
-                          {parts.map((part, j) => j % 2 === 1 ? <strong key={j} className="text-surface-800">{part}</strong> : part)}
-                        </p>
-                      );
-                    }
-                    if (/^\d+\./.test(trimmed)) {
-                      return <p key={i} className="text-sm leading-relaxed ml-3 mb-0.5">{trimmed}</p>;
-                    }
-                    return <p key={i} className="text-sm leading-relaxed mb-1">{trimmed}</p>;
-                  })}
+                <div>
+                  <div className="prose prose-sm max-w-none text-surface-700">
+                    {aiAnalysis.split('\n').map((line, i) => {
+                      const trimmed = line.trim();
+                      if (!trimmed) return <div key={i} className="h-2" />;
+                      if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
+                        return <h4 key={i} className="text-sm font-semibold text-surface-800 mt-3 mb-1">{trimmed.replace(/\*\*/g, '')}</h4>;
+                      }
+                      if (trimmed.startsWith('**')) {
+                        const parts = trimmed.split('**');
+                        return (
+                          <p key={i} className="text-sm leading-relaxed mb-1">
+                            {parts.map((part, j) => j % 2 === 1 ? <strong key={j} className="text-surface-800">{part}</strong> : part)}
+                          </p>
+                        );
+                      }
+                      if (/^\d+\./.test(trimmed)) {
+                        return <p key={i} className="text-sm leading-relaxed ml-3 mb-0.5">{trimmed}</p>;
+                      }
+                      return <p key={i} className="text-sm leading-relaxed mb-1">{trimmed}</p>;
+                    })}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={handleAIAnalysis}
+                      className="text-xs text-brand-500 hover:text-brand-600 font-medium px-3 py-1.5 rounded-lg hover:bg-brand-50 transition-colors"
+                    >
+                      重新分析
+                    </button>
+                  </div>
                 </div>
               )}
 

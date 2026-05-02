@@ -1,15 +1,18 @@
 ﻿import { useEffect, useState, useCallback, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { aiApi } from '../api/ai';
 import { getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl } from '../api/upload';
 import EmotionTag from '../components/EmotionTag';
+import { HighlightText } from '../components/HighlightText';
 import { formatDateTime } from '../utils/date';
 import { getScoreColor, getEmotionConfig } from '../utils/emotionUtils';
 
 function DiaryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const highlightKeyword = (location.state as { highlight?: string })?.highlight || '';
   const { currentDiary, fetchDiary, deleteDiary, isLoading, error } = useDiaryStore();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -160,7 +163,7 @@ function DiaryDetailPage() {
           <div className="prose prose-sm max-w-none">
             {currentDiary.content.split('\n').map((paragraph, i) => (
               <p key={i} className="text-surface-700 leading-relaxed mb-2">
-                {paragraph}
+                {highlightKeyword ? <HighlightText text={paragraph} keyword={highlightKeyword} /> : paragraph}
               </p>
             ))}
           </div>

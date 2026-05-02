@@ -378,28 +378,90 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
     const limit = Math.min(50, Math.max(1, parseInt(query.limit || '20')));
     const skip = (page - 1) * limit;
 
-    const where: { userId: string; title?: { contains: string } } = { userId: request.userId! };
-    if (search) {
-      where.title = { contains: search };
-    }
+    let conversations: Awaited<ReturnType<typeof prisma.conversation.findMany<{
+      include: {
+        messages: { orderBy: { createdAt: 'desc' }; take: number; select: { content: true; role: true; createdAt: true } };
+        _count: { select: { messages: true } };
+      };
+    }>>> = [];
+    let total = 0;
 
-    const [conversations, total] = await Promise.all([
-      prisma.conversation.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { content: true, role: true, createdAt: true },
-          },
-          _count: { select: { messages: true } },
+    if (search) {
+      const matchingMessageConvIds = await prisma.chatMessage.findMany({
+        where: {
+          userId: request.userId!,
+          content: { contains: search, mode: 'insensitive' as const },
         },
-      }),
-      prisma.conversation.count({ where }),
-    ]);
+        select: { conversationId: true },
+        distinct: ['conversationId'],
+      });
+      const matchingAttachmentConvIds = await prisma.attachment.findMany({
+        where: {
+          userId: request.userId!,
+          OR: [
+            { originalName: { contains: search, mode: 'insensitive' as const } },
+            { aiAnnotation: { contains: search, mode: 'insensitive' as const } },
+          ],
+          chatMessageId: { not: null },
+        },
+        select: { chatMessage: { select: { conversationId: true } } },
+      });
+      const attachmentConvIds = matchingAttachmentConvIds
+        .map((a) => a.chatMessage?.conversationId)
+        .filter((id): id is string => id != null);
+
+      const convIdsFromMessages = matchingMessageConvIds
+        .map((m) => m.conversationId)
+        .filter((id): id is string => id != null);
+
+      const allMatchingIds = [...new Set([...convIdsFromMessages, ...attachmentConvIds])];
+
+      const includeConfig = {
+        messages: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { content: true, role: true, createdAt: true },
+        },
+        _count: { select: { messages: true } },
+      };
+
+      if (allMatchingIds.length > 0) {
+        const where = {
+          userId: request.userId!,
+          OR: [
+            { title: { contains: search, mode: 'insensitive' as const } },
+            { id: { in: allMatchingIds } },
+          ],
+        };
+        [conversations, total] = await Promise.all([
+          prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take: limit, include: includeConfig }),
+          prisma.conversation.count({ where }),
+        ]);
+      } else {
+        const where = {
+          userId: request.userId!,
+          title: { contains: search, mode: 'insensitive' as const },
+        };
+        [conversations, total] = await Promise.all([
+          prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take: limit, include: includeConfig }),
+          prisma.conversation.count({ where }),
+        ]);
+      }
+    } else {
+      const where = { userId: request.userId! };
+      const includeConfig = {
+        messages: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { content: true, role: true, createdAt: true },
+        },
+        _count: { select: { messages: true } },
+      };
+      [conversations, total] = await Promise.all([
+        prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take: limit, include: includeConfig }),
+        prisma.conversation.count({ where }),
+      ]);
+    }
 
     return reply.send({
       success: true,

@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+﻿import { useNavigate } from 'react-router-dom';
 import type { Diary } from '../types';
 import { formatRelative } from '../utils/date';
 import { getScoreColor, getScoreLabel } from '../utils/emotionUtils';
@@ -47,7 +47,7 @@ function DiaryCard({ diary }: DiaryCardProps) {
                 className={`relative rounded-xl overflow-hidden bg-surface-100 border border-surface-200 ${imageAttachments.length === 1 ? 'aspect-video' : 'aspect-square'}`}
               >
                 <img
-                  src={originalUrl || thumbUrl || ''}
+                  src={originalUrl || thumbUrl || undefined}
                   alt={att.originalName}
                   className="w-full h-full object-cover"
                   loading="lazy"
@@ -57,16 +57,22 @@ function DiaryCard({ diary }: DiaryCardProps) {
                       img.src = thumbUrl;
                     } else {
                       img.style.display = 'none';
+                      const placeholder = img.nextElementSibling as HTMLElement;
+                      if (placeholder) placeholder.style.display = 'flex';
                     }
                   }}
                 />
+                <div className="w-full h-full flex-col items-center justify-center bg-surface-100" style={{ display: 'none' }}>
+                  <span className="text-2xl">🖼️</span>
+                  <span className="text-xs text-surface-400 mt-1">{att.originalName}</span>
+                </div>
               </div>
             );
           })}
           {imageAttachments.length > 3 && (
             <div className="relative rounded-xl overflow-hidden bg-surface-100 border border-surface-200 aspect-square">
               <img
-                src={getOriginalFileUrl(imageAttachments[3].filePath || null) || getThumbnailUrl(imageAttachments[3].thumbnailPath) || ''}
+                src={getOriginalFileUrl(imageAttachments[3].filePath || null) || getThumbnailUrl(imageAttachments[3].thumbnailPath) || undefined}
                 alt=""
                 className="w-full h-full object-cover filter blur-[2px]"
                 loading="lazy"

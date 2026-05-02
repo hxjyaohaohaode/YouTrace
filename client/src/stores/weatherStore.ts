@@ -23,7 +23,7 @@ export const useWeatherStore = create<WeatherState>((set) => ({
   refreshAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
-      let finalParams = { ...params };
+      const finalParams = { ...params };
 
       if (finalParams.lng == null || finalParams.lat == null) {
         const locState = useLocationStore.getState();

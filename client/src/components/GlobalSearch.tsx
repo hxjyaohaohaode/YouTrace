@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { searchApi, type SearchCategoryResult, type SearchResultItem } from '../api/search';
+import { HighlightText } from './HighlightText';
 
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; bgColor: string; path: string }> = {
   diary: { label: '日记', color: 'text-brand-600 dark:text-brand-400', bgColor: 'bg-brand-50 dark:bg-brand-950/30', path: '/diary' },
@@ -114,38 +115,45 @@ function GlobalSearch({ onDiarySearch }: GlobalSearchProps) {
 
   const handleItemClick = useCallback((item: SearchResultItem) => {
     setShowResults(false);
+    const searchKeyword = debouncedQuery.trim();
     switch (item.type) {
       case 'diary':
-        navigate(`/diary/${item.id}`);
+        navigate(`/diary/${item.id}`, { state: { highlight: searchKeyword } });
         break;
       case 'attachment':
         if (item.extra?.diaryId) {
-          navigate(`/diary/${item.extra.diaryId}`);
+          navigate(`/diary/${item.extra.diaryId}`, { state: { highlight: searchKeyword } });
         } else if (item.extra?.chatMessageId) {
-          navigate('/ai');
+          navigate('/ai', { state: { conversationId: item.extra.conversationId, highlight: searchKeyword } });
         }
         break;
-      case 'event':
-        navigate('/calendar');
+      case 'event': {
+        const eventDate = item.date ? new Date(item.date) : new Date();
+        const dateStr = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+        navigate(`/calendar?date=${dateStr}&eventId=${item.id}`, { state: { highlight: searchKeyword } });
         break;
+      }
       case 'chat':
         if (item.extra?.conversationId) {
-          navigate('/ai');
+          navigate('/ai', { state: { conversationId: item.extra.conversationId as string, highlight: searchKeyword } });
         }
         break;
       case 'goal':
-        navigate('/goals');
+        navigate('/goals', { state: { highlight: searchKeyword } });
         break;
       case 'habit':
-        navigate('/habits');
+        navigate('/habits', { state: { highlight: searchKeyword } });
         break;
-      case 'day':
-        navigate('/');
+      case 'day': {
+        const dayDate = item.date ? new Date(item.date) : new Date();
+        const dayStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+        navigate(`/?date=${dayStr}`, { state: { highlight: searchKeyword } });
         break;
+      }
       default:
         break;
     }
-  }, [navigate]);
+  }, [navigate, debouncedQuery]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -234,11 +242,10 @@ function GlobalSearch({ onDiarySearch }: GlobalSearchProps) {
                     <button
                       key={f.key}
                       onClick={() => setActiveCategory(f.key)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                        activeCategory === f.key
-                          ? 'bg-brand-500 text-white'
-                          : 'bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700'
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === f.key
+                        ? 'bg-brand-500 text-white'
+                        : 'bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700'
+                        }`}
                     >
                       {f.label} {f.count}
                     </button>
@@ -275,27 +282,25 @@ function GlobalSearch({ onDiarySearch }: GlobalSearchProps) {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-medium text-surface-700 dark:text-surface-200 truncate group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
-                                  {item.title}
+                                  <HighlightText text={item.title} keyword={debouncedQuery} />
                                 </span>
                                 {item.type === 'diary' && item.extra?.emotionScore !== undefined && (
-                                  <span className={`text-xs px-1.5 py-0.5 rounded-md ${
-                                    (item.extra.emotionScore as number) >= 60
-                                      ? 'bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400'
-                                      : (item.extra.emotionScore as number) >= 40
-                                        ? 'bg-yellow-50 text-yellow-600 dark:bg-yellow-950/30 dark:text-yellow-400'
-                                        : 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'
-                                  }`}>
+                                  <span className={`text-xs px-1.5 py-0.5 rounded-md ${(item.extra.emotionScore as number) >= 60
+                                    ? 'bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400'
+                                    : (item.extra.emotionScore as number) >= 40
+                                      ? 'bg-yellow-50 text-yellow-600 dark:bg-yellow-950/30 dark:text-yellow-400'
+                                      : 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'
+                                    }`}>
                                     {item.extra.emotionScore as number}分
                                   </span>
                                 )}
                                 {item.type === 'goal' && item.extra?.status != null && (
-                                  <span className={`text-xs px-1.5 py-0.5 rounded-md ${
-                                    item.extra.status === 'ACTIVE'
-                                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400'
-                                      : item.extra.status === 'COMPLETED'
-                                        ? 'bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400'
-                                        : 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400'
-                                  }`}>
+                                  <span className={`text-xs px-1.5 py-0.5 rounded-md ${item.extra.status === 'ACTIVE'
+                                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400'
+                                    : item.extra.status === 'COMPLETED'
+                                      ? 'bg-green-50 text-green-600 dark:bg-green-950/30 dark:text-green-400'
+                                      : 'bg-surface-100 text-surface-500 dark:bg-surface-800 dark:text-surface-400'
+                                    }`}>
                                     {item.extra.status === 'ACTIVE' ? '进行中' : item.extra.status === 'COMPLETED' ? '已完成' : '已归档'}
                                   </span>
                                 )}
@@ -304,7 +309,7 @@ function GlobalSearch({ onDiarySearch }: GlobalSearchProps) {
                                 )}
                               </div>
                               <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5 line-clamp-2 leading-relaxed">
-                                {item.highlight}
+                                <HighlightText text={item.highlight} keyword={debouncedQuery} />
                               </p>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="text-2xs text-surface-300 dark:text-surface-600">

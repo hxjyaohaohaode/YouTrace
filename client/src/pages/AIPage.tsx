@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAIStore } from '../stores/aiStore';
 import { uploadApi, getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, type AttachmentResult } from '../api/upload';
 import { IconAI, IconCalendar, IconHeart, IconBolt, IconTarget, IconWeather, IconSend, IconCheck, IconSparkles, IconXMark, IconPlus, IconTrash } from '../components/Icons';
+import { HighlightText } from '../components/HighlightText';
 import type { Conversation } from '../types';
 
 const MAX_ATTACHMENTS = 9;
@@ -25,11 +26,12 @@ const agentIcons: Record<string, typeof IconAI> = {
   weather: IconWeather,
 };
 
-function ConversationItem({ conversation, isActive, onSelect, onDelete }: {
+function ConversationItem({ conversation, isActive, onSelect, onDelete, searchQuery }: {
   conversation: Conversation;
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  searchQuery?: string;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -45,7 +47,7 @@ function ConversationItem({ conversation, isActive, onSelect, onDelete }: {
       </div>
       <div className="flex-1 min-w-0">
         <p className={`text-sm truncate ${isActive ? 'text-brand-700 dark:text-brand-400 font-medium' : 'text-surface-700 dark:text-surface-300'}`}>
-          {conversation.title}
+          {searchQuery ? <HighlightText text={conversation.title} keyword={searchQuery} /> : conversation.title}
         </p>
         <p className="text-2xs text-surface-400 truncate">
           {conversation.messageCount} 条消息 · {new Date(conversation.updatedAt).toLocaleDateString('zh-CN')}
@@ -432,6 +434,7 @@ export default function AIPage() {
                       isActive={currentConversationId === conv.id}
                       onSelect={() => handleSelectConversation(conv.id)}
                       onDelete={() => handleDeleteConversation(conv.id)}
+                      searchQuery={searchQuery}
                     />
                   ))
                 )}

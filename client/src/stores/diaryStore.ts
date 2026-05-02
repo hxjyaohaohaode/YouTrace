@@ -103,6 +103,7 @@ export const useDiaryStore = create<DiaryState>((set) => ({
   },
 
   analyzeDiary: async (id) => {
+    set({ isLoading: true });
     try {
       const response = await diaryApi.analyzeDiary(id);
       if (response.success && response.data) {
@@ -111,10 +112,13 @@ export const useDiaryStore = create<DiaryState>((set) => ({
             ? { ...response.data!, attachments: state.currentDiary.attachments }
             : state.currentDiary,
           diaries: state.diaries.map((d) => d.id === id ? { ...d, ...response.data!, attachments: d.attachments } : d),
+          isLoading: false,
         }));
+      } else {
+        set({ isLoading: false });
       }
     } catch {
-      // ignore
+      set({ isLoading: false });
     }
   },
 
