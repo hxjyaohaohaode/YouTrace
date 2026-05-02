@@ -90,6 +90,7 @@ export default function AIPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentResult[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [isWaitingAnnotation, setIsWaitingAnnotation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -173,14 +174,23 @@ export default function AIPage() {
     if (remaining <= 0) return;
     const toUpload = files.slice(0, remaining);
     setIsUploading(true);
+    setUploadError('');
     try {
       const response = await uploadApi.uploadFiles(toUpload);
       if (response.success && response.data) {
         const successful = response.data.filter((r) => r.id) as AttachmentResult[];
-        setPendingAttachments((prev) => [...prev, ...successful]);
+        if (successful.length > 0) {
+          setPendingAttachments((prev) => [...prev, ...successful]);
+        }
+        if (successful.length < toUpload.length) {
+          setUploadError(`${toUpload.length - successful.length} 个文件上传失败，可能是文件类型不支持或文件损坏`);
+        }
+      } else {
+        setUploadError(response.message || '上传失败，请重试');
       }
-    } catch {
-      // upload failed, ignore
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : '上传请求失败';
+      setUploadError(errMsg || '上传失败，请检查网络连接');
     }
     setIsUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -645,6 +655,14 @@ export default function AIPage() {
           <div className={`border-t border-surface-100/60 dark:border-surface-800/60 bg-white dark:bg-surface-900 px-5 sm:px-8 lg:px-12 py-3 flex-shrink-0 transition-colors md:safe-bottom ${isDragOver ? 'bg-brand-50/50 border-brand-200' : ''
             }`}>
             <div className="md:max-w-3xl mx-auto">
+              {uploadError && (
+                <div className="mb-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 rounded-lg text-xs text-red-600 dark:text-red-400 flex items-center justify-between">
+                  <span>{uploadError}</span>
+                  <button onClick={() => setUploadError('')} className="text-red-400 hover:text-red-600 ml-2">
+                    <IconXMark size={12} />
+                  </button>
+                </div>
+              )}
               {pendingAttachments.length > 0 && (
                 <div className="mb-2 p-2.5 bg-surface-50 dark:bg-surface-800 rounded-xl border border-surface-200 dark:border-surface-700">
                   <div className="flex items-center justify-between mb-1.5">

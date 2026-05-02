@@ -99,25 +99,31 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     for await (const part of parts) {
       if (part.type === 'file') {
         const buffer = await part.toBuffer();
+        console.log(`[upload] 收到文件: ${part.filename}, MIME: ${part.mimetype}, 大小: ${buffer.length}`);
 
         if (!ALLOWED_MIME_TYPES.includes(part.mimetype)) {
+          console.log(`[upload] 拒绝: MIME类型不支持 ${part.mimetype}`);
           return reply.status(400).send({
             success: false,
-            message: `不支持的文件类型: ${part.mimetype}`,
+            message: `不支持的文件类型: ${part.mimetype}。支持的类型: 图片、视频、音频、PDF、Word、Excel、文本`,
           });
         }
 
         if (buffer.length > MAX_FILE_SIZE) {
+          console.log(`[upload] 拒绝: 文件过大 ${buffer.length}`);
           return reply.status(400).send({
             success: false,
             message: `文件过大: ${part.filename}，最大50MB`,
           });
         }
 
-        if (!validateFileMagicBytes(buffer, part.mimetype)) {
+        const magicValid = validateFileMagicBytes(buffer, part.mimetype);
+        if (!magicValid) {
+          const hex = buffer.slice(0, 8).toString('hex');
+          console.log(`[upload] 拒绝: magic bytes不匹配 ${part.filename} (${part.mimetype}), 前8字节: ${hex}`);
           return reply.status(400).send({
             success: false,
-            message: `文件内容与声明类型不匹配: ${part.filename}`,
+            message: `文件内容与声明类型不匹配: ${part.filename}。文件头: ${hex}`,
           });
         }
 
@@ -151,6 +157,7 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           file.filename,
           file.mimetype,
         );
+        console.log(`[upload] 文件已保存: ${processed.filePath}`);
 
         const fileType = getFileType(file.mimetype);
 
@@ -187,6 +194,7 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           processed.mimeType,
           processed.extractedText,
         ).then(async (annotation) => {
+          console.log(`[upload] 标注完成: ${attachment.id} → ${annotation?.slice(0, 50) || '(空)'}`);
           await prisma.attachment.update({
             where: { id: attachment.id },
             data: {
