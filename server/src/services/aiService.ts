@@ -425,10 +425,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description: '联网搜索最新的真实信息。当你需要获取实时资讯、最新新闻、事实核查、专业知识等超出你知识截止日期范围的信息时使用此工具。搜索结果会包含标题、摘要和来源链接。',
+    description: '联网搜索最新的真实信息。当你需要获取实时资讯、最新新闻、事实核查、专业知识等超出你知识截止日期范围的信息时使用此工具。搜索结果会包含标题、摘要和来源链接。搜索得到URL后，如需要获取页面详细内容，请使用fetch_webpage工具读取具体页面。',
     parameters: {
       query: { type: 'string', description: '搜索关键词，用简洁的语言描述你想搜索的内容', required: true },
       count: { type: 'number', description: '返回结果数量，默认5，最大10' },
+    },
+  },
+  {
+    name: 'fetch_webpage',
+    description: '获取指定网页的完整文字内容。当你需要读取某篇文章的详细内容、获取权威信息原文或了解更多细节时使用。会返回网页的纯文本内容（自动去除广告、导航等干扰）。',
+    parameters: {
+      url: { type: 'string', description: '要获取内容的网页URL（完整网址）', required: true },
     },
   },
 ];
