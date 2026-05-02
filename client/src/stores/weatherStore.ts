@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { weatherApi } from '../api/weather';
 import type { WeatherNowData, WeatherForecastData } from '../types';
 import { extractErrorMessage } from '../utils/error';
+import { useLocationStore } from './locationStore';
 
 interface WeatherState {
   currentWeather: WeatherNowData | null;
@@ -22,9 +23,30 @@ export const useWeatherStore = create<WeatherState>((set) => ({
   refreshAll: async (params) => {
     set({ isLoading: true, error: null });
     try {
+      let finalParams = { ...params };
+
+      if (finalParams.lng == null || finalParams.lat == null) {
+        const locState = useLocationStore.getState();
+        const coords = locState.coords;
+        if (coords?.lng != null && coords?.lat != null) {
+          finalParams.lng = coords.lng;
+          finalParams.lat = coords.lat;
+        } else {
+          try {
+            const result = await locState.requestBrowserLocation();
+            if (result) {
+              finalParams.lng = result.lng;
+              finalParams.lat = result.lat;
+            }
+          } catch {
+            // 浏览器定位失败，回退到IP定位
+          }
+        }
+      }
+
       const [nowRes, forecastRes] = await Promise.all([
-        weatherApi.getNow(params),
-        weatherApi.getForecast({ ...params, days: '7d' }),
+        weatherApi.getNow(finalParams),
+        weatherApi.getForecast({ ...finalParams, days: '7d' }),
       ]);
 
       const updates: Partial<WeatherState> = { isLoading: false };

@@ -163,7 +163,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
 
     const diaryWithAttachments = await prisma.diary.findUnique({
       where: { id: diary.id },
-      include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, aiAnnotation: true } } },
+      include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, filePath: true, aiAnnotation: true } } },
     });
 
     return reply.status(201).send({
@@ -226,7 +226,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
 
     const diaryWithAttachments = await prisma.diary.findUnique({
       where: { id },
-      include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, aiAnnotation: true } } },
+      include: { attachments: { select: { id: true, originalName: true, fileType: true, mimeType: true, thumbnailPath: true, filePath: true, aiAnnotation: true } } },
     });
 
     return reply.send({

@@ -186,7 +186,7 @@ function DiaryDetailPage() {
                         }`}
                     >
                       <img
-                        src={originalUrl || thumbUrl || ''}
+                        src={originalUrl || thumbUrl || undefined}
                         alt={att.originalName}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         loading="lazy"

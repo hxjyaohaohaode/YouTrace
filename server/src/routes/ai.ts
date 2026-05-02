@@ -547,7 +547,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
 
     const selectedAgent = getAgentById(agentType || 'default');
 
-    let attachments: Array<{ id: string; originalName: string; fileType: string; aiAnnotation: string; mimeType: string }> = [];
+    let attachments: Array<{ id: string; originalName: string; fileType: string; aiAnnotation: string; mimeType: string; thumbnailPath: string | null; filePath: string }> = [];
     if (attachmentIds && attachmentIds.length > 0) {
       attachments = await prisma.attachment.findMany({
         where: {
@@ -561,6 +561,8 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
           fileType: true,
           aiAnnotation: true,
           mimeType: true,
+          thumbnailPath: true,
+          filePath: true,
         },
       });
     }
@@ -587,7 +589,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         metadata: JSON.stringify({
           attachmentIds: attachments.map((a) => a.id),
           attachmentNames: attachments.map((a) => a.originalName),
-          attachmentMeta: attachments.map((a) => ({ id: a.id, originalName: a.originalName, fileType: a.fileType, thumbnailPath: null, filePath: null })),
+          attachmentMeta: attachments.map((a) => ({ id: a.id, originalName: a.originalName, fileType: a.fileType, thumbnailPath: a.thumbnailPath, filePath: a.filePath })),
         }),
       },
     });

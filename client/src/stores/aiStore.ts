@@ -92,7 +92,7 @@ export const useAIStore = create<AIState>((set, get) => ({
     const locState = useLocationStore.getState();
     const coords = locState.coords;
     const locationInfo = locState.location;
-    const location = (coords?.lng && coords?.lat)
+    const location = (coords?.lng != null && coords?.lat != null)
       ? { longitude: coords.lng, latitude: coords.lat }
       : (locationInfo?.longitude != null && locationInfo?.latitude != null)
         ? { longitude: locationInfo.longitude, latitude: locationInfo.latitude }
