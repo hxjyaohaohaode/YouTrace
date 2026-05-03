@@ -1,28 +1,22 @@
 import { FastifyPluginAsync } from 'fastify';
-import fs from 'fs';
 import prisma from '../utils/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
   callAI,
-  callAIChat,
-  callAIChatStream,
   getProvider,
   extractMemoryFromMessage,
   getAgentById,
   selectAgentByContent,
   AGENTS,
+  agentOrchestrator,
   generateGuideQuestions,
   getAIStatus,
-  getToolDescriptionsText,
-  parseToolCalls,
-  stripToolCalls,
   getWeatherForLocation,
   getUserLocation,
   analyzeEmotion,
   type ToolCall,
   type ToolResult,
-  type ChatMessage,
-  type ContentPart,
+  type ToolExecutor,
 } from '../services/aiService.js';
 import { getLocation } from '../services/locationService.js';
 import { getWeatherNow, getAirQuality, getWeatherAlerts, getWeatherSummaryText, buildQWeatherLocation } from '../services/weatherService.js';
@@ -66,147 +60,6 @@ interface CreateMemoryBody {
   key: string;
   value: string;
 }
-
-const SYSTEM_PROMPT = `你是"有记"App的AI助手——一个极其智能、主动、贴心的个人生活管家。
-
-【核心身份】
-你是一个深度了解用户的私人助理，你不仅回答问题，更会主动思考用户需要什么。
-
-【极其重要的时间规则】***必须严格遵守***
-当前精确时间：{CURRENT_TIME}
-- 你必须在每次回复中体现对当前时间的感知，比如根据时间段使用"早上好/下午好/晚上好"等问候
-- 当用户说"今天"、"明天"、"下周"等相对时间词时，你必须基于当前精确时间计算具体日期
-- 当用户说"现在"、"马上"、"一会儿"时，你必须基于当前精确时间理解
-- 绝对不允许使用模糊的时间表述（如"现在是2024年"这种错误），必须使用系统提供的精确时间
-- 在建议日程时间时，必须基于当前时间给出合理的具体时间，而不是模糊的建议
-- 如果当前是深夜（23:00-6:00），你应该关心用户的作息，提醒早睡
-- 如果当前是早晨（6:00-9:00），你可以问候早安并提醒今日日程
-- 如果当前是工作日，你应该关注工作相关安排；如果是周末，可以更轻松地交流
-
-【用户熟悉度规则】***必须严格遵守***
-- 你已经深度了解用户，不要像陌生人一样交流
-- 如果用户画像中有信息，你必须自然地引用，比如"你之前提到你喜欢跑步"、"作为程序员，你平时久坐比较多"
-- 不要重复问用户已经告诉过你的信息（已在用户画像或记忆库中的）
-- 用朋友般的语气交流，而不是客服般的机械回复
-- 根据用户的性格、职业、爱好来调整你的语气和建议
-- 记住用户最近提到的事情，在后续对话中自然地关联
-
-【六大核心能力】
-1. **主动智能**：不等用户提问，主动发现需求并提供建议。比如看到用户连续加班，主动建议休息。
-2. **深度记忆**：你会记住用户告诉你的所有信息（职业、爱好、习惯、健康状况等），并在后续对话中自然地体现这种了解。
-3. **日程管理**：帮助用户创建、修改、删除日程。当识别到日程相关内容时，主动提议帮助管理。你可以直接帮用户创建日程。
-4. **课表识别**：用户上传课表图片后，你能自动识别课程信息（课程名、时间、地点、教师、周次），展示识别结果让用户确认后再添加到日程。支持选择周次范围和调课设置。
-5. **情绪关怀**：关注用户情绪变化，低落时温暖鼓励，开心时一起分享。结合日记情绪趋势给出专业心理建议。
-6. **目标追踪**：了解用户的目标和习惯打卡情况，给出针对性的坚持建议和进度分析。
-
-【计划制定与审批】
-当用户需要你制定计划时（如学习计划、健身计划、备考计划等），你必须：
-1. 先制定详细的计划方案，包含具体的时间安排和目标
-2. 将计划方案展示给用户，等待用户确认
-3. 用户确认后，再将计划中的各项内容添加到日程表、目标、习惯中
-4. 绝对不要在用户未确认的情况下直接创建日程
-
-【专家智能体协作系统】***核心能力，必须严格执行***
-你不是一个单独的AI，而是一个由7个专家智能体组成的大型协作系统的协调中枢。当用户的需求涉及某个专业领域时，你必须自动切换到对应的专家智能体来处理。
-
-**自动切换规则**（不需要用户手动选择，你根据需求自动判断）：
-1. 用户提到日程、时间安排、会议、课程→自动以「📅 日程管家」身份回复
-2. 用户表达情绪困扰、焦虑、压力、心情低落→自动以「💚 心理顾问」身份回复
-3. 用户提到运动、饮食、睡眠、健康→自动以「🏃 健康教练」身份回复
-4. 用户提到目标、效率、拖延、习惯养成→自动以「🎯 效率专家」身份回复
-5. 用户询问天气、出行、穿衣→自动以「🌤️ 天气顾问」身份回复
-6. 用户提到学习、考试、技能提升→自动以「📚 学习顾问」身份回复
-7. 其他日常对话→以「🤖 全能助手」身份回复
-
-**多智能体协作规则**：
-- 当用户的问题涉及多个领域时，你可以同时调用多个专家的知识来综合回答
-- 例如：用户说"最近加班很累，想运动但没时间"→同时以「心理顾问」分析压力源+「健康教练」给出碎片化运动方案+「日程管家」优化时间安排
-- 在回复开头用对应智能体的图标标识当前身份，如"💚 作为心理顾问，我注意到..."
-- 协作时必须先调用相关工具获取真实数据（analyze_schedule、analyze_emotion_trend、analyze_goal_progress等），然后基于数据给出专业建议
-
-**主动数据获取规则**（必须遵守）：
-- 每次对话开始时，如果涉及日程→必须先调用analyze_schedule获取最新日程数据
-- 如果涉及情绪→必须先调用analyze_emotion_trend获取情绪趋势
-- 如果涉及目标→必须先调用analyze_goal_progress获取目标进度
-- 绝对不能凭空编造用户数据，所有数据必须来自工具调用结果
-- ***重要***：每次对话时系统会注入最新的用户上下文数据（日程、目标、习惯等）。你必须以「用户上下文」区域中的最新数据为准，历史消息中引用的旧数据可能已过期。当用户询问当前状态时，优先使用上下文中的最新数据，必要时主动调用工具获取实时数据。
-
-【安全护栏】
-你必须严格遵守以下安全规则：
-- 不得提供医疗诊断或处方建议，只能提供一般性健康建议
-- 不得替代专业心理咨询，发现严重心理问题必须建议就医
-- 不得提供法律或金融投资建议
-- 不得代替用户完成考试或作业
-- 发现自伤/自杀倾向时，必须立即提供心理援助热线（全国24小时：400-161-9995）
-- 不得执行任何可能对用户造成伤害的操作
-- 涉及用户隐私的信息不得在回复中完整展示
-
-【工具调用与ReAct循环】
-你使用"思考→行动→观察→反思"的ReAct循环来解决问题：
-
-1. **思考(Thought)**：分析用户需求，决定需要做什么
-2. **行动(Action)**：调用工具执行操作
-3. **观察(Observation)**：查看工具返回的结果
-4. **反思(Reflection)**：基于结果决定下一步，或给出最终回复
-
-当你需要调用工具时，在回复中使用以下格式：
-[TOOL:工具名]JSON参数[/TOOL]
-
-例如，为用户添加一个日程：
-[TOOL:add_event]{"title":"团队会议","startTime":"2024-01-15T14:00:00","endTime":"2024-01-15T15:00:00"}[/TOOL]
-
-你可以同时调用多个工具，也可以在自然语言回复中穿插工具调用。工具调用后系统会自动执行并返回结果，你根据结果继续思考或给出最终回复。
-
-**重要**：在回复前先思考——你是否需要先获取数据（天气、情绪趋势、日程分析等）才能给出专业建议？如果是，先调用分析工具，再基于数据给出建议。
-
-【反幻觉和数据真实性规则】***极其重要，必须严格遵守***
-- 你绝对不能编造、臆测或假设用户的任何数据（日程、目标、习惯、日记、情绪、天气等）
-- 当你需要引用用户的任何数据时，必须先调用相应的工具获取真实数据
-- 用户已有日程→先调用analyze_schedule获取数据后，再基于真实数据回复
-- 用户已有目标→先调用analyze_goal_progress获取数据后，再基于真实数据回复
-- 不要在没有数据支持的情况下说"你的日程显示..."、"根据你的数据..."
-- 如果你不确定某个数据是否存在，先调用工具查询，而不是猜测
-- 如果你调用了工具但没有得到结果（如今天没有日程），要如实告知用户，而不是编造内容
-- 不要说"我看到你的日程表上有XXX"除非你真的调用了工具并获取了该数据
-- 需要最新资讯、事实核查或超出你知识范围的信息→先调用web_search联网搜索权威来源，再基于搜索结果回复
-- 搜索时使用简洁准确的关键词，获得结果后归纳总结告知用户，并附上来源链接
-- 搜索得到URL后如果摘要信息不够详细→调用fetch_webpage获取页面完整内容，确保信息准确充分后再回复
-
-{TOOL_DESCRIPTIONS}
-
-【交互规则】***必须严格遵守***
-- 始终用中文回复，语气温暖自然，像亲密的朋友一样交流，绝不能像客服或机器人
-- 每次回复的第一句话必须体现时间感知：根据当前时间说"早上好"/"下午好"/"晚上好"，或提及当前时间相关的内容
-- 回复简洁有温度，避免冗长说教，每条回复控制在3-5句话以内
-- 主动询问需求，不要被动等待
-- 识别到个人信息时，主动使用save_memory或update_profile工具保存
-- 识别到日程需求时，主动使用add_event工具创建
-- 识别到目标意图时，主动使用add_goal工具创建
-- 识别到日记意图时，主动使用add_diary工具创建
-- 识别到习惯意图时，主动使用add_habit工具创建
-- 用户上传课表图片时，主动使用recognize_schedule工具识别，展示识别结果让用户确认后再创建日程
-- 用户要求显示节假日时，主动使用add_holidays工具添加
-- 需要天气数据时，主动使用search_weather工具获取
-- 需要了解情绪趋势时，主动使用analyze_emotion_trend工具
-- 需要分析日程时，主动使用analyze_schedule工具
-- 需要了解目标进度时，主动使用analyze_goal_progress工具
-- 有天气预警时，务必提醒安全并给出防护建议
-- 结合天气给出贴心建议（下雨→带伞，高温→防暑，雾霾→戴口罩，寒冷→保暖）
-- 不要重复用户已知的信息，而是基于这些信息给出新的洞察和建议
-- 从容易被忽视的角度思考问题，给出用户意想不到但极其有价值的建议
-- 当用户说"今天有什么日程"时，先调用analyze_schedule获取真实数据再回复，绝不能编造日程
-- 当用户提到天气时，先调用search_weather获取真实数据再回复，绝不能编造天气信息
-
-【主动智能行为模式】
-你应当主动识别以下行为模式并采取行动：
-- 用户连续多天情绪低落→主动关怀，建议切换心理顾问模式
-- 用户日程过于密集→主动建议优化，指出空闲时段
-- 用户目标进度停滞→主动分析原因，给出可执行建议
-- 用户习惯打卡中断→主动鼓励，分析中断原因
-- 天气即将变化→主动提醒准备（降温→加衣，下雨→带伞）
-- 用户提到身体不适→结合天气和健康数据给出建议
-- 用户长时间未写日记→主动引导记录
-- 用户信息有更新→主动保存到记忆库和画像`;
 
 async function buildUserContext(userId: string, ip: string | undefined, attachmentIds?: string[], longitude?: number, latitude?: number): Promise<string> {
   const now = new Date();
@@ -732,177 +585,104 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       };
     });
 
-    const toolDescriptions = getToolDescriptionsText();
-
-    const now = new Date();
-    const currentTimeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]}`;
-    let systemContent = SYSTEM_PROMPT
-      .replace('{CURRENT_TIME}', currentTimeStr)
-      .replace('{TOOL_DESCRIPTIONS}', toolDescriptions);
-
-    if (selectedAgent.systemPromptAddition) {
-      systemContent += `\n\n${selectedAgent.systemPromptAddition}`;
-    }
-
-    systemContent += `\n\n--- 用户上下文 ---\n${contextInfo}`;
-
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemContent },
-    ];
-
-    if (chatHistory.length > 0) {
-      for (const msg of chatHistory.slice(-10)) {
-        messages.push({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content,
-        });
-      }
-    }
-
-    let userContentWithAttachments: string | ContentPart[] = content;
-    if (attachments.length > 0) {
-      const provider = getProvider();
-      const imageAttachments = attachments.filter((a) => a.fileType === 'image');
-      const nonImageAttachments = attachments.filter((a) => a.fileType !== 'image');
-
-      if (provider === 'mimo' && imageAttachments.length > 0) {
-        const contentParts: ContentPart[] = [];
-
-        let textPrefix = content;
-        if (nonImageAttachments.length > 0) {
-          textPrefix += '\n\n我还上传了以下非图片附件:\n' + nonImageAttachments.map((a, i) => {
-            const typeLabel = a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
-          }).join('\n\n');
-        }
-        contentParts.push({ type: 'text', text: textPrefix });
-
-        for (const imgAtt of imageAttachments) {
-          const fullAtt = await prisma.attachment.findFirst({
-            where: { id: imgAtt.id, userId: request.userId! },
-            select: { filePath: true, mimeType: true },
-          });
-          try {
-            if (fullAtt?.filePath && fs.existsSync(fullAtt.filePath)) {
-              const fileBuffer = fs.readFileSync(fullAtt.filePath);
-              const base64Data = fileBuffer.toString('base64');
-              contentParts.push({
-                type: 'image_url',
-                image_url: { url: `data:${fullAtt.mimeType};base64,${base64Data}` },
-              });
-              if (imgAtt.aiAnnotation) {
-                contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName} 的AI描述: ${imgAtt.aiAnnotation}]` });
-              }
-            } else {
-              contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${imgAtt.aiAnnotation || '[图片文件无法读取]'}` });
-            }
-          } catch {
-            contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${imgAtt.aiAnnotation || '[图片读取失败]'}` });
-          }
-        }
-
-        userContentWithAttachments = contentParts;
-      } else {
-        userContentWithAttachments = content + '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
-          const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-          return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
-        }).join('\n\n');
-      }
-    }
-
-    messages.push({ role: 'user', content: userContentWithAttachments });
-
-    let aiContent: string;
     const toolResults: ToolResult[] = [];
 
+    const toolExecutor: ToolExecutor = {
+      async execute(name, args, _ctx) {
+        const tc: ToolCall = { name, arguments: args };
+        const result = await executeToolCall(tc, request.userId!, request.ip);
+        toolResults.push(result);
+        return result;
+      },
+    };
+
+    let cleanProfile: Record<string, unknown> = {};
+    const userRecord = await prisma.user.findUnique({
+      where: { id: request.userId! },
+      include: { profile: true },
+    });
+    if (userRecord?.profile) {
+      const p = userRecord.profile;
+      const fields: Record<string, unknown> = {};
+      if (p.nickname) fields.nickname = p.nickname;
+      if (p.gender) fields.gender = p.gender;
+      if (p.birthday) fields.birthday = p.birthday;
+      if (p.occupation) fields.occupation = p.occupation;
+      if (p.hobbies) fields.hobbies = p.hobbies;
+      if (p.personality) fields.personality = p.personality;
+      cleanProfile = fields;
+    }
+
+    const orchestratorStm = agentOrchestrator.memory.getOrCreateShortTerm(activeConversationId);
+    orchestratorStm.recentMessages = [];
+    for (const msg of chatHistory.slice(-15)) {
+      orchestratorStm.recentMessages.push({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+      });
+    }
+
+    const enrichedContent = attachments.length > 0
+      ? content + '\n\n[用户上传了以下附件]\n' + attachments.map((a, i) => {
+        const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+        return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${a.aiAnnotation}`;
+      }).join('\n\n')
+      : content;
+
+    let aiContent: string;
     try {
-      const provider = getProvider();
-      if (provider === 'local') {
-        aiContent = generateLocalResponse(content);
-      } else {
-        aiContent = await callAIChat(messages, provider);
+      const orchestrationResult = await agentOrchestrator.orchestrate(
+        request.userId!,
+        activeConversationId,
+        enrichedContent,
+        toolExecutor,
+        attachmentFileTypes,
+        cleanProfile,
+        { contextInfo },
+      );
 
-        if (aiContent.startsWith('```')) {
-          aiContent = aiContent.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
-        }
-
-        const toolCalls = parseToolCalls(aiContent);
-
-        if (toolCalls.length > 0) {
-          for (const toolCall of toolCalls) {
-            if (!selectedAgent.availableTools.includes(toolCall.name)) {
-              toolResults.push({
-                name: toolCall.name,
-                success: false,
-                data: null,
-                message: `工具 ${toolCall.name} 在当前智能体模式下不可用`,
-              });
-              continue;
-            }
-
-            const result = await executeToolCall(toolCall, request.userId!, request.ip);
-            toolResults.push(result);
-          }
-
-          const toolFeedbackParts = toolResults.map((r) => {
-            if (r.success) {
-              return `${r.name}: ✅ ${r.message}`;
-            }
-            return `${r.name}: ❌ ${r.message}`;
-          });
-
-          const toolFeedback = toolFeedbackParts.join('\n');
-
-          messages.push({ role: 'assistant', content: aiContent });
-          messages.push({
-            role: 'user',
-            content: `工具执行结果：\n${toolFeedback}\n\n请根据工具执行结果，给用户一个简洁的确认回复。如果工具执行成功，告诉用户你完成了什么；如果失败，说明原因并建议替代方案。`,
-          });
-
-          const followUpResponse = await callAIChat(messages, provider);
-          aiContent = followUpResponse.trim();
-        }
-
-        const memoryResult = await extractMemoryFromMessage(content);
-        if (memoryResult.items.length > 0) {
-          for (const item of memoryResult.items) {
-            if (item.confidence >= 60) {
-              await prisma.memoryItem.upsert({
-                where: {
-                  userId_category_key: {
-                    userId: request.userId!,
-                    category: item.category,
-                    key: item.key,
-                  },
-                },
-                create: {
-                  userId: request.userId!,
-                  category: item.category,
-                  key: item.key,
-                  value: item.value,
-                  source: 'ai_extracted',
-                  confidence: item.confidence,
-                  isVerified: item.confidence >= 80,
-                },
-                update: {
-                  value: item.value,
-                  confidence: item.confidence,
-                  source: 'ai_extracted',
-                },
-              });
-
-              await updateProfileFromMemory(request.userId!, item.category, item.key, item.value);
-            }
-          }
-
-          await generateMemorySummary(request.userId!);
-        }
-      }
+      aiContent = orchestrationResult.content;
+      selectedAgent = getAgentById(orchestrationResult.agentTrace[orchestrationResult.agentTrace.length - 1]?.agentId || selectedAgent.id) || selectedAgent;
     } catch {
       aiContent = generateLocalResponse(content);
     }
 
-    const cleanContent = stripToolCalls(aiContent);
+    try {
+      const memoryResult = await extractMemoryFromMessage(content);
+      if (memoryResult.items.length > 0) {
+        for (const item of memoryResult.items) {
+          if (item.confidence >= 60) {
+            await prisma.memoryItem.upsert({
+              where: {
+                userId_category_key: {
+                  userId: request.userId!,
+                  category: item.category,
+                  key: item.key,
+                },
+              },
+              create: {
+                userId: request.userId!,
+                category: item.category,
+                key: item.key,
+                value: item.value,
+                source: 'ai_extracted',
+                confidence: item.confidence,
+                isVerified: item.confidence >= 80,
+              },
+              update: {
+                value: item.value,
+                confidence: item.confidence,
+                source: 'ai_extracted',
+              },
+            });
+            await updateProfileFromMemory(request.userId!, item.category, item.key, item.value);
+          }
+        }
+        await generateMemorySummary(request.userId!);
+      }
+    } catch { /* memory extraction failed, ignore */ }
+
+    const cleanContent = aiContent;
 
     const assistantMessage = await prisma.chatMessage.create({
       data: {
@@ -1017,166 +797,100 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         take: 20,
       });
 
-      const toolDescriptions = getToolDescriptionsText();
-      const now = new Date();
-      const currentTimeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]}`;
-      let systemContent = SYSTEM_PROMPT
-        .replace('{CURRENT_TIME}', currentTimeStr)
-        .replace('{TOOL_DESCRIPTIONS}', toolDescriptions);
+      const chatHistory = recentMessages.reverse().map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
-      if (selectedAgent.systemPromptAddition) {
-        systemContent += `\n\n${selectedAgent.systemPromptAddition}`;
-      }
+      const attachmentFileTypes = streamFileTypes;
 
       const contextInfo = await buildUserContext(request.userId!, request.ip, attachmentIds, _longitude, _latitude);
-      systemContent += `\n\n--- 用户上下文 ---\n${contextInfo}`;
 
-      const chatHistory = recentMessages.reverse().map((m) => {
-        let msgContent = m.content;
-        try {
-          const meta = JSON.parse(m.metadata);
-          if (meta.attachmentNames && meta.attachmentNames.length > 0 && m.role === 'user') {
-            msgContent += `\n\n[用户在此消息中上传了附件: ${meta.attachmentNames.join(', ')}]`;
-          }
-          if (meta.attachmentIds && meta.attachmentIds.length > 0 && m.role === 'user' && !meta.attachmentNames) {
-            msgContent += `\n\n[用户在此消息中上传了${meta.attachmentIds.length}个附件]`;
-          }
-        } catch { /* ignore */ }
-        return {
-          role: m.role as 'user' | 'assistant',
-          content: msgContent,
-        };
+      const toolExecutor: ToolExecutor = {
+        async execute(name, args, _ctx) {
+          const tc: ToolCall = { name, arguments: args };
+          return executeToolCall(tc, request.userId!, request.ip);
+        },
+      };
+
+      let cleanProfile: Record<string, unknown> = {};
+      const userRecord = await prisma.user.findUnique({
+        where: { id: request.userId! },
+        include: { profile: true },
       });
+      if (userRecord?.profile) {
+        const p = userRecord.profile;
+        const fields: Record<string, unknown> = {};
+        if (p.nickname) fields.nickname = p.nickname;
+        if (p.gender) fields.gender = p.gender;
+        if (p.birthday) fields.birthday = p.birthday;
+        if (p.occupation) fields.occupation = p.occupation;
+        if (p.hobbies) fields.hobbies = p.hobbies;
+        if (p.personality) fields.personality = p.personality;
+        cleanProfile = fields;
+      }
 
-      let userContentWithAttachments: string | ContentPart[] = content;
+      const orchestratorStm = agentOrchestrator.memory.getOrCreateShortTerm(activeConversationId);
+      orchestratorStm.recentMessages = [];
+      for (const msg of chatHistory.slice(-15)) {
+        orchestratorStm.recentMessages.push({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        });
+      }
+
+      let enrichedContent = content;
       if (attachmentIds && attachmentIds.length > 0) {
         const attachments = await prisma.attachment.findMany({
           where: { id: { in: attachmentIds }, userId: request.userId },
-          select: { id: true, originalName: true, fileType: true, aiAnnotation: true, annotationStatus: true, mimeType: true, filePath: true },
+          select: { id: true, originalName: true, fileType: true, aiAnnotation: true, annotationStatus: true },
         });
-
         if (attachments.length > 0) {
-          const provider = getProvider();
-          const hasImages = attachments.some((a) => a.fileType === 'image');
-          const imageAttachments = attachments.filter((a) => a.fileType === 'image');
-          const nonImageAttachments = attachments.filter((a) => a.fileType !== 'image');
-
-          if (provider === 'mimo' && hasImages) {
-            const contentParts: ContentPart[] = [];
-
-            let textPrefix = content;
-            if (nonImageAttachments.length > 0) {
-              textPrefix += '\n\n我还上传了以下非图片附件:\n' + nonImageAttachments.map((a, i) => {
-                const typeLabel = a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-                const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
-                  ? a.aiAnnotation
-                  : `[${typeLabel}文件 ${a.originalName}]`;
-                return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
-              }).join('\n\n');
-            }
-            contentParts.push({ type: 'text', text: textPrefix });
-
-            for (const imgAtt of imageAttachments) {
-              try {
-                if (fs.existsSync(imgAtt.filePath)) {
-                  const fileBuffer = fs.readFileSync(imgAtt.filePath);
-                  const base64Data = fileBuffer.toString('base64');
-                  contentParts.push({
-                    type: 'image_url',
-                    image_url: { url: `data:${imgAtt.mimeType};base64,${base64Data}` },
-                  });
-                  const imgAnnotation = imgAtt.annotationStatus === 'completed' && imgAtt.aiAnnotation
-                    ? `\n[图片 ${imgAtt.originalName} 的AI描述: ${imgAtt.aiAnnotation}]`
-                    : '';
-                  if (imgAnnotation) {
-                    contentParts.push({ type: 'text', text: imgAnnotation });
-                  }
-                } else {
-                  const fallback = imgAtt.annotationStatus === 'completed' && imgAtt.aiAnnotation
-                    ? imgAtt.aiAnnotation
-                    : '[图片文件无法读取]';
-                  contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${fallback}` });
-                }
-              } catch {
-                const fallback = imgAtt.aiAnnotation || '[图片读取失败]';
-                contentParts.push({ type: 'text', text: `\n[图片 ${imgAtt.originalName}]: ${fallback}` });
-              }
-            }
-
-            userContentWithAttachments = contentParts;
-          } else {
-            userContentWithAttachments = content + '\n\n我上传了以下附件:\n' + attachments.map((a, i) => {
-              const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-              const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
-                ? a.aiAnnotation
-                : a.annotationStatus === 'processing'
-                  ? '[附件正在分析中，请基于文件名和类型给出初步回应]'
-                  : '[附件分析未完成，请基于文件名和类型给出初步回应]';
-              return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
-            }).join('\n\n');
-          }
+          enrichedContent = content + '\n\n[用户上传了以下附件]\n' + attachments.map((a, i) => {
+            const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
+            const annotation = a.annotationStatus === 'completed' && a.aiAnnotation ? a.aiAnnotation : `[${typeLabel}文件 ${a.originalName}]`;
+            return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
+          }).join('\n\n');
         }
       }
 
-      const messages: ChatMessage[] = [
-        { role: 'system', content: systemContent },
-        ...chatHistory.slice(-10),
-        { role: 'user', content: userContentWithAttachments },
-      ];
-
-      const provider = getProvider();
-
-      for await (const chunk of callAIChatStream(messages, provider)) {
-        fullContent += chunk;
-        sendSSE('chunk', { content: chunk });
+      let isFirstAgentStart = true;
+      for await (const event of agentOrchestrator.orchestrateStream(
+        request.userId!,
+        activeConversationId,
+        enrichedContent,
+        toolExecutor,
+        attachmentFileTypes || [],
+        cleanProfile,
+        { contextInfo },
+      )) {
+        if (event.type === 'chunk') {
+          const chunkText = event.data.content as string || '';
+          fullContent += chunkText;
+          sendSSE('chunk', { content: chunkText });
+        } else if (event.type === 'agent_start' && isFirstAgentStart) {
+          isFirstAgentStart = false;
+          const agentData = event.data;
+          sendSSE('conversation', {
+            conversationId: activeConversationId,
+            agents: [agentData],
+            agentType: agentData.agentId || selectedAgent.id,
+            agentName: agentData.agentName || selectedAgent.name,
+            agentIcon: agentData.agentIcon || selectedAgent.icon,
+          });
+        } else if (event.type === 'conversation') {
+          sendSSE('conversation', { ...event.data, conversationId: activeConversationId });
+        } else if (event.type === 'tool_call') {
+          sendSSE('tool_update', {
+            agentId: event.data.agentId,
+            agentName: event.data.agentName,
+            toolName: event.data.toolName,
+            args: event.data.toolArgs,
+          });
+        }
       }
 
-      const toolCalls = parseToolCalls(fullContent);
-      const toolResults: ToolResult[] = [];
-
-      if (toolCalls.length > 0) {
-        for (const toolCall of toolCalls) {
-          if (!selectedAgent.availableTools.includes(toolCall.name)) {
-            toolResults.push({
-              name: toolCall.name,
-              success: false,
-              data: null,
-              message: `工具 ${toolCall.name} 在当前智能体模式下不可用`,
-            });
-            continue;
-          }
-
-          const result = await executeToolCall(toolCall, request.userId!, request.ip);
-          toolResults.push(result);
-        }
-
-        sendSSE('tool_results', { results: toolResults });
-
-        const toolFeedbackParts = toolResults.map((r) => {
-          if (r.success) {
-            return `${r.name}: ✅ ${r.message}`;
-          }
-          return `${r.name}: ❌ ${r.message}`;
-        });
-
-        const toolFeedback = toolFeedbackParts.join('\n');
-
-        messages.push({ role: 'assistant', content: fullContent });
-        messages.push({
-          role: 'user',
-          content: `工具执行结果：\n${toolFeedback}\n\n请根据工具执行结果，给用户一个简洁的确认回复。`,
-        });
-
-        let followUpContent = '';
-        for await (const chunk of callAIChatStream(messages, provider)) {
-          followUpContent += chunk;
-          sendSSE('chunk', { content: chunk });
-        }
-
-        fullContent = followUpContent;
-      }
-
-      const cleanContent = stripToolCalls(fullContent);
+      const cleanContent = fullContent;
 
       try {
         const memoryResult = await extractMemoryFromMessage(content);
@@ -1233,7 +947,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       if (fullContent && activeConversationId) {
         try {
-          const partialContent = stripToolCalls(fullContent);
+          const partialContent = fullContent;
           if (partialContent.trim()) {
             await prisma.chatMessage.create({
               data: {

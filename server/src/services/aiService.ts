@@ -769,23 +769,29 @@ export async function extractMemoryFromMessage(content: string): Promise<{ items
   }
 }
 
-// ============ 专家智能体定义 ============
+// ============ 专家智能体定义（全新AgentConfig格式，接入多Agent编排引擎）============
 
-interface AgentType {
+export { agentOrchestrator } from './agentOrchestrator.js';
+export type { ToolExecutor, AgentContext, AgentConfig, AgentTool, StreamEvent } from './agentOrchestrator.js';
+import { agentOrchestrator, type AgentConfig, type AgentTool } from './agentOrchestrator.js';
+
+interface LegacyAgentType {
   id: string;
   name: string;
   description: string;
   icon: string;
   systemPromptAddition: string;
-  availableTools: string[];
   collaborationHints: string[];
-  scope: { inScope: string[]; outOfScope: string[] };
-  guardrails: string[];
-  escalationTriggers: string[];
-  handoffTargets: { condition: string; targetAgent: string }[];
+  availableTools?: string[];
+  scope?: { inScope: string[]; outOfScope: string[] };
+  guardrails?: string[];
+  escalationTriggers?: string[];
+  handoffTargets?: { condition: string; targetAgent: string }[];
 }
 
-export const AGENTS: AgentType[] = [
+export { type LegacyAgentType as AgentType };
+
+export const AGENTS: LegacyAgentType[] = [
   {
     id: 'default',
     name: '全能助手',
@@ -1155,45 +1161,80 @@ export const AGENTS: AgentType[] = [
   },
 ];
 
-export function getAgentById(id: string): AgentType {
+export function getAgentById(id: string): LegacyAgentType {
   return AGENTS.find((a) => a.id === id) || AGENTS[0];
 }
 
-export function selectAgentByContent(content: string, attachmentFileTypes: string[]): AgentType {
-  const lower = content.toLowerCase();
+export function selectAgentByContent(content: string, attachmentFileTypes: string[]): LegacyAgentType {
+  const analysis = agentOrchestrator.router.analyze(content, attachmentFileTypes);
+  const suggestedId = analysis.matchedAgents[0] || 'default';
+  return AGENTS.find((a) => a.id === suggestedId) || AGENTS[0];
+}
 
-  const scheduleKeywords = ['日程', '时间安排', '会议', '课程', '课表', '日程表', '日历', '提醒', '时间冲突', '空闲', '忙碌', '安排', '计划', '行程', '约会', '面试', '考试时间', 'deadline', '截止日期'];
-  const emotionKeywords = ['焦虑', '压力', '心情', '情绪', '抑郁', '难过', '伤心', '烦躁', '不安', '恐惧', '孤独', '失眠', '崩溃', '不开心', '郁闷', '低落', '想哭', '无助', '心理', '咨询'];
-  const healthKeywords = ['运动', '健身', '跑步', '饮食', '睡眠', '减肥', '增肌', '卡路里', '营养', '健康', '体重', '锻炼', '瑜伽', '散步', '喝水'];
-  const efficiencyKeywords = ['目标', '效率', '拖延', '习惯', '自律', '专注', '时间管理', '番茄钟', 'GTD', '复盘', '总结', '规划', '执行', '坚持'];
-  const weatherKeywords = ['天气', '下雨', '温度', '穿衣', '出门', '紫外线', '防晒', '带伞', '雾霾', '台风', '暴雨', '寒潮'];
-  const learningKeywords = ['学习', '考试', '复习', '笔记', '知识', '技能', '培训', '证书', '英语', '编程', '读书', '论文'];
+// ============ 将TOOL_DEFINITIONS转换为AgentTool格式（OpenAI function calling） ============
 
-  const scores: Record<string, number> = {
-    schedule_manager: 0,
-    emotion_counselor: 0,
-    health_coach: 0,
-    efficiency_expert: 0,
-    weather_advisor: 0,
-    learning_advisor: 0,
+export function buildAgentTools(toolNames: string[]): AgentTool[] {
+  return toolNames
+    .map((name) => TOOL_DEFINITIONS.find((t) => t.name === name))
+    .filter((t): t is typeof TOOL_DEFINITIONS[number] => t != null)
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: 'object',
+        properties: Object.fromEntries(
+          Object.entries(t.parameters).map(([key, p]) => [
+            key,
+            {
+              type: p.type,
+              description: p.description,
+              ...(p.enum ? { enum: p.enum } : {}),
+            },
+          ])
+        ),
+        required: Object.entries(t.parameters)
+          .filter(([, p]) => p.required)
+          .map(([key]) => key),
+      },
+    }));
+}
+
+// ============ Agent注册：将专家Agent注册到多Agent编排引擎 ============
+
+function buildAgentConfig(legacy: LegacyAgentType): AgentConfig {
+  const agentModels: Record<string, 'deepseek' | 'mimo'> = {
+    default: 'deepseek',
+    schedule: 'deepseek',
+    emotion: 'deepseek',
+    health: 'deepseek',
+    productivity: 'deepseek',
+    weather: 'deepseek',
+    learning: 'deepseek',
   };
 
-  for (const kw of scheduleKeywords) { if (lower.includes(kw)) scores.schedule_manager += 2; }
-  for (const kw of emotionKeywords) { if (lower.includes(kw)) scores.emotion_counselor += 2; }
-  for (const kw of healthKeywords) { if (lower.includes(kw)) scores.health_coach += 2; }
-  for (const kw of efficiencyKeywords) { if (lower.includes(kw)) scores.efficiency_expert += 2; }
-  for (const kw of weatherKeywords) { if (lower.includes(kw)) scores.weather_advisor += 2; }
-  for (const kw of learningKeywords) { if (lower.includes(kw)) scores.learning_advisor += 2; }
+  const toolNames = legacy.availableTools || [];
 
-  if (attachmentFileTypes.includes('image')) {
-    scores.schedule_manager += 3;
-  }
-
-  const maxScore = Math.max(...Object.values(scores));
-  if (maxScore < 2) return AGENTS[0];
-
-  const bestAgentId = Object.entries(scores).find(([, s]) => s === maxScore)?.[0];
-  if (!bestAgentId) return AGENTS[0];
-
-  return AGENTS.find((a) => a.id === bestAgentId) || AGENTS[0];
+  return {
+    id: legacy.id,
+    name: legacy.name,
+    icon: legacy.icon,
+    description: legacy.description,
+    systemPrompt: legacy.systemPromptAddition,
+    capabilities: (legacy.collaborationHints || []).map((h, i) => ({
+      name: h,
+      description: `${legacy.name}的${h}领域能力`,
+      priority: i,
+    })),
+    tools: buildAgentTools(toolNames),
+    handoffTargets: (legacy.handoffTargets || []).map((h) => h.targetAgent),
+    preferredModel: agentModels[legacy.id] || 'deepseek',
+    temperature: 0.7,
+    collaborationHints: `你是「${legacy.icon} ${legacy.name}」。${legacy.description}。\n${(legacy.guardrails || []).map((g) => `- ${g}`).join('\n')}\n${legacy.scope ? `专业范围: ${legacy.scope.inScope.join('、')}` : ''}`,
+  };
 }
+
+(function initOrchestrator() {
+  for (const agent of AGENTS) {
+    agentOrchestrator.registerAgent(buildAgentConfig(agent));
+  }
+})();
