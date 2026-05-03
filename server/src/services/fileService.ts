@@ -186,7 +186,7 @@ async function callAIModel(
 
   try {
     const messages: { role: string; content: unknown }[] = [
-      { role: 'system', content: '你是一个专业的文件内容分析助手。请用中文回复，描述要具体、准确、有价值，避免空泛的描述。' },
+      { role: 'system', content: '你是有迹(YouTrace)生活管理APP的智能文件分析专家。用户上传文件到这款应用中——可能是课表截图、日记、笔记、工作文档、收据、照片等。你的核心任务是判断文件的**真实内容类型**并提取关键信息。拒绝空泛回答，必须精确到具体类型。' },
     ];
 
     if (fileType === 'image' && filePath && fs.existsSync(filePath)) {
@@ -256,11 +256,21 @@ export async function annotateWithMimo(
 文件名: ${path.basename(filePath)}`;
     if (metadata) prompt += `\n元数据: ${metadata}`;
   } else if (fileType === 'image') {
-    prompt = `请仔细描述这张图片，给出以下信息：
-1. 画面内容：主要对象、人物、场景、动作等（要具体，不要笼统）
-2. 画面氛围和风格（如：温馨、专业、自然风光等）
-3. 如果有文字，请识别并记录关键文字内容
-4. 标签（3-5个关键词，用逗号分隔）`;
+    prompt = `⚠️ 你的首要任务：判断这张图片的**实质内容类型**（不是描述画面风格！）
+这是用户上传到有迹(YouTrace) APP的图片。请从以下类型中精准判断：
+课表截图 / 日记截图 / 聊天截图 / 会议议程 / 文档扫描 / 收据发票 / 自拍照片 / 风景照 / 其他
+
+然后给出：
+1. **【文件类型】**必须从上述类型中选择，不能笼统说"截图"或"图片"
+2. **【内容摘要】**2-3句话，说清楚图中实际信息
+3. **【关键文字】**逐条识别图中所有文字内容
+4. **【标签】**3-5个精准关键词
+
+格式示例：
+【文件类型】课表截图
+【内容摘要】清华大学2025年春季学期计算机系大三课表，包含操作系统、计算机网络等课程
+【关键文字】周一8:00-9:35 操作系统 A302；周一10:00-11:35 计算机网络 B101...
+【标签】课表 大学 2025春季 计算机系`;
   }
 
   const annotation = await callAIModel(prompt, filePath, fileType, mimeType);

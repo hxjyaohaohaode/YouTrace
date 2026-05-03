@@ -1086,6 +1086,19 @@ export class ExpertAgentFactory {
     ): string {
         const parts: string[] = [];
 
+        const now = new Date();
+        const tzOffset = 8;
+        const cstNow = new Date(now.getTime() + tzOffset * 3600000);
+        const timeStr = cstNow.toISOString().replace('T', ' ').slice(0, 19);
+        const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][cstNow.getUTCDay()];
+
+        parts.push(`【系统时间锚点 - 你无法通过工具获取，必须牢记】`);
+        parts.push(`现在时间是: ${timeStr} (北京时间/中国标准时间 CST+8)`);
+        parts.push(`今天是: 星期${dayOfWeek}`);
+        parts.push(`当前日期: ${cstNow.toISOString().slice(0, 10)}`);
+        parts.push(`时间是你最重要的参考锚点——所有"今天""明天""还有多久"的判断必须以此为准，严禁臆测。`);
+        parts.push('');
+
         parts.push(`你是「${agent.icon} ${agent.name}」— ${agent.description}`);
         parts.push('');
         parts.push(agent.systemPrompt);
