@@ -1087,15 +1087,21 @@ export class ExpertAgentFactory {
         const parts: string[] = [];
 
         const now = new Date();
-        const tzOffset = 8;
-        const cstNow = new Date(now.getTime() + tzOffset * 3600000);
-        const timeStr = cstNow.toISOString().replace('T', ' ').slice(0, 19);
-        const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][cstNow.getUTCDay()];
+        const cstStr = now.toLocaleString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false,
+        });
+        const cstDateStr = now.toLocaleDateString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+        });
+        const cstWeekday = now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' });
 
         parts.push(`【系统时间锚点 - 你无法通过工具获取，必须牢记】`);
-        parts.push(`现在时间是: ${timeStr} (北京时间/中国标准时间 CST+8)`);
-        parts.push(`今天是: 星期${dayOfWeek}`);
-        parts.push(`当前日期: ${cstNow.toISOString().slice(0, 10)}`);
+        parts.push(`现在时间: ${cstStr} (北京时间 CST+8)`);
+        parts.push(`今天: ${cstDateStr} ${cstWeekday}`);
         parts.push(`时间是你最重要的参考锚点——所有"今天""明天""还有多久"的判断必须以此为准，严禁臆测。`);
         parts.push('');
 

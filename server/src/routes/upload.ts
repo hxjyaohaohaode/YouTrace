@@ -179,6 +179,28 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
 
+        let aiAnnotation = '';
+        let annotationStatus: 'completed' | 'failed' = 'completed';
+        try {
+          console.log(`[upload] 开始同步标注: ${attachment.id}`);
+          aiAnnotation = await annotateWithMimo(
+            processed.filePath,
+            fileType,
+            processed.mimeType,
+            processed.extractedText,
+          );
+          console.log(`[upload] 标注完成: ${attachment.id} → ${aiAnnotation?.slice(0, 80) || '(空)'}`);
+        } catch (err) {
+          console.error(`[upload] 标注失败 ${attachment.id}:`, (err as Error).message);
+          aiAnnotation = processed.extractedText ? processed.extractedText.slice(0, 2000) : '[AI标注暂时不可用]';
+          annotationStatus = 'failed';
+        }
+
+        await prisma.attachment.update({
+          where: { id: attachment.id },
+          data: { aiAnnotation, annotationStatus },
+        });
+
         results.push({
           id: attachment.id,
           fileName: processed.fileName,
@@ -188,33 +210,8 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
           fileType,
           filePath: processed.filePath,
           thumbnailPath: processed.thumbnailPath,
-          aiAnnotation: '',
-          annotationStatus: 'processing',
-        });
-
-        annotateWithMimo(
-          processed.filePath,
-          fileType,
-          processed.mimeType,
-          processed.extractedText,
-        ).then(async (annotation) => {
-          console.log(`[upload] 标注完成: ${attachment.id} → ${annotation?.slice(0, 50) || '(空)'}`);
-          await prisma.attachment.update({
-            where: { id: attachment.id },
-            data: {
-              aiAnnotation: annotation,
-              annotationStatus: 'completed',
-            },
-          });
-        }).catch(async (err) => {
-          console.error(`附件标注最终失败 ${attachment.id}:`, (err as Error).message);
-          await prisma.attachment.update({
-            where: { id: attachment.id },
-            data: {
-              aiAnnotation: processed.extractedText ? processed.extractedText.slice(0, 2000) : '[标注失败，可点击重试]',
-              annotationStatus: 'failed',
-            },
-          });
+          aiAnnotation,
+          annotationStatus,
         });
       } catch (e) {
         results.push({
