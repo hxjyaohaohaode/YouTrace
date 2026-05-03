@@ -238,11 +238,9 @@ async function buildUserContext(userId: string, ip: string | undefined, attachme
     if (attachments.length > 0) {
       contextInfo += '\n\n用户上传的附件:\n' + attachments.map((a, i) => {
         const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-        const annotation = a.annotationStatus === 'completed' && a.aiAnnotation
+        const annotation = a.aiAnnotation
           ? a.aiAnnotation
-          : a.annotationStatus === 'processing'
-            ? '[附件正在分析中]'
-            : '[附件分析未完成，请根据文件名和类型推断内容]';
+          : '[附件分析未完成，请根据文件名和类型推断内容]';
         return `附件${i + 1} [${typeLabel}] ${a.originalName} (MIME: ${a.mimeType}):\n${annotation}`;
       }).join('\n\n');
     }
@@ -503,7 +501,6 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           id: { in: attachmentIds },
           userId: request.userId,
-          annotationStatus: 'completed',
         },
         select: {
           id: true,
@@ -739,7 +736,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
       let streamAttachments: Array<{ id: string; originalName: string; fileType: string; aiAnnotation: string; mimeType: string; thumbnailPath: string | null; filePath: string }> = [];
       if (attachmentIds && attachmentIds.length > 0) {
         streamAttachments = await prisma.attachment.findMany({
-          where: { id: { in: attachmentIds }, userId: request.userId!, annotationStatus: 'completed' },
+          where: { id: { in: attachmentIds }, userId: request.userId! },
           select: { id: true, originalName: true, fileType: true, aiAnnotation: true, mimeType: true, thumbnailPath: true, filePath: true },
         });
       }
@@ -848,7 +845,7 @@ const aiRoutes: FastifyPluginAsync = async (fastify) => {
         if (attachments.length > 0) {
           enrichedContent = content + '\n\n[用户上传了以下附件]\n' + attachments.map((a, i) => {
             const typeLabel = a.fileType === 'image' ? '图片' : a.fileType === 'video' ? '视频' : a.fileType === 'audio' ? '音频' : '文档';
-            const annotation = a.annotationStatus === 'completed' && a.aiAnnotation ? a.aiAnnotation : `[${typeLabel}文件 ${a.originalName}]`;
+            const annotation = a.aiAnnotation ? a.aiAnnotation : `[${typeLabel}文件 ${a.originalName}]`;
             return `附件${i + 1} [${typeLabel}] ${a.originalName}:\n${annotation}`;
           }).join('\n\n');
         }

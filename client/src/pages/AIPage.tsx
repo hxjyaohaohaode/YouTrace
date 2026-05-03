@@ -655,7 +655,10 @@ export default function AIPage() {
                             <div className="flex flex-wrap gap-1.5">
                               {msg.attachmentMeta.map((att) => {
                                 const thumbUrl = getThumbnailUrl(att.thumbnailPath);
-                                const downloadUrl = att.fileType === 'image' ? getOriginalFileUrl(att.filePath) : getAttachmentDownloadUrl(att.id, true);
+                                const origUrl = getOriginalFileUrl(att.filePath);
+                                const downloadUrl = att.fileType === 'image'
+                                  ? (origUrl || getAttachmentDownloadUrl(att.id, true))
+                                  : getAttachmentDownloadUrl(att.id, true);
                                 if (att.fileType === 'image') {
                                   return (
                                     <a
@@ -663,15 +666,43 @@ export default function AIPage() {
                                       href={downloadUrl || '#'}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="block w-16 h-16 rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
+                                      className="block rounded-lg overflow-hidden border border-white/20 hover:border-white/40 transition-colors"
                                     >
                                       {thumbUrl ? (
-                                        <img src={thumbUrl} alt={att.originalName} className="w-full h-full object-cover" />
-                                      ) : (
-                                        <div className="w-full h-full bg-white/10 flex items-center justify-center text-white/60">
-                                          <span className="text-lg">🖼️</span>
-                                        </div>
-                                      )}
+                                        <img
+                                          src={thumbUrl}
+                                          alt={att.originalName}
+                                          className="w-24 h-24 object-cover"
+                                          onError={(e) => {
+                                            const img = e.currentTarget;
+                                            if (img.src !== origUrl && origUrl) {
+                                              img.src = origUrl;
+                                            } else {
+                                              img.style.display = 'none';
+                                              const placeholder = img.nextElementSibling as HTMLElement;
+                                              if (placeholder) placeholder.style.display = 'flex';
+                                            }
+                                          }}
+                                        />
+                                      ) : origUrl ? (
+                                        <img
+                                          src={origUrl}
+                                          alt={att.originalName}
+                                          className="w-24 h-24 object-cover"
+                                          onError={(e) => {
+                                            const img = e.currentTarget;
+                                            img.style.display = 'none';
+                                            const placeholder = img.nextElementSibling as HTMLElement;
+                                            if (placeholder) placeholder.style.display = 'flex';
+                                          }}
+                                        />
+                                      ) : null}
+                                      <div
+                                        className="w-24 h-24 bg-white/10 items-center justify-center text-white/60"
+                                        style={{ display: (!thumbUrl && !origUrl) ? 'flex' : 'none' }}
+                                      >
+                                        <span className="text-lg">🖼️</span>
+                                      </div>
                                     </a>
                                   );
                                 }

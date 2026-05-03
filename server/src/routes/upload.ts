@@ -37,16 +37,18 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/api/files/:type/:filename', async (request, reply) => {
     const { type, filename } = request.params as { type: string; filename: string };
-    const safeType = type === 'thumbnails' ? 'thumbnails' : type === 'originals' ? '' : '';
     if (type !== 'thumbnails' && type !== 'originals') {
       return reply.status(400).send({ success: false, message: '无效的文件类型' });
     }
     const safeName = path.basename(filename);
-    const filePath = safeType === 'thumbnails'
+    if (safeName.includes('..') || safeName.includes('/') || safeName.includes('\\')) {
+      return reply.status(400).send({ success: false, message: '无效的文件名' });
+    }
+    const filePath = type === 'thumbnails'
       ? path.join(UPLOAD_DIR, 'thumbnails', safeName)
       : path.join(UPLOAD_DIR, safeName);
     if (!fs.existsSync(filePath)) {
-      return reply.status(404).send({ success: false, message: '文件不存在' });
+      return reply.status(404).header('Cache-Control', 'no-store').send({ success: false, message: '文件不存在' });
     }
     const ext = path.extname(safeName).toLowerCase();
     const contentType = MIME_MAP[ext] || 'application/octet-stream';
@@ -54,6 +56,7 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     reply.header('Content-Type', contentType);
     reply.header('Content-Length', stat.size);
     reply.header('Cache-Control', 'public, max-age=86400');
+    reply.header('X-Content-Type-Options', 'nosniff');
     return reply.send(fs.createReadStream(filePath));
   });
 

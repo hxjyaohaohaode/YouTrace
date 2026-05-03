@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import { uploadApi, type AttachmentResult } from '../api/upload';
+import { uploadApi, getThumbnailUrl, type AttachmentResult } from '../api/upload';
 
 interface AttachmentUploaderProps {
   attachments: AttachmentResult[];
@@ -142,7 +142,7 @@ export default function AttachmentUploader({
                 {isImage ? (
                   <div className="w-16 h-16 rounded-xl overflow-hidden border-2 border-white shadow-lg bg-surface-100">
                     <img
-                      src={`/api/files/thumbnails/${att.thumbnailPath || att.id}`}
+                      src={getThumbnailUrl(att.thumbnailPath) || `/api/files/thumbnails/${att.id}`}
                       alt={att.originalName}
                       className="w-full h-full object-cover"
                       onError={(e) => {

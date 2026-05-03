@@ -84,16 +84,25 @@ export function deleteFile(filePath: string) {
 function generateThumbnail(filePath: string, thumbPath: string, fileType: string): string | null {
   try {
     if (fileType === 'image') {
-      const sharp = require('sharp');
-      sharp(filePath).resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFileSync(thumbPath);
-      return fs.existsSync(thumbPath) ? thumbPath : null;
+      try {
+        const sharp = require('sharp');
+        sharp(filePath).resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFileSync(thumbPath);
+        return fs.existsSync(thumbPath) ? thumbPath : null;
+      } catch {
+        fs.copyFileSync(filePath, thumbPath);
+        return fs.existsSync(thumbPath) ? thumbPath : null;
+      }
     }
     if (fileType === 'video') {
-      execSync(
-        `ffmpeg -i "${filePath}" -ss 00:00:01 -vframes 1 -vf "scale=400:-1" -q:v 3 "${thumbPath}" -y`,
-        { timeout: 15000, stdio: 'pipe' }
-      );
-      return fs.existsSync(thumbPath) ? thumbPath : null;
+      try {
+        execSync(
+          `ffmpeg -i "${filePath}" -ss 00:00:01 -vframes 1 -vf "scale=400:-1" -q:v 3 "${thumbPath}" -y`,
+          { timeout: 15000, stdio: 'pipe' }
+        );
+        return fs.existsSync(thumbPath) ? thumbPath : null;
+      } catch {
+        return null;
+      }
     }
     return null;
   } catch {
