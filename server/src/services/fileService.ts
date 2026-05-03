@@ -85,7 +85,7 @@ function generateThumbnail(filePath: string, thumbPath: string, fileType: string
   try {
     if (fileType === 'image') {
       const sharp = require('sharp');
-      sharp(filePath).resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFile(thumbPath);
+      sharp(filePath).resize(400, 400, { fit: 'inside' }).jpeg({ quality: 80 }).toFileSync(thumbPath);
       return fs.existsSync(thumbPath) ? thumbPath : null;
     }
     if (fileType === 'video') {
@@ -167,8 +167,8 @@ async function callAIModel(
   prompt: string, filePath: string | null, fileType: string, mimeType: string
 ): Promise<string | null> {
   const aiApiKey = process.env.MIMO_API_KEY || process.env.OPENAI_API_KEY || '';
-  const aiBaseUrl = process.env.MIMO_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.mimo.run/v1';
-  const aiModel = process.env.MIMO_MODEL || 'mimo-v2';
+  const aiBaseUrl = process.env.MIMO_BASE_URL || process.env.OPENAI_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
+  const aiModel = process.env.MIMO_MODEL || 'mimo-v2.5';
 
   if (!aiApiKey) {
     console.warn('[fileService] No AI API key configured (MIMO_API_KEY or OPENAI_API_KEY)');

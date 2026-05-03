@@ -2,7 +2,7 @@
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { aiApi } from '../api/ai';
-import { getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, uploadApi } from '../api/upload';
+import { getAttachmentImageUrl, getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, uploadApi } from '../api/upload';
 import EmotionTag from '../components/EmotionTag';
 import { HighlightText } from '../components/HighlightText';
 import { formatDateTime } from '../utils/date';
@@ -271,7 +271,8 @@ function DiaryDetailPage() {
               </h4>
               <div className={`grid gap-2 ${imageAttachments.length === 1 ? 'grid-cols-1' : imageAttachments.length === 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'}`}>
                 {imageAttachments.map((att, idx) => {
-                  const originalUrl = getOriginalFileUrl(att.filePath ?? null);
+                  const primaryUrl = getAttachmentImageUrl(att);
+                  const fallbackUrl = getOriginalFileUrl(att.filePath ?? null);
                   const thumbUrl = getThumbnailUrl(att.thumbnailPath);
                   return (
                     <div
@@ -281,13 +282,15 @@ function DiaryDetailPage() {
                         }`}
                     >
                       <img
-                        src={originalUrl || thumbUrl || undefined}
+                        src={primaryUrl}
                         alt={att.originalName}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         loading="lazy"
                         onError={(e) => {
                           const img = e.currentTarget;
-                          if (img.src !== thumbUrl && thumbUrl) {
+                          if (img.src !== fallbackUrl && fallbackUrl) {
+                            img.src = fallbackUrl;
+                          } else if (img.src !== thumbUrl && thumbUrl) {
                             img.src = thumbUrl;
                           } else {
                             img.style.display = 'none';
@@ -633,7 +636,7 @@ function DiaryDetailPage() {
 
           <div className="max-w-[90vw] max-h-[85vh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <img
-              src={getOriginalFileUrl(imageAttachments[lightboxIndex].filePath ?? null) || getAttachmentDownloadUrl(imageAttachments[lightboxIndex].id, true)}
+              src={getAttachmentImageUrl(imageAttachments[lightboxIndex])}
               alt={imageAttachments[lightboxIndex].originalName}
               className="max-w-full max-h-[75vh] object-contain rounded-lg"
             />

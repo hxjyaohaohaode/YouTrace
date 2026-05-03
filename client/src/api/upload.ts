@@ -40,6 +40,10 @@ export function getAttachmentDownloadUrl(id: string, inline = false): string {
   return qs ? `${base}?${qs}` : base;
 }
 
+export function getAttachmentImageUrl(attachment: { id: string; filePath?: string | null; thumbnailPath?: string | null }): string {
+  return getAttachmentDownloadUrl(attachment.id, true);
+}
+
 export const uploadApi = {
   uploadFiles: async (files: File[], onProgress?: (progress: number) => void): Promise<ApiResponse<AttachmentResult[]>> => {
     const formData = new FormData();

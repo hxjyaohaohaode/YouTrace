@@ -223,11 +223,11 @@ export async function* callAIChatStream(messages: ChatMessage[], provider?: AIPr
 
   const baseUrl = p === 'deepseek'
     ? (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com')
-    : (process.env.MIMO_BASE_URL || 'https://api.mimoreal.com');
+    : (process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1');
 
   const model = p === 'deepseek'
     ? (process.env.DEEPSEEK_MODEL || 'deepseek-chat')
-    : (process.env.MIMO_MODEL || 'mimo-chat');
+    : (process.env.MIMO_MODEL || 'mimo-v2.5');
 
   if (!apiKey) {
     const fullResponse = await callAIChat(messages, p);
@@ -1157,4 +1157,43 @@ export const AGENTS: AgentType[] = [
 
 export function getAgentById(id: string): AgentType {
   return AGENTS.find((a) => a.id === id) || AGENTS[0];
+}
+
+export function selectAgentByContent(content: string, attachmentFileTypes: string[]): AgentType {
+  const lower = content.toLowerCase();
+
+  const scheduleKeywords = ['日程', '时间安排', '会议', '课程', '课表', '日程表', '日历', '提醒', '时间冲突', '空闲', '忙碌', '安排', '计划', '行程', '约会', '面试', '考试时间', 'deadline', '截止日期'];
+  const emotionKeywords = ['焦虑', '压力', '心情', '情绪', '抑郁', '难过', '伤心', '烦躁', '不安', '恐惧', '孤独', '失眠', '崩溃', '不开心', '郁闷', '低落', '想哭', '无助', '心理', '咨询'];
+  const healthKeywords = ['运动', '健身', '跑步', '饮食', '睡眠', '减肥', '增肌', '卡路里', '营养', '健康', '体重', '锻炼', '瑜伽', '散步', '喝水'];
+  const efficiencyKeywords = ['目标', '效率', '拖延', '习惯', '自律', '专注', '时间管理', '番茄钟', 'GTD', '复盘', '总结', '规划', '执行', '坚持'];
+  const weatherKeywords = ['天气', '下雨', '温度', '穿衣', '出门', '紫外线', '防晒', '带伞', '雾霾', '台风', '暴雨', '寒潮'];
+  const learningKeywords = ['学习', '考试', '复习', '笔记', '知识', '技能', '培训', '证书', '英语', '编程', '读书', '论文'];
+
+  const scores: Record<string, number> = {
+    schedule_manager: 0,
+    emotion_counselor: 0,
+    health_coach: 0,
+    efficiency_expert: 0,
+    weather_advisor: 0,
+    learning_advisor: 0,
+  };
+
+  for (const kw of scheduleKeywords) { if (lower.includes(kw)) scores.schedule_manager += 2; }
+  for (const kw of emotionKeywords) { if (lower.includes(kw)) scores.emotion_counselor += 2; }
+  for (const kw of healthKeywords) { if (lower.includes(kw)) scores.health_coach += 2; }
+  for (const kw of efficiencyKeywords) { if (lower.includes(kw)) scores.efficiency_expert += 2; }
+  for (const kw of weatherKeywords) { if (lower.includes(kw)) scores.weather_advisor += 2; }
+  for (const kw of learningKeywords) { if (lower.includes(kw)) scores.learning_advisor += 2; }
+
+  if (attachmentFileTypes.includes('image')) {
+    scores.schedule_manager += 3;
+  }
+
+  const maxScore = Math.max(...Object.values(scores));
+  if (maxScore < 2) return AGENTS[0];
+
+  const bestAgentId = Object.entries(scores).find(([, s]) => s === maxScore)?.[0];
+  if (!bestAgentId) return AGENTS[0];
+
+  return AGENTS.find((a) => a.id === bestAgentId) || AGENTS[0];
 }
