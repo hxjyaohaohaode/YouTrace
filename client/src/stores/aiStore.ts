@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { aiApi, type ChatMessage } from '../api/ai';
-import type { Profile, AgentInfo, MemoryItem, Conversation } from '../types';
+import { aiApi, type ChatMessage, type TraceCallbacks } from '../api/ai';
+import type { Profile, AgentInfo, MemoryItem, Conversation, AgentTraceState } from '../types';
 import { useLocationStore } from './locationStore';
 import { extractErrorMessage } from '../utils/error';
 
@@ -16,6 +16,7 @@ interface AIState {
   isLoading: boolean;
   isSending: boolean;
   error: string | null;
+  agentTrace: AgentTraceState | null;
 
   fetchMessages: (conversationId?: string) => Promise<void>;
   sendMessage: (content: string, attachmentIds?: string[]) => Promise<void>;
@@ -32,6 +33,7 @@ interface AIState {
   deleteConversation: (id: string) => Promise<void>;
   startNewChat: () => void;
   clearError: () => void;
+  resetAgentTrace: () => void;
 }
 
 export const useAIStore = create<AIState>((set, get) => ({
@@ -46,6 +48,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   isLoading: false,
   isSending: false,
   error: null,
+  agentTrace: null,
 
   fetchMessages: async (conversationId) => {
     set({ isLoading: true, error: null });
@@ -61,7 +64,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
   sendMessage: async (content, attachmentIds) => {
     const { selectedAgent, currentConversationId } = get();
-    set({ isSending: true, error: null });
+    set({ isSending: true, error: null, agentTrace: { agents: new Map(), toolCalls: [], isSynthesizing: false, totalAgents: 0, primaryIntent: '' } });
 
     const tempUserMsg: ChatMessage = {
       id: 'temp-user-' + Date.now(),
@@ -103,9 +106,68 @@ export const useAIStore = create<AIState>((set, get) => ({
     const safetyTimer = setTimeout(() => {
       const state = get();
       if (state.isSending) {
-        set({ isSending: false, error: 'AI回复超时，请重试' });
+        set({ isSending: false, error: 'AI回复超时，请重试', agentTrace: null });
       }
     }, 120000);
+
+    const traceHandlers: TraceCallbacks = {
+      onConversation: (data) => {
+        set((s) => ({
+          agentTrace: s.agentTrace ? {
+            ...s.agentTrace,
+            totalAgents: data.agentCount,
+            primaryIntent: data.primaryIntent,
+          } : null,
+        }));
+      },
+      onAgentStart: (data) => {
+        set((s) => {
+          if (!s.agentTrace) return {};
+          const agents = new Map(s.agentTrace.agents);
+          agents.set(data.agentId, { name: data.agentName, icon: data.agentIcon, status: 'running' as const });
+          return { agentTrace: { ...s.agentTrace, agents } };
+        });
+      },
+      onAgentEnd: (data) => {
+        set((s) => {
+          if (!s.agentTrace) return {};
+          const agents = new Map(s.agentTrace.agents);
+          const prev = agents.get(data.agentId);
+          if (prev) {
+            agents.set(data.agentId, { ...prev, status: data.status === 'completed' ? 'done' as const : 'error' as const });
+          }
+          return { agentTrace: { ...s.agentTrace, agents } };
+        });
+      },
+      onToolCall: (data) => {
+        set((s) => {
+          if (!s.agentTrace) return {};
+          const toolCalls = [...s.agentTrace.toolCalls, {
+            agentId: data.agentId,
+            agentName: data.agentName,
+            toolName: data.toolName,
+            status: 'running' as const,
+          }];
+          return { agentTrace: { ...s.agentTrace, toolCalls } };
+        });
+      },
+      onToolResult: (data) => {
+        set((s) => {
+          if (!s.agentTrace) return {};
+          const toolCalls = s.agentTrace.toolCalls.map((tc) =>
+            tc.agentId === data.agentId && tc.toolName === data.toolName && tc.status === 'running'
+              ? { ...tc, status: 'done' as const }
+              : tc
+          );
+          return { agentTrace: { ...s.agentTrace, toolCalls } };
+        });
+      },
+      onSynthesize: (_data) => {
+        set((s) => ({
+          agentTrace: s.agentTrace ? { ...s.agentTrace, isSynthesizing: true } : null,
+        }));
+      },
+    };
 
     await aiApi.sendMessageStream(
       content,
@@ -132,6 +194,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           }),
           currentConversationId: data.conversationId,
           isSending: false,
+          agentTrace: null,
         }));
         get().fetchConversations();
       },
@@ -141,8 +204,10 @@ export const useAIStore = create<AIState>((set, get) => ({
           messages: state.messages.filter((m) => m.id !== tempUserMsg.id && m.id !== tempAiMsg.id),
           error,
           isSending: false,
+          agentTrace: null,
         }));
       },
+      traceHandlers,
     );
   },
 
@@ -288,4 +353,6 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  resetAgentTrace: () => set({ agentTrace: null }),
 }));

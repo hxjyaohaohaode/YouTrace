@@ -322,3 +322,24 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
 }
+
+// ============================================================
+// Agent Collaboration Trace Types (多智能体协作追踪)
+// ============================================================
+
+export interface AgentTraceEntry {
+  agentId: string;
+  agentName: string;
+  agentIcon: string;
+  status: 'started' | 'completed' | 'error';
+  durationMs: number;
+  outputPreview: string;
+}
+
+export interface AgentTraceState {
+  agents: Map<string, { name: string; icon: string; status: 'running' | 'done' | 'error' }>;
+  toolCalls: Array<{ agentId: string; agentName: string; toolName: string; status: 'running' | 'done' }>;
+  isSynthesizing: boolean;
+  totalAgents: number;
+  primaryIntent: string;
+}

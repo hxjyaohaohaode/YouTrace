@@ -3,7 +3,7 @@ import { useAIStore } from '../stores/aiStore';
 import { uploadApi, getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, type AttachmentResult } from '../api/upload';
 import { IconAI, IconCalendar, IconHeart, IconBolt, IconTarget, IconWeather, IconSend, IconCheck, IconSparkles, IconXMark, IconPlus, IconTrash } from '../components/Icons';
 import { HighlightText } from '../components/HighlightText';
-import type { Conversation } from '../types';
+import type { Conversation, AgentTraceState } from '../types';
 
 const MAX_ATTACHMENTS = 9;
 const ACCEPTED_TYPES = 'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/aac,audio/mp4,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.md';
@@ -25,6 +25,124 @@ const agentIcons: Record<string, typeof IconAI> = {
   productivity: IconTarget,
   weather: IconWeather,
 };
+
+const agentLabelColors: Record<string, string> = {
+  schedule: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+  emotion: 'bg-pink-100 text-pink-700 dark:bg-pink-950/40 dark:text-pink-400 border-pink-200 dark:border-pink-800',
+  health: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400 border-green-200 dark:border-green-800',
+  productivity: 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400 border-purple-200 dark:border-purple-800',
+  weather: 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400 border-sky-200 dark:border-sky-800',
+  learning: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+  default: 'bg-brand-100 text-brand-700 dark:bg-brand-950/40 dark:text-brand-400 border-brand-200 dark:border-brand-800',
+};
+
+const toolLabels: Record<string, { icon: string; label: string }> = {
+  get_weather: { icon: '🌤️', label: '查天气' },
+  get_location: { icon: '📍', label: '定位' },
+  get_events: { icon: '📅', label: '查日程' },
+  create_event: { icon: '➕', label: '创建日程' },
+  update_event: { icon: '✏️', label: '更新日程' },
+  delete_event: { icon: '🗑️', label: '删除日程' },
+  get_diaries: { icon: '📔', label: '查日记' },
+  create_diary: { icon: '✍️', label: '写日记' },
+  analyze_emotion: { icon: '💭', label: '情绪分析' },
+  get_goals: { icon: '🎯', label: '查目标' },
+  get_habits: { icon: '🔄', label: '查习惯' },
+  log_habit: { icon: '✅', label: '习惯打卡' },
+  get_memories: { icon: '🧠', label: '查记忆' },
+  search_web: { icon: '🔍', label: '搜索' },
+};
+
+function AgentTracePanel({ trace }: { trace: AgentTraceState }) {
+  const agentEntries = Array.from(trace.agents.entries());
+  const runningToolCalls = trace.toolCalls.filter((tc) => tc.status === 'running');
+  const activeCount = agentEntries.filter(([, a]) => a.status === 'running').length;
+  const doneCount = agentEntries.filter(([, a]) => a.status === 'done').length;
+  const errorCount = agentEntries.filter(([, a]) => a.status === 'error').length;
+
+  if (agentEntries.length === 0 && !trace.isSynthesizing) return null;
+
+  return (
+    <div className="flex justify-start mb-3">
+      <div className="max-w-[85%] sm:max-w-[75%] lg:max-w-[70%]">
+        <div className="bg-white/60 dark:bg-surface-800/60 backdrop-blur-sm border border-surface-200/60 dark:border-surface-700/60 rounded-2xl px-3.5 py-3 shadow-sm">
+          {agentEntries.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mb-2">
+              <span className="text-[10px] font-medium text-surface-400 dark:text-surface-500 mr-0.5">
+                {activeCount > 0 ? '思考中' : doneCount > 0 ? '已完成' : ''}
+              </span>
+              {agentEntries.map(([id, agent]) => (
+                <span
+                  key={id}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all duration-300 ${agentLabelColors[id] || agentLabelColors.default
+                    } ${agent.status === 'running' ? 'ring-1 ring-current/20' : ''}`}
+                >
+                  <span className="text-xs">{agent.icon}</span>
+                  <span>{agent.name}</span>
+                  {agent.status === 'running' ? (
+                    <svg className="w-2.5 h-2.5 animate-spin ml-0.5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : agent.status === 'done' ? (
+                    <svg className="w-2.5 h-2.5 text-green-500 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-2.5 h-2.5 text-red-500 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {runningToolCalls.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {runningToolCalls.map((tc, idx) => {
+                const toolInfo = toolLabels[tc.toolName] || { icon: '🔧', label: tc.toolName };
+                return (
+                  <span
+                    key={`${tc.agentId}-${tc.toolName}-${idx}`}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                  >
+                    <span>{toolInfo.icon}</span>
+                    <span>{toolInfo.label}</span>
+                    <svg className="w-2.5 h-2.5 animate-spin ml-0.5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {trace.isSynthesizing && (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-brand-50 dark:bg-brand-950/30 text-brand-600 dark:text-brand-400 border border-brand-200 dark:border-brand-800">
+                <span>✨</span>
+                <span>AI核心融合中</span>
+                <svg className="w-2.5 h-2.5 animate-spin ml-0.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </span>
+            </div>
+          )}
+
+          {trace.totalAgents > 1 && errorCount > 0 && (
+            <p className="text-[10px] text-surface-400 mt-1.5">
+              {doneCount}/{trace.totalAgents} 个专家完成分析
+              {errorCount > 0 && ` (${errorCount} 个出错)`}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ConversationItem({ conversation, isActive, onSelect, onDelete, searchQuery }: {
   conversation: Conversation;
@@ -78,7 +196,7 @@ function ConversationItem({ conversation, isActive, onSelect, onDelete, searchQu
 
 export default function AIPage() {
   const {
-    messages, agents, selectedAgent, isSending, error,
+    messages, agents, selectedAgent, isSending, error, agentTrace,
     conversations, currentConversationId,
     sendMessage, fetchAgents, setSelectedAgent, clearError,
     fetchConversations, selectConversation, deleteConversation, startNewChat,
@@ -639,7 +757,7 @@ export default function AIPage() {
                 );
               })}
 
-              {isSending && (
+              {isSending && !agentTrace && (
                 <div className="flex justify-start mb-3">
                   <div className="chat-bubble-ai px-4 py-2.5">
                     <div className="flex items-center gap-2">
@@ -652,6 +770,10 @@ export default function AIPage() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {isSending && agentTrace && (
+                <AgentTracePanel trace={agentTrace} />
               )}
 
               <div ref={messagesEndRef} />

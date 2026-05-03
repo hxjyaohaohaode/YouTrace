@@ -24,6 +24,15 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface TraceCallbacks {
+  onConversation?: (data: { conversationId: string; agentCount: number; primaryIntent: string; confidence: number; agents: Array<{ id: string; name: string; icon: string }> }) => void;
+  onAgentStart?: (data: { agentId: string; agentName: string; agentIcon: string }) => void;
+  onAgentEnd?: (data: { agentId: string; agentName: string; agentIcon: string; status: string; durationMs?: number; error?: string }) => void;
+  onToolCall?: (data: { agentId: string; agentName: string; toolName: string; toolArgs?: Record<string, unknown> }) => void;
+  onToolResult?: (data: { agentId: string; agentName: string; toolName: string; toolResult?: unknown }) => void;
+  onSynthesize?: (data: { agentCount: number }) => void;
+}
+
 export const aiApi = {
   getChatHistory: async (conversationId?: string): Promise<ApiResponse<ChatMessage[]>> => {
     const params = conversationId ? `?conversationId=${conversationId}` : '';
@@ -106,6 +115,7 @@ export const aiApi = {
     onChunk?: (chunk: string) => void,
     onDone?: (data: { conversationId: string; assistantMessage: ChatMessage }) => void,
     onError?: (error: string) => void,
+    trace?: TraceCallbacks,
   ): Promise<void> => {
     const token = await getSecureToken();
     const url = '/api/ai/chat/stream';
@@ -159,15 +169,38 @@ export const aiApi = {
             const data = line.slice(6);
             try {
               const parsed = JSON.parse(data);
-              if (currentEvent === 'chunk' && parsed.content) {
-                onChunk?.(parsed.content);
-              } else if (currentEvent === 'done') {
-                onDone?.(parsed);
-              } else if (currentEvent === 'error') {
-                onError?.(parsed.message || 'AI回复失败');
+              switch (currentEvent) {
+                case 'chunk':
+                  if (parsed.content) onChunk?.(parsed.content);
+                  break;
+                case 'conversation':
+                  trace?.onConversation?.(parsed);
+                  break;
+                case 'agent_start':
+                  trace?.onAgentStart?.(parsed);
+                  break;
+                case 'agent_end':
+                  trace?.onAgentEnd?.(parsed);
+                  break;
+                case 'tool_call':
+                case 'tool_update':
+                  trace?.onToolCall?.(parsed);
+                  break;
+                case 'tool_result':
+                  trace?.onToolResult?.(parsed);
+                  break;
+                case 'synthesize':
+                  trace?.onSynthesize?.(parsed);
+                  break;
+                case 'done':
+                  onDone?.(parsed);
+                  break;
+                case 'error':
+                  onError?.(parsed.message || 'AI回复失败');
+                  break;
               }
             } catch {
-              // skip
+              // skip malformed JSON
             }
           }
         }
