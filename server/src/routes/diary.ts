@@ -24,6 +24,7 @@ interface UpdateDiaryBody {
   locationName?: string;
   locationLat?: number;
   locationLng?: number;
+  emotionTags?: string[];
 }
 
 interface PaginationQuery {
@@ -177,7 +178,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     preHandler: authMiddleware,
   }, async (request, reply) => {
     const { id } = request.params;
-    const { content, mediaUrls, attachmentIds, weather, locationName, locationLat, locationLng } = request.body;
+    const { content, mediaUrls, attachmentIds, weather, locationName, locationLat, locationLng, emotionTags } = request.body;
 
     const existing = await prisma.diary.findFirst({ where: { id, userId: request.userId, isDeleted: false } });
     if (!existing) {
@@ -204,6 +205,7 @@ const diaryRoutes: FastifyPluginAsync = async (fastify) => {
     if (locationName !== undefined) updateData.locationName = locationName;
     if (locationLat !== undefined) updateData.locationLat = locationLat;
     if (locationLng !== undefined) updateData.locationLng = locationLng;
+    if (emotionTags !== undefined) updateData.emotionTags = JSON.stringify(emotionTags);
 
     await prisma.diary.update({ where: { id }, data: updateData });
 

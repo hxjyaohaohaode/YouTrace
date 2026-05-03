@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState, useMemo } from 'react';
 import { useGoalStore } from '../stores/goalStore';
 import GoalCard from '../components/GoalCard';
 import GoalForm from '../components/GoalForm';
+
+type GoalFilter = 'active' | 'completed' | 'archived' | 'overdue';
+
 function GoalListPage() {
   const { goals, isLoading, error, fetchGoals, deleteGoal } = useGoalStore();
   const [showForm, setShowForm] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<GoalFilter>('active');
 
   useEffect(() => {
     fetchGoals();
@@ -14,6 +18,18 @@ function GoalListPage() {
   const handleGoalClick = (id: string) => {
     setEditingGoalId(id);
   };
+
+  const categorizedGoals = useMemo(() => {
+    const now = new Date();
+    return {
+      active: goals.filter((g) => g.status === 'ACTIVE' && (!g.deadline || new Date(g.deadline) >= now)),
+      overdue: goals.filter((g) => g.status === 'ACTIVE' && g.deadline && new Date(g.deadline) < now),
+      completed: goals.filter((g) => g.status === 'COMPLETED'),
+      archived: goals.filter((g) => g.status === 'ARCHIVED'),
+    };
+  }, [goals]);
+
+  const displayGoals = categorizedGoals[filter];
 
   if (showForm || editingGoalId) {
     return (
@@ -56,6 +72,25 @@ function GoalListPage() {
           </div>
         )}
 
+        {goals.length > 0 && (
+          <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide">
+            {([
+              { key: 'active' as GoalFilter, label: '进行中', count: categorizedGoals.active.length },
+              { key: 'overdue' as GoalFilter, label: '已过期', count: categorizedGoals.overdue.length },
+              { key: 'completed' as GoalFilter, label: '已完成', count: categorizedGoals.completed.length },
+              { key: 'archived' as GoalFilter, label: '已归档', count: categorizedGoals.archived.length },
+            ]).map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`chip px-4 py-1.5 text-sm whitespace-nowrap ${filter === f.key ? 'chip-active' : 'chip-inactive'}`}
+              >
+                {f.label} {f.count}
+              </button>
+            ))}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
@@ -83,9 +118,13 @@ function GoalListPage() {
               创建第一个目标
             </button>
           </div>
+        ) : displayGoals.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-surface-400 text-sm">暂无{filter === 'active' ? '进行中' : filter === 'overdue' ? '已过期' : filter === 'completed' ? '已完成' : '已归档'}的目标</p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {goals.map((goal, i) => (
+            {displayGoals.map((goal, i) => (
               <GoalCard key={goal.id} goal={goal} onClick={handleGoalClick} index={i} />
             ))}
           </div>

@@ -32,7 +32,7 @@ export const diaryApi = {
     return response.data;
   },
 
-  updateDiary: async (id: string, data: { content?: string; mediaUrls?: string[]; attachmentIds?: string[]; weather?: Record<string, unknown>; locationName?: string; locationLat?: number; locationLng?: number }): Promise<ApiResponse<Diary & { attachments: AttachmentItem[] }>> => {
+  updateDiary: async (id: string, data: { content?: string; mediaUrls?: string[]; attachmentIds?: string[]; weather?: Record<string, unknown>; locationName?: string; locationLat?: number; locationLng?: number; emotionTags?: string[] }): Promise<ApiResponse<Diary & { attachments: AttachmentItem[] }>> => {
     const response = await client.put(`/api/diaries/${id}`, data);
     return response.data;
   },

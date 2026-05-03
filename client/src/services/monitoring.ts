@@ -4,6 +4,10 @@ interface PerformanceMetric {
   rating: string;
 }
 
+const metricsBuffer: PerformanceMetric[] = [];
+const FLUSH_INTERVAL = 60 * 1000;
+const MAX_BUFFER_SIZE = 50;
+
 function getRating(name: string, value: number): string {
   const thresholds: Record<string, [number, number]> = {
     LCP: [2500, 4000],
@@ -19,6 +23,26 @@ function getRating(name: string, value: number): string {
   return 'poor';
 }
 
+function bufferMetric(metric: PerformanceMetric) {
+  metricsBuffer.push(metric);
+  if (metricsBuffer.length >= MAX_BUFFER_SIZE) {
+    flushMetrics();
+  }
+}
+
+async function flushMetrics() {
+  if (metricsBuffer.length === 0) return;
+  const batch = metricsBuffer.splice(0);
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify({ metrics: batch })], { type: 'application/json' });
+      navigator.sendBeacon('/api/monitoring/metrics', blob);
+    }
+  } catch {
+    // monitoring endpoint not available, discard
+  }
+}
+
 export function initPerformanceMonitoring() {
   if (typeof window === 'undefined') return;
 
@@ -30,7 +54,7 @@ export function initPerformanceMonitoring() {
           value: entry.startTime,
           rating: getRating(entry.name, entry.startTime),
         };
-        console.debug(`[Perf] ${metric.name}: ${metric.value.toFixed(0)}ms (${metric.rating})`);
+        bufferMetric(metric);
       }
     });
 
@@ -47,6 +71,14 @@ export function initPerformanceMonitoring() {
   } else {
     window.addEventListener('load', reportNavigationTiming);
   }
+
+  setInterval(flushMetrics, FLUSH_INTERVAL);
+
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flushMetrics();
+    }
+  });
 }
 
 function reportNavigationTiming() {
@@ -54,17 +86,15 @@ function reportNavigationTiming() {
     const [nav] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
     if (!nav) return;
 
-    const metrics = {
-      DNS: nav.domainLookupEnd - nav.domainLookupStart,
-      TCP: nav.connectEnd - nav.connectStart,
-      TTFB: nav.responseStart - nav.requestStart,
-      Download: nav.responseEnd - nav.responseStart,
-      DOM: nav.domInteractive - nav.responseEnd,
-      Load: nav.loadEventEnd - nav.loadEventStart,
-      Total: nav.loadEventEnd - nav.startTime,
-    };
+    const metrics: PerformanceMetric[] = [
+      { name: 'TTFB', value: nav.responseStart - nav.requestStart, rating: getRating('TTFB', nav.responseStart - nav.requestStart) },
+      { name: 'DOM_READY', value: nav.domInteractive - nav.responseEnd, rating: 'good' },
+      { name: 'PAGE_LOAD', value: nav.loadEventEnd - nav.startTime, rating: nav.loadEventEnd - nav.startTime < 3000 ? 'good' : nav.loadEventEnd - nav.startTime < 6000 ? 'needs-improvement' : 'poor' },
+    ];
 
-    console.debug('[Perf] Navigation:', metrics);
+    for (const m of metrics) {
+      bufferMetric(m);
+    }
   }, 0);
 }
 
@@ -72,15 +102,35 @@ export function initErrorMonitoring() {
   if (typeof window === 'undefined') return;
 
   window.addEventListener('error', (event) => {
-    console.error('[Error]', {
-      message: event.message,
-      filename: event.filename,
-      lineno: event.lineno,
-      colno: event.colno,
-    });
+    try {
+      if (navigator.sendBeacon) {
+        const payload = JSON.stringify({
+          type: 'error',
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          timestamp: Date.now(),
+        });
+        navigator.sendBeacon('/api/monitoring/errors', new Blob([payload], { type: 'application/json' }));
+      }
+    } catch {
+      // monitoring endpoint not available
+    }
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    console.error('[Unhandled Promise]', event.reason);
+    try {
+      if (navigator.sendBeacon) {
+        const payload = JSON.stringify({
+          type: 'unhandled_rejection',
+          reason: String(event.reason),
+          timestamp: Date.now(),
+        });
+        navigator.sendBeacon('/api/monitoring/errors', new Blob([payload], { type: 'application/json' }));
+      }
+    } catch {
+      // monitoring endpoint not available
+    }
   });
 }

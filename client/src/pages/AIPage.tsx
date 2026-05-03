@@ -362,6 +362,25 @@ export default function AIPage() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-1 flex-shrink-0 ml-2">
             <button
+              onClick={() => {
+                if (messages.length === 0) return;
+                const md = messages.map((m) => `**${m.role === 'user' ? '我' : 'AI'}**\n\n${m.content}`).join('\n\n---\n\n');
+                const blob = new Blob([md], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `对话_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.md`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors active:bg-surface-100 dark:active:bg-surface-800"
+              title="导出对话"
+            >
+              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+            </button>
+            <button
               onClick={handleNewChat}
               className="w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-surface-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors active:bg-surface-100 dark:active:bg-surface-800"
               title="新建对话"

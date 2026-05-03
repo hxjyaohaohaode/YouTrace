@@ -4,6 +4,8 @@ import { useAuthStore } from './stores/authStore';
 import { useSyncStore } from './stores/syncStore';
 import { useWeatherStore } from './stores/weatherStore';
 import { useLocationStore } from './stores/locationStore';
+import { useNotificationStore } from './stores/notificationStore';
+import { registerPushSubscription } from './api/push';
 import ProtectedRoute from './components/ProtectedRoute';
 import NotificationToast from './components/NotificationToast';
 import OfflineNotice from './components/OfflineNotice';
@@ -24,16 +26,19 @@ import ProfilePage from './pages/ProfilePage';
 import GoalListPage from './pages/GoalListPage';
 import HabitListPage from './pages/HabitListPage';
 import WeatherPage from './pages/WeatherPage';
+import NotificationPage from './pages/NotificationPage';
+import TriggerSettingsPage from './pages/TriggerSettingsPage';
 import Layout from './components/Layout';
 
-const TOKEN_REFRESH_INTERVAL = 5 * 60 * 1000;
+const TOKEN_REFRESH_INTERVAL = 30 * 60 * 1000;
 
 function App() {
   const { checkAuth, isAuthenticated, refreshToken } = useAuthStore();
   const [isInitializing, setIsInitializing] = useState(true);
   const initNetworkListener = useSyncStore((s) => s.initNetworkListener);
-  const { refreshAll, isLoading: weatherLoading } = useWeatherStore();
+  const { refreshAll } = useWeatherStore();
   const { coords, requestBrowserLocation } = useLocationStore();
+  const { fetchNotifications } = useNotificationStore();
 
   useEffect(() => {
     initPerformanceMonitoring();
@@ -57,7 +62,7 @@ function App() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
-        if (now - lastRefreshRef.current > 60 * 1000) {
+        if (now - lastRefreshRef.current > 5 * 60 * 1000) {
           lastRefreshRef.current = now;
           refreshToken();
         }
@@ -77,10 +82,18 @@ function App() {
     };
   }, [isAuthenticated, refreshToken]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    registerPushSubscription().catch(() => { });
+
+    fetchNotifications(1);
+  }, [isAuthenticated, fetchNotifications]);
+
   const weatherInitRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated || weatherLoading || weatherInitRef.current) return;
+    if (!isAuthenticated || weatherInitRef.current) return;
     weatherInitRef.current = true;
     const initWeather = async () => {
       try {
@@ -103,7 +116,7 @@ function App() {
       }
     };
     initWeather();
-  }, [isAuthenticated, weatherLoading, coords, refreshAll, requestBrowserLocation]);
+  }, [isAuthenticated, coords, refreshAll, requestBrowserLocation]);
 
   if (isInitializing) {
     return (
@@ -138,6 +151,8 @@ function App() {
           <Route path="/goals" element={<GoalListPage />} />
           <Route path="/habits" element={<HabitListPage />} />
           <Route path="/weather" element={<WeatherPage />} />
+          <Route path="/notifications" element={<NotificationPage />} />
+          <Route path="/triggers" element={<TriggerSettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

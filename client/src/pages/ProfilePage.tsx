@@ -163,11 +163,11 @@ export default function ProfilePage() {
             </div>
             <span className="text-xs text-surface-600">习惯</span>
           </button>
-          <button onClick={() => navigate('/stats')} className="card p-3 flex flex-col items-center gap-1.5">
-            <div className="w-9 h-9 rounded-xl bg-purple-50 dark:bg-purple-950/30 flex items-center justify-center">
-              <IconHeart size={18} className="text-purple-500" />
+          <button onClick={() => navigate('/triggers')} className="card p-3 flex flex-col items-center gap-1.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center">
+              <span className="text-lg">🔔</span>
             </div>
-            <span className="text-xs text-surface-600">统计</span>
+            <span className="text-xs text-surface-600">提醒</span>
           </button>
           <button onClick={() => { const modes = ['light', 'dark', 'system'] as const; const idx = modes.indexOf(themeMode); setThemeMode(modes[(idx + 1) % modes.length]); }} className="card p-3 flex flex-col items-center gap-1.5">
             <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center">

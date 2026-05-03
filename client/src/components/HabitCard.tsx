@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { Habit } from '../types';
 import { dateOnlyLocal } from '../utils/date';
 
@@ -12,9 +12,16 @@ interface HabitCardProps {
 function HabitCard({ habit, onToggle, onEdit }: HabitCardProps) {
   const [showBackdate, setShowBackdate] = useState(false);
   const [backdate, setBackdate] = useState('');
+  const [animating, setAnimating] = useState(false);
+  const animRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleToggle = () => {
     if (navigator.vibrate) navigator.vibrate(50);
+    if (!habit.todayCompleted) {
+      setAnimating(true);
+      if (animRef.current) clearTimeout(animRef.current);
+      animRef.current = setTimeout(() => setAnimating(false), 600);
+    }
     onToggle(habit.id);
   };
 
@@ -87,16 +94,20 @@ function HabitCard({ habit, onToggle, onEdit }: HabitCardProps) {
 
         <button
           onClick={handleToggle}
-          className={`w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all ${habit.todayCompleted
+          className={`relative w-11 h-11 rounded-xl flex items-center justify-center text-lg transition-all ${habit.todayCompleted
             ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
             : 'bg-surface-100 dark:bg-surface-800 text-surface-400 hover:bg-brand-50 dark:hover:bg-brand-950/30 hover:text-brand-500'
-            }`}
+            } ${animating ? 'scale-125' : 'scale-100'}`}
+          style={{ transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s, box-shadow 0.3s' }}
         >
           {habit.todayCompleted ? (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
             </svg>
           ) : null}
+          {animating && (
+            <span className="absolute inset-0 rounded-xl bg-emerald-400 animate-ping opacity-30" />
+          )}
         </button>
       </div>
 

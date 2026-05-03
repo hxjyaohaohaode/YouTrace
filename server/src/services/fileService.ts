@@ -128,7 +128,7 @@ function getMediaMetadata(filePath: string): string | null {
   }
 }
 
-async function extractDocumentText(filePath: string, mimeType: string): Promise<string | null> {
+export async function extractDocumentText(filePath: string, mimeType: string): Promise<string | null> {
   try {
     if (mimeType === 'application/pdf') {
       const pdfParse = require('pdf-parse');
@@ -166,12 +166,18 @@ async function extractDocumentText(filePath: string, mimeType: string): Promise<
 async function callAIModel(
   prompt: string, filePath: string | null, fileType: string, mimeType: string
 ): Promise<string | null> {
-  const aiApiKey = process.env.MIMO_API_KEY || '';
-  const aiBaseUrl = process.env.MIMO_BASE_URL || 'https://api.mimo.run/v1';
+  const aiApiKey = process.env.MIMO_API_KEY || process.env.OPENAI_API_KEY || '';
+  const aiBaseUrl = process.env.MIMO_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.mimo.run/v1';
+  const aiModel = process.env.MIMO_MODEL || 'mimo-v2';
+
+  if (!aiApiKey) {
+    console.warn('[fileService] No AI API key configured (MIMO_API_KEY or OPENAI_API_KEY)');
+    return null;
+  }
 
   try {
     const messages: { role: string; content: unknown }[] = [
-      { role: 'system', content: '你是一个专业的文件分析助手，请用中文回复，简洁专业。' },
+      { role: 'system', content: '你是一个专业的文件内容分析助手。请用中文回复，描述要具体、准确、有价值，避免空泛的描述。' },
     ];
 
     if (fileType === 'image' && filePath && fs.existsSync(filePath)) {
@@ -191,7 +197,7 @@ async function callAIModel(
     const response = await fetch(`${aiBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiApiKey}` },
-      body: JSON.stringify({ model: 'mimo-v2', messages, max_tokens: 500, temperature: 0.5 }),
+      body: JSON.stringify({ model: aiModel, messages, max_tokens: 600, temperature: 0.4 }),
     });
 
     if (!response.ok) {
@@ -215,23 +221,37 @@ export async function annotateWithMimo(
   let prompt = '';
 
   if (fileType === 'document') {
-    prompt = `请用中文简要分析这份文档的内容和用途。`;
+    prompt = `请仔细分析这份文档，给出以下信息：
+1. 文档类型和主题（如：会议纪要、学习笔记、工作报告等）
+2. 核心内容摘要（3-5句话，包含关键数据和结论）
+3. 标签（3-5个关键词，用逗号分隔）`;
     if (extractedText) {
       prompt += `\n\n文档内容摘录:\n${extractedText.slice(0, 3000)}`;
     }
-    prompt += '\n\n请用3-5句话总结核心内容，然后另起一行给出"标签: 关键词1, 关键词2, 关键词3"。';
   } else if (fileType === 'video') {
     const metadata = getMediaMetadata(filePath);
-    prompt = `请分析这个视频文件（MIME: ${mimeType}）。\n文件名: ${path.basename(filePath)}`;
+    prompt = `请分析这个视频文件，给出以下信息：
+1. 视频可能的内容类型和主题（如：课程录像、旅行Vlog、会议记录等）
+2. 根据文件名和元数据推断的用途和场景
+3. 标签（3-5个关键词，用逗号分隔）
+
+文件名: ${path.basename(filePath)}`;
     if (metadata) prompt += `\n元数据: ${metadata}`;
-    prompt += '\n\n请根据文件名和元数据推断视频可能的内容类型和用途（3-4句话），然后给出"标签: 关键词1, 关键词2"。';
   } else if (fileType === 'audio') {
     const metadata = getMediaMetadata(filePath);
-    prompt = `请分析这个音频文件（MIME: ${mimeType}）。\n文件名: ${path.basename(filePath)}`;
+    prompt = `请分析这个音频文件，给出以下信息：
+1. 音频可能的内容类型和主题（如：音乐、播客、语音备忘录等）
+2. 根据文件名和元数据推断的用途和场景
+3. 标签（3-5个关键词，用逗号分隔）
+
+文件名: ${path.basename(filePath)}`;
     if (metadata) prompt += `\n元数据: ${metadata}`;
-    prompt += '\n\n请根据文件名和元数据推断音频可能的内容类型和用途（3-4句话），然后给出"标签: 关键词1, 关键词2"。';
   } else if (fileType === 'image') {
-    prompt = `请用中文简要描述这张图片的内容，包括主要对象、场景、氛围等（3-5句话），然后给出"标签: 关键词1, 关键词2"。`;
+    prompt = `请仔细描述这张图片，给出以下信息：
+1. 画面内容：主要对象、人物、场景、动作等（要具体，不要笼统）
+2. 画面氛围和风格（如：温馨、专业、自然风光等）
+3. 如果有文字，请识别并记录关键文字内容
+4. 标签（3-5个关键词，用逗号分隔）`;
   }
 
   const annotation = await callAIModel(prompt, filePath, fileType, mimeType);

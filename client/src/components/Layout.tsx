@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useNotificationStore } from '../stores/notificationStore';
 
 const NAV_ITEMS = [
   {
@@ -8,6 +9,15 @@ const NAV_ITEMS = [
     icon: (active: boolean) => (
       <svg className={`w-[22px] h-[22px] ${active ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2.5 : 1.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    ),
+  },
+  {
+    path: '/habits',
+    label: '习惯',
+    icon: (active: boolean) => (
+      <svg className={`w-[22px] h-[22px] ${active ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2.5 : 1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
       </svg>
     ),
   },
@@ -30,15 +40,6 @@ const NAV_ITEMS = [
     ),
   },
   {
-    path: '/weather',
-    label: '天气',
-    icon: (active: boolean) => (
-      <svg className={`w-[22px] h-[22px] ${active ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={active ? 2.5 : 1.5} d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
-      </svg>
-    ),
-  },
-  {
     path: '/profile',
     label: '我的',
     icon: (active: boolean) => (
@@ -49,18 +50,12 @@ const NAV_ITEMS = [
   },
 ];
 
-const SIDEBAR_EXTRA_ITEMS = [
+const SIDEBAR_ITEMS = [
+  ...NAV_ITEMS,
   {
     path: '/goals', label: '目标', icon: (a: boolean) => (
       <svg className={`w-5 h-5 ${a ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={a ? 2.5 : 1.5} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-      </svg>
-    )
-  },
-  {
-    path: '/habits', label: '习惯', icon: (a: boolean) => (
-      <svg className={`w-5 h-5 ${a ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={a ? 2.5 : 1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
       </svg>
     )
   },
@@ -71,11 +66,26 @@ const SIDEBAR_EXTRA_ITEMS = [
       </svg>
     )
   },
+  {
+    path: '/weather', label: '天气', icon: (a: boolean) => (
+      <svg className={`w-5 h-5 ${a ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={a ? 2.5 : 1.5} d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+      </svg>
+    )
+  },
+  {
+    path: '/notifications', label: '通知', icon: (a: boolean) => (
+      <svg className={`w-5 h-5 ${a ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={a ? 2.5 : 1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+    )
+  },
 ];
 
 function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('youji_sidebar_collapsed') === 'true';
   });
@@ -141,7 +151,7 @@ function Layout() {
                 onTouchStart={handleTouchStart}
                 onTouchEnd={(e) => handleTouchEnd(e, item.path)}
                 onClick={() => handleNavClick(item.path)}
-                className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-2xl transition-all duration-200 min-w-0 ${active ? 'nav-item-active' : 'nav-item-inactive'
+                className={`relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-2xl transition-all duration-200 min-w-0 ${active ? 'nav-item-active' : 'nav-item-inactive'
                   }`}
               >
                 {item.icon(active)}
@@ -151,6 +161,24 @@ function Layout() {
               </button>
             );
           })}
+          <button
+            onTouchStart={handleTouchStart}
+            onTouchEnd={(e) => handleTouchEnd(e, '/notifications')}
+            onClick={() => handleNavClick('/notifications')}
+            className={`relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-2xl transition-all duration-200 min-w-0 ${isActive('/notifications') ? 'nav-item-active' : 'nav-item-inactive'}`}
+          >
+            <svg className={`w-[22px] h-[22px] ${isActive('/notifications') ? 'text-brand-500' : 'text-surface-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={isActive('/notifications') ? 2.5 : 1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            <span className={`text-[10px] leading-tight font-medium ${isActive('/notifications') ? 'text-brand-500' : 'text-surface-400'}`}>
+              通知
+            </span>
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
         </div>
       </nav>
 
@@ -173,43 +201,29 @@ function Layout() {
         </div>
 
         <div className={`flex-1 ${collapsed ? 'px-2.5' : 'px-3'} space-y-1 overflow-y-auto overflow-x-hidden`}>
-          {NAV_ITEMS.map((item) => {
+          {SIDEBAR_ITEMS.map((item) => {
             const active = isActive(item.path);
+            const isNotification = item.path === '/notifications';
             return (
               <button
                 key={item.path}
                 onClick={() => navigate(item.path)}
                 title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} ${collapsed ? 'px-0' : 'px-3.5'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${active
+                className={`relative w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} ${collapsed ? 'px-0' : 'px-3.5'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${active
                   ? 'bg-brand-50/80 dark:bg-brand-950/25 text-brand-600 dark:text-brand-400 shadow-sm'
                   : 'text-surface-500 dark:text-surface-400 hover:bg-surface-50/80 dark:hover:bg-surface-800/60 hover:text-surface-700 dark:hover:text-surface-300'
                   }`}
               >
                 {item.icon(active)}
                 {!collapsed && <span>{item.label}</span>}
+                {isNotification && unreadCount > 0 && (
+                  <span className={`${collapsed ? 'absolute -top-0.5 -right-0.5' : 'ml-auto'} min-w-[18px] h-[18px] px-1 flex items-center justify-center text-[10px] font-bold text-white bg-red-500 rounded-full`}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
             );
           })}
-
-          <div className="pt-4 mt-4 border-t border-surface-100/60 dark:border-surface-800/60">
-            {SIDEBAR_EXTRA_ITEMS.map((item) => {
-              const active = isActive(item.path);
-              return (
-                <button
-                  key={item.path}
-                  onClick={() => navigate(item.path)}
-                  title={collapsed ? item.label : undefined}
-                  className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} ${collapsed ? 'px-0' : 'px-3.5'} py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${active
-                    ? 'bg-brand-50/80 dark:bg-brand-950/25 text-brand-600 dark:text-brand-400 shadow-sm'
-                    : 'text-surface-500 dark:text-surface-400 hover:bg-surface-50/80 dark:hover:bg-surface-800/60 hover:text-surface-700 dark:hover:text-surface-300'
-                    }`}
-                >
-                  {item.icon(active)}
-                  {!collapsed && <span>{item.label}</span>}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
         <div className={`${collapsed ? 'px-2.5' : 'px-3'} pb-5 pt-3 border-t border-surface-100/60 dark:border-surface-800/60`}>

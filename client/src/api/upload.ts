@@ -67,4 +67,9 @@ export const uploadApi = {
     const response = await client.post('/api/attachments/batch-status', { ids });
     return response.data;
   },
+
+  reAnnotate: async (id: string): Promise<ApiResponse<{ message: string }>> => {
+    const response = await client.post(`/api/attachments/${id}/re-annotate`);
+    return response.data;
+  },
 };

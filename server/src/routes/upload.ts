@@ -12,6 +12,7 @@ import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE,
   MAX_FILES_PER_MESSAGE,
+  extractDocumentText,
 } from '../services/fileService.js';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
@@ -279,12 +280,10 @@ const uploadRoutes: FastifyPluginAsync = async (fastify) => {
     let extractedText = '';
     if (fileType === 'document') {
       try {
-        const ext = path.extname(attachment.originalName).toLowerCase();
-        if (ext === '.txt' || ext === '.md' || ext === '.csv' || attachment.mimeType.startsWith('text/')) {
-          extractedText = fs.readFileSync(attachment.filePath, 'utf-8').slice(0, 8000);
-        }
+        const text = await extractDocumentText(attachment.filePath, attachment.mimeType);
+        if (text) extractedText = text;
       } catch {
-        // ignore text extraction errors
+        // text extraction failed, continue without it
       }
     }
 

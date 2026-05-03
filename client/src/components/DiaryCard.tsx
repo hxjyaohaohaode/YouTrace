@@ -1,4 +1,4 @@
-﻿import { useNavigate } from 'react-router-dom';
+﻿﻿import { useNavigate } from 'react-router-dom';
 import type { Diary } from '../types';
 import { formatRelative } from '../utils/date';
 import { getScoreColor, getScoreLabel } from '../utils/emotionUtils';

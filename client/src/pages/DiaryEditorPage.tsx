@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react';
+﻿﻿import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useWeatherStore } from '../stores/weatherStore';
@@ -14,8 +14,8 @@ function DiaryEditorPage() {
   const navigate = useNavigate();
   const isEditing = !!id;
   const { currentDiary, fetchDiary, createDiary, updateDiary, error } = useDiaryStore();
-  const { currentWeather } = useWeatherStore();
-  const { location } = useLocationStore();
+  const { currentWeather, refreshAll: refreshWeather } = useWeatherStore();
+  const { location, requestBrowserLocation, fetchLocation } = useLocationStore();
   const [content, setContent] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentResult[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -25,13 +25,39 @@ function DiaryEditorPage() {
   const [expandedAnnotation, setExpandedAnnotation] = useState<string | null>(null);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [isFetchingContext, setIsFetchingContext] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const hasUnsavedChanges = content.trim().length > 0 || pendingAttachments.length > 0;
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (id) fetchDiary(id);
   }, [id, fetchDiary]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setIsFetchingContext(true);
+      (async () => {
+        try {
+          const coords = await requestBrowserLocation();
+          if (coords) {
+            await Promise.all([
+              fetchLocation({ lng: coords.lng, lat: coords.lat }),
+              refreshWeather({ lng: coords.lng, lat: coords.lat }),
+            ]);
+          } else {
+            await refreshWeather();
+          }
+        } catch {
+          await refreshWeather();
+        } finally {
+          setIsFetchingContext(false);
+        }
+      })();
+    }
+  }, [isEditing, requestBrowserLocation, fetchLocation, refreshWeather]);
 
   useEffect(() => {
     if (isEditing && currentDiary) {
@@ -62,6 +88,41 @@ function DiaryEditorPage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges, isSaving]);
+
+  useEffect(() => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    if (!content.trim() || isSaving || isEditing) return;
+    draftTimerRef.current = setTimeout(() => {
+      try {
+        const draft = {
+          content,
+          attachments: pendingAttachments.map((a) => a.id),
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem('youji_diary_draft', JSON.stringify(draft));
+        setDraftSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+      } catch {
+        // storage full or unavailable
+      }
+    }, 3000);
+    return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
+  }, [content, pendingAttachments, isSaving, isEditing]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    try {
+      const saved = localStorage.getItem('youji_diary_draft');
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.content && !content) {
+          setContent(draft.content);
+          setDraftSavedAt(new Date(draft.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }));
+        }
+      }
+    } catch {
+      // invalid draft
+    }
+  }, []);
 
   useEffect(() => {
     const processingIds = pendingAttachments
@@ -207,14 +268,31 @@ function DiaryEditorPage() {
     } : undefined;
 
     const locName = location ? (location.city || location.district || location.formattedAddress) : undefined;
+    const locCoords = useLocationStore.getState().coords;
 
     try {
       if (isEditing && id) {
-        await updateDiary(id, content, attachmentIds.length > 0 ? attachmentIds : undefined);
+        await updateDiary(
+          id,
+          content,
+          attachmentIds.length > 0 ? attachmentIds : undefined,
+          weatherData ? JSON.stringify(weatherData) : undefined,
+          locName,
+          locCoords?.lat,
+          locCoords?.lng,
+        );
       } else {
-        await createDiary(content, attachmentIds.length > 0 ? attachmentIds : undefined, weatherData ? JSON.stringify(weatherData) : undefined, locName);
+        await createDiary(
+          content,
+          attachmentIds.length > 0 ? attachmentIds : undefined,
+          weatherData ? JSON.stringify(weatherData) : undefined,
+          locName,
+          locCoords?.lat,
+          locCoords?.lng,
+        );
       }
       if (!useDiaryStore.getState().error) {
+        localStorage.removeItem('youji_diary_draft');
         navigate('/');
       }
     } finally {
@@ -247,6 +325,9 @@ function DiaryEditorPage() {
             取消
           </button>
           <h1 className="text-base font-semibold text-surface-800">{isEditing ? '编辑日记' : '写日记'}</h1>
+          {draftSavedAt && !isEditing && (
+            <span className="text-2xs text-surface-300 ml-2">草稿已保存 {draftSavedAt}</span>
+          )}
           <button
             onClick={handleSave}
             disabled={!content.trim() || isSaving}
@@ -284,6 +365,48 @@ function DiaryEditorPage() {
             className="w-full min-h-[200px] sm:min-h-[300px] resize-none border-0 focus:ring-0 p-0 text-surface-700 leading-relaxed placeholder:text-surface-300"
             autoFocus
           />
+        </div>
+
+        <div className="card p-3 mt-3 flex items-center gap-3 flex-wrap">
+          {isFetchingContext ? (
+            <div className="flex items-center gap-2 text-xs text-surface-400">
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              正在获取天气与定位...
+            </div>
+          ) : (
+            <>
+              {currentWeather?.now && (
+                <div className="flex items-center gap-1.5 text-xs text-surface-500 bg-surface-50 px-2.5 py-1.5 rounded-lg">
+                  <img
+                    src={`https://a.hecdn.net/img/common/icon/202106d/${currentWeather.now.icon}.png`}
+                    alt={currentWeather.now.text}
+                    className="w-5 h-5"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  />
+                  <span>{currentWeather.now.text}</span>
+                  <span className="font-medium text-surface-700">{currentWeather.now.temp}°C</span>
+                  {currentWeather.now.humidity && (
+                    <span className="text-surface-400">· 湿度{currentWeather.now.humidity}%</span>
+                  )}
+                </div>
+              )}
+              {location && (
+                <div className="flex items-center gap-1.5 text-xs text-surface-500 bg-surface-50 px-2.5 py-1.5 rounded-lg">
+                  <svg className="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>{location.city || location.district || location.formattedAddress}</span>
+                </div>
+              )}
+              {!currentWeather?.now && !location && (
+                <span className="text-xs text-surface-400">天气与定位信息将在保存时自动记录</span>
+              )}
+            </>
+          )}
         </div>
 
         <div

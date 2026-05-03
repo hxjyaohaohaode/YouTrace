@@ -60,6 +60,7 @@ export interface AttachmentItem {
   thumbnailPath: string | null;
   aiAnnotation: string;
   filePath?: string;
+  annotationStatus?: string;
 }
 
 export interface Diary {

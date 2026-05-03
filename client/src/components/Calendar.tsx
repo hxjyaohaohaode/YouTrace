@@ -5,8 +5,9 @@ import { getDaysInMonth, getFirstDayOfMonth, dateOnlyLocal } from '../utils/date
 import { EmotionIcon, type EmotionIconName } from '../utils/emotion';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+const WEEKDAYS_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-const HOUR_HEIGHT = 48;
+const HOUR_HEIGHT = 52;
 const START_HOUR = 0;
 const END_HOUR = 24;
 
@@ -61,7 +62,7 @@ function getEventPosition(startTime: string, endTime: string) {
     const clampedStart = Math.max(startMinutes, START_HOUR * 60);
     const clampedEnd = Math.min(endMinutes, END_HOUR * 60);
     const top = ((clampedStart - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-    const height = Math.max(((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT, 20);
+    const height = Math.max(((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT, 22);
     return { top, height };
 }
 
@@ -128,19 +129,27 @@ function layoutDayEvents(events: EventItem[]): Map<string, EventLayoutInfo> {
     return result;
 }
 
-function getEventStyle(event: EventItem): { bg: string; text: string; border: string } {
-    if (event.isHoliday) return { bg: 'bg-red-50', text: 'text-red-700', border: 'border-l-red-400' };
-    if (event.isCourse) return { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-l-purple-400' };
+const EVENT_STYLE_MAP: Record<string, { bg: string; text: string; border: string; dot: string; gradient: string }> = {
+    blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-l-blue-400', dot: 'bg-blue-400', gradient: 'from-blue-400 to-blue-500' },
+    green: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-l-emerald-400', dot: 'bg-emerald-400', gradient: 'from-emerald-400 to-emerald-500' },
+    purple: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-l-violet-400', dot: 'bg-violet-400', gradient: 'from-violet-400 to-violet-500' },
+    orange: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-l-amber-400', dot: 'bg-amber-400', gradient: 'from-amber-400 to-amber-500' },
+    red: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-l-rose-400', dot: 'bg-rose-400', gradient: 'from-rose-400 to-rose-500' },
+    teal: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-l-teal-400', dot: 'bg-teal-400', gradient: 'from-teal-400 to-teal-500' },
+    pink: { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-l-pink-400', dot: 'bg-pink-400', gradient: 'from-pink-400 to-pink-500' },
+    yellow: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-l-yellow-400', dot: 'bg-yellow-400', gradient: 'from-yellow-400 to-yellow-500' },
+    holiday: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-l-rose-400', dot: 'bg-rose-400', gradient: 'from-rose-400 to-rose-500' },
+    course: { bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-l-violet-400', dot: 'bg-violet-400', gradient: 'from-violet-400 to-violet-500' },
+    default: { bg: 'bg-brand-50', text: 'text-brand-700', border: 'border-l-brand-400', dot: 'bg-brand-400', gradient: 'from-brand-400 to-brand-500' },
+};
+
+function getEventStyle(event: EventItem) {
+    if (event.isHoliday) return EVENT_STYLE_MAP.holiday;
+    if (event.isCourse) return EVENT_STYLE_MAP.course;
     if (event.color && EVENT_COLORS[event.color as EventColor]) {
-        const c = EVENT_COLORS[event.color as EventColor];
-        const borderMap: Record<string, string> = {
-            blue: 'border-l-blue-400', green: 'border-l-green-400', purple: 'border-l-purple-400',
-            orange: 'border-l-orange-400', red: 'border-l-red-400', teal: 'border-l-teal-400',
-            pink: 'border-l-pink-400', yellow: 'border-l-yellow-400',
-        };
-        return { bg: c.bg, text: c.text, border: borderMap[event.color] || 'border-l-brand-400' };
+        return EVENT_STYLE_MAP[event.color] || EVENT_STYLE_MAP.default;
     }
-    return { bg: 'bg-brand-50', text: 'text-brand-700', border: 'border-l-brand-400' };
+    return EVENT_STYLE_MAP.default;
 }
 
 function CurrentTimeLine({ offsetLeft = 0 }: { offsetLeft?: number }) {
@@ -154,8 +163,8 @@ function CurrentTimeLine({ offsetLeft = 0 }: { offsetLeft?: number }) {
             style={{ top, marginLeft: offsetLeft }}
         >
             <div className="flex items-center">
-                <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 flex-shrink-0" />
-                <div className="flex-1 h-[2px] bg-red-500" />
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-1 flex-shrink-0 shadow-sm shadow-red-200" />
+                <div className="flex-1 h-[2px] bg-gradient-to-r from-red-500 to-red-300" />
             </div>
         </div>
     );
@@ -176,21 +185,25 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
 
     return (
         <div>
-            <div className="grid grid-cols-7 gap-0 sm:gap-1 mb-1">
-                {WEEKDAYS.map((d) => (
-                    <div key={d} className="text-center py-1">
-                        <span className="text-[10px] sm:text-xs font-medium text-surface-400">{d}</span>
+            <div className="grid grid-cols-7 gap-0 mb-1.5">
+                {WEEKDAYS.map((d, i) => (
+                    <div key={d} className="text-center py-1.5">
+                        <span className={`text-[10px] sm:text-xs font-semibold tracking-wide ${(i === 0 || i === 6) ? 'text-rose-400' : 'text-surface-400'}`}>
+                            {d}
+                        </span>
                     </div>
                 ))}
             </div>
-            <div className="grid grid-cols-7 gap-0 sm:gap-1">
+            <div className="grid grid-cols-7 gap-[2px] sm:gap-1">
                 {days.map((day, i) => {
                     if (day === null) {
-                        return <div key={`empty-${i}`} className="min-h-[56px] sm:min-h-[72px]" />;
+                        return <div key={`empty-${i}`} className="min-h-[64px] sm:min-h-[80px]" />;
                     }
 
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const isToday = dateStr === today;
+                    const dayOfWeek = new Date(year, month, day).getDay();
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                     const dayEvents = eventsByDate.get(dateStr) || [];
                     const diaryInfo = diariesByDate[dateStr];
                     const maxVisible = 3;
@@ -201,25 +214,29 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                         <div
                             key={day}
                             onClick={() => onDateClick(new Date(year, month, day))}
-                            className={`min-h-[56px] sm:min-h-[72px] p-1 sm:p-1.5 rounded-lg sm:rounded-xl cursor-pointer transition-colors ${isToday
-                                ? 'bg-brand-50 ring-1 ring-inset ring-brand-200'
-                                : 'hover:bg-surface-50'
+                            className={`min-h-[64px] sm:min-h-[80px] p-1 sm:p-1.5 rounded-xl cursor-pointer transition-all duration-200 ${isToday
+                                ? 'bg-brand-50/80 ring-2 ring-inset ring-brand-300 shadow-sm shadow-brand-100'
+                                : isWeekend
+                                    ? 'bg-surface-50/40 hover:bg-surface-50/80'
+                                    : 'hover:bg-surface-50/60'
                                 }`}
                         >
-                            <div className="flex items-center justify-between">
-                                <span className={`text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center ${isToday
-                                    ? 'w-5 h-5 sm:w-6 sm:h-6 rounded-full gradient-bg text-white'
-                                    : 'text-surface-600'
+                            <div className="flex items-center justify-between mb-0.5">
+                                <span className={`text-[11px] sm:text-xs font-bold inline-flex items-center justify-center ${isToday
+                                    ? 'w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-sm shadow-brand-200'
+                                    : isWeekend
+                                        ? 'text-rose-500'
+                                        : 'text-surface-700'
                                     }`}>
                                     {day}
                                 </span>
                                 <div className="flex items-center gap-0.5">
                                     {diaryInfo && diaryInfo.emotionTags.length > 0 && (
-                                        <EmotionIcon emotion={diaryInfo.emotionTags[0] as EmotionIconName} className="w-2.5 h-2.5 sm:w-3 sm:h-3 opacity-60" />
+                                        <EmotionIcon emotion={diaryInfo.emotionTags[0] as EmotionIconName} className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-70" />
                                     )}
                                 </div>
                             </div>
-                            <div className="mt-0.5 space-y-[1px] overflow-hidden">
+                            <div className="mt-0.5 space-y-[2px] overflow-hidden">
                                 {visibleEvents.map((event) => {
                                     const style = getEventStyle(event);
                                     return (
@@ -227,32 +244,27 @@ function MonthView({ events, currentDate, onDateClick, onEventClick, diariesByDa
                                             key={event.id}
                                             onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
                                             title={event.title}
-                                            className={`hidden sm:block text-[9px] sm:text-[10px] truncate rounded px-1 py-[1px] sm:py-0.5 cursor-pointer transition-colors font-medium ${style.bg} ${style.text}`}
+                                            className={`hidden sm:flex items-center gap-1 text-[10px] sm:text-[11px] truncate rounded-md px-1.5 py-[2px] sm:py-[3px] cursor-pointer transition-all duration-150 font-medium shadow-sm ${style.bg} ${style.text} hover:shadow-md`}
                                         >
-                                            {event.title}
+                                            <div className={`w-1 h-1 rounded-full flex-shrink-0 ${style.dot}`} />
+                                            <span className="truncate">{event.title}</span>
                                         </div>
                                     );
                                 })}
                                 {visibleEvents.map((event) => {
-                                    const dotColor = event.isHoliday
-                                        ? 'bg-red-400'
-                                        : event.isCourse
-                                            ? 'bg-purple-400'
-                                            : event.color && EVENT_COLORS[event.color as EventColor]
-                                                ? 'bg-brand-400'
-                                                : 'bg-brand-400';
+                                    const style = getEventStyle(event);
                                     return (
                                         <div
                                             key={event.id}
                                             onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
                                             className={`sm:hidden flex items-center gap-0.5 cursor-pointer`}
                                         >
-                                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
+                                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${style.dot}`} />
                                         </div>
                                     );
                                 })}
                                 {hiddenCount > 0 && (
-                                    <span className="text-[9px] sm:text-[10px] text-surface-400 font-medium">
+                                    <span className="text-[9px] sm:text-[10px] text-surface-400 font-semibold pl-1">
                                         +{hiddenCount}
                                     </span>
                                 )}
@@ -295,17 +307,20 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
 
     return (
         <div>
-            <div className="flex border-b border-surface-100 pb-2 mb-1">
+            <div className="flex border-b border-surface-200/60 pb-2.5 mb-1">
                 <div className="w-12 flex-shrink-0" />
                 {weekDates.map((date, i) => {
                     const dateStr = dateOnlyLocal(date);
                     const isToday = dateStr === today;
+                    const isWeekend = i === 0 || i === 6;
                     return (
                         <div key={i} className="flex-1 text-center py-1 min-w-0">
-                            <div className={`text-[10px] font-medium ${isToday ? 'text-brand-500' : 'text-surface-400'}`}>
-                                {WEEKDAYS[date.getDay()]}
+                            <div className={`text-[10px] font-semibold tracking-wide ${isToday ? 'text-brand-500' : isWeekend ? 'text-rose-400' : 'text-surface-400'}`}>
+                                {WEEKDAYS_SHORT[i]}
                             </div>
-                            <div className={`text-sm font-semibold mt-0.5 inline-flex items-center justify-center ${isToday ? 'w-7 h-7 rounded-full gradient-bg text-white' : 'text-surface-700'
+                            <div className={`text-sm font-bold mt-1 inline-flex items-center justify-center ${isToday
+                                ? 'w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-sm shadow-brand-200'
+                                : 'text-surface-700'
                                 }`}>
                                 {date.getDate()}
                             </div>
@@ -320,7 +335,7 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
                         {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => i + START_HOUR).map((hour) => (
                             <div
                                 key={hour}
-                                className="absolute right-2 text-[10px] text-surface-400 leading-none"
+                                className="absolute right-2 text-[10px] text-surface-400 leading-none font-medium"
                                 style={{ top: (hour - START_HOUR) * HOUR_HEIGHT + 2 }}
                             >
                                 {String(hour).padStart(2, '0')}:00
@@ -332,7 +347,7 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
                         {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => i + START_HOUR).map((hour) => (
                             <div
                                 key={hour}
-                                className="absolute left-0 right-0 border-b border-surface-100"
+                                className="absolute left-0 right-0 border-b border-surface-100/60"
                                 style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
                             />
                         ))}
@@ -347,7 +362,7 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
                             return (
                                 <div
                                     key={i}
-                                    className="flex-1 relative border-l border-surface-100 min-w-0 overflow-hidden"
+                                    className="flex-1 relative border-l border-surface-100/60 min-w-0 overflow-hidden"
                                     onClick={(e) => {
                                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                         const y = e.clientY - rect.top;
@@ -367,7 +382,7 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
                                             <div
                                                 key={event.id}
                                                 onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
-                                                className={`absolute rounded-md px-1 py-0.5 cursor-pointer hover:opacity-80 transition-opacity font-medium text-[10px] overflow-hidden border-l-2 ${style.bg} ${style.text} ${style.border}`}
+                                                className={`absolute rounded-lg px-1.5 py-1 cursor-pointer hover:shadow-md transition-all duration-150 font-medium text-[10px] overflow-hidden border-l-[3px] shadow-sm ${style.bg} ${style.text} ${style.border}`}
                                                 style={{
                                                     top: pos.top,
                                                     height: pos.height,
@@ -375,9 +390,9 @@ function WeekView({ events, currentDate, onDateClick, onEventClick }: Omit<Calen
                                                     width: `${colWidth - 6}%`,
                                                 }}
                                             >
-                                                <div className="truncate font-semibold">{event.title}</div>
+                                                <div className="truncate font-bold">{event.title}</div>
                                                 {pos.height > 32 && (
-                                                    <div className="text-[8px] opacity-70 truncate">
+                                                    <div className="text-[8px] opacity-60 truncate mt-0.5">
                                                         {new Date(event.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                                         -{new Date(event.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                                     </div>
@@ -419,15 +434,15 @@ function DayView({ events, currentDate, onDateClick, onEventClick }: Omit<Calend
     return (
         <div>
             {allDayEvents.length > 0 && (
-                <div className="mb-3 space-y-1">
-                    <div className="text-xs text-surface-400 font-medium mb-1.5">全天</div>
+                <div className="mb-4 space-y-1.5">
+                    <div className="text-xs text-surface-400 font-semibold mb-2 tracking-wide">全天事件</div>
                     {allDayEvents.map((event) => {
                         const style = getEventStyle(event);
                         return (
                             <div
                                 key={event.id}
                                 onClick={() => onEventClick(event.id)}
-                                className={`text-sm rounded-lg px-3 py-2 cursor-pointer hover:opacity-80 transition-opacity font-medium border-l-3 ${style.bg} ${style.text} ${style.border}`}
+                                className={`text-sm rounded-xl px-3.5 py-2.5 cursor-pointer hover:shadow-md transition-all duration-150 font-medium border-l-[3px] shadow-sm ${style.bg} ${style.text} ${style.border}`}
                             >
                                 {event.title}
                             </div>
@@ -441,10 +456,10 @@ function DayView({ events, currentDate, onDateClick, onEventClick }: Omit<Calend
                     {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => i + START_HOUR).map((hour) => (
                         <div
                             key={hour}
-                            className="absolute left-0 right-0 border-b border-surface-100"
+                            className="absolute left-0 right-0 border-b border-surface-100/60"
                             style={{ top: (hour - START_HOUR) * HOUR_HEIGHT }}
                         >
-                            <span className="absolute -top-2.5 right-full mr-3 text-[10px] text-surface-400 leading-none">
+                            <span className="absolute -top-2.5 right-full mr-3 text-[10px] text-surface-400 leading-none font-medium">
                                 {String(hour).padStart(2, '0')}:00
                             </span>
                         </div>
@@ -473,7 +488,7 @@ function DayView({ events, currentDate, onDateClick, onEventClick }: Omit<Calend
                                 <div
                                     key={event.id}
                                     onClick={(e) => { e.stopPropagation(); onEventClick(event.id); }}
-                                    className={`absolute rounded-lg px-2.5 py-1.5 cursor-pointer hover:opacity-80 transition-opacity font-medium text-xs overflow-hidden border-l-3 ${style.bg} ${style.text} ${style.border}`}
+                                    className={`absolute rounded-xl px-3 py-2 cursor-pointer hover:shadow-lg transition-all duration-150 font-medium text-xs overflow-hidden border-l-[3px] shadow-sm ${style.bg} ${style.text} ${style.border}`}
                                     style={{
                                         top: pos.top,
                                         height: pos.height,
@@ -481,16 +496,16 @@ function DayView({ events, currentDate, onDateClick, onEventClick }: Omit<Calend
                                         width: `${colWidth - 2}%`,
                                     }}
                                 >
-                                    <div className="font-semibold truncate">{event.title}</div>
+                                    <div className="font-bold truncate">{event.title}</div>
                                     {pos.height > 36 && (
-                                        <div className="text-[10px] opacity-70 mt-0.5">
+                                        <div className="text-[10px] opacity-60 mt-0.5">
                                             {new Date(event.startTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                             {' - '}
                                             {new Date(event.endTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                         </div>
                                     )}
                                     {pos.height > 60 && event.description && (
-                                        <div className="text-[10px] opacity-50 mt-0.5 line-clamp-2">{event.description}</div>
+                                        <div className="text-[10px] opacity-45 mt-1 line-clamp-2">{event.description}</div>
                                     )}
                                 </div>
                             );
@@ -559,38 +574,38 @@ function Calendar({ events, view, currentDate, onViewChange, onDateChange, onDat
 
     return (
         <div>
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-1.5">
                     <button
                         onClick={prevPeriod}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-surface-100 text-surface-500 transition-colors"
+                        className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-surface-100 text-surface-500 transition-all duration-150 active:scale-95"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
                     </button>
                     <button
                         onClick={nextPeriod}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-surface-100 text-surface-500 transition-colors"
+                        className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-surface-100 text-surface-500 transition-all duration-150 active:scale-95"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
                     </button>
-                    <h3 className="text-sm font-semibold text-surface-800 ml-1">
+                    <h3 className="text-base font-bold text-surface-800 ml-2 tracking-tight">
                         {getTitle()}
                     </h3>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                     <button
                         onClick={goToday}
-                        className="text-xs text-brand-500 hover:text-brand-600 font-medium px-2.5 py-1 rounded-lg hover:bg-brand-50 transition-colors"
+                        className="text-xs text-brand-600 hover:text-brand-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-brand-50 transition-all duration-150 active:scale-95"
                     >
                         今天
                     </button>
-                    <div className="flex bg-surface-100 dark:bg-surface-800 rounded-lg p-0.5">
+                    <div className="flex bg-surface-100 dark:bg-surface-800 rounded-xl p-[3px]">
                         {viewOptions.map((opt) => (
                             <button
                                 key={opt.key}
                                 onClick={() => onViewChange(opt.key)}
-                                className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${view === opt.key
+                                className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-all duration-200 ${view === opt.key
                                     ? 'bg-white dark:bg-surface-700 text-surface-800 dark:text-surface-100 shadow-sm'
                                     : 'text-surface-400 hover:text-surface-600 dark:hover:text-surface-300'
                                     }`}

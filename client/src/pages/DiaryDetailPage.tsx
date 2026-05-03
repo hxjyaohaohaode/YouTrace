@@ -1,8 +1,8 @@
-﻿import { useEffect, useState, useCallback, useRef } from 'react';
+﻿﻿import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useDiaryStore } from '../stores/diaryStore';
 import { aiApi } from '../api/ai';
-import { getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl } from '../api/upload';
+import { getThumbnailUrl, getOriginalFileUrl, getAttachmentDownloadUrl, uploadApi } from '../api/upload';
 import EmotionTag from '../components/EmotionTag';
 import { HighlightText } from '../components/HighlightText';
 import { formatDateTime } from '../utils/date';
@@ -20,6 +20,9 @@ function DiaryDetailPage() {
   const [isDeepAnalyzing, setIsDeepAnalyzing] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [expandedAnnotation, setExpandedAnnotation] = useState<string | null>(null);
+  const [reAnnotatingId, setReAnnotatingId] = useState<string | null>(null);
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagInput, setTagInput] = useState('');
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -51,6 +54,20 @@ function DiaryDetailPage() {
       // deep analysis failed, ignore
     } finally {
       setIsDeepAnalyzing(false);
+    }
+  };
+
+  const handleReAnnotate = async (attachmentId: string) => {
+    setReAnnotatingId(attachmentId);
+    try {
+      await uploadApi.reAnnotate(attachmentId);
+      if (id) {
+        setTimeout(() => fetchDiary(id), 3000);
+      }
+    } catch {
+      // re-annotate failed
+    } finally {
+      setTimeout(() => setReAnnotatingId(null), 3000);
     }
   };
 
@@ -154,10 +171,85 @@ function DiaryDetailPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-5">
+          {(currentDiary.weather || currentDiary.locationName) && (
+            <div className="flex items-center gap-3 flex-wrap mb-4">
+              {currentDiary.weather && (() => {
+                const w = currentDiary.weather as Record<string, string>;
+                return (
+                  <div className="flex items-center gap-1.5 text-xs text-surface-500 bg-surface-50 px-2.5 py-1.5 rounded-lg">
+                    {w.icon && (
+                      <img
+                        src={`https://a.hecdn.net/img/common/icon/202106d/${w.icon}.png`}
+                        alt={w.text || ''}
+                        className="w-4 h-4"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                    {w.text && <span>{w.text}</span>}
+                    {w.temp && <span className="font-medium text-surface-700">{w.temp}°C</span>}
+                    {w.humidity && <span className="text-surface-400">· 湿度{w.humidity}%</span>}
+                    {w.windDir && w.windScale && <span className="text-surface-400">· {w.windDir}{w.windScale}级</span>}
+                  </div>
+                );
+              })()}
+              {currentDiary.locationName && (
+                <div className="flex items-center gap-1.5 text-xs text-surface-500 bg-surface-50 px-2.5 py-1.5 rounded-lg">
+                  <svg className="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>{currentDiary.locationName}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 mb-5 items-center">
             {currentDiary.emotionTags.map((tag) => (
               <EmotionTag key={tag} emotion={tag} size="md" />
             ))}
+            {editingTags ? (
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && tagInput.trim()) {
+                      const newTags = [...currentDiary.emotionTags, tagInput.trim()];
+                      await useDiaryStore.getState().updateDiary(
+                        currentDiary.id,
+                        currentDiary.content,
+                        currentDiary.attachments?.map((a) => a.id),
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        newTags,
+                      );
+                      setTagInput('');
+                      fetchDiary(currentDiary.id);
+                    }
+                  }}
+                  placeholder="添加标签后回车"
+                  className="input-field py-1 px-2 text-xs flex-1"
+                  autoFocus
+                />
+                <button
+                  onClick={() => setEditingTags(false)}
+                  className="text-xs text-surface-400 hover:text-surface-600"
+                >
+                  完成
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingTags(true)}
+                className="px-2 py-1 text-xs text-surface-400 hover:text-brand-500 border border-dashed border-surface-200 dark:border-surface-700 rounded-lg transition-colors"
+              >
+                + 编辑标签
+              </button>
+            )}
           </div>
 
           <div className="prose prose-sm max-w-none">
@@ -238,15 +330,32 @@ function DiaryDetailPage() {
                           <p className="text-xs text-surface-500 mt-0.5 line-clamp-2">{att.aiAnnotation}</p>
                         )}
                       </div>
-                      <a
-                        href={getAttachmentDownloadUrl(att.id)}
-                        className="text-brand-500 hover:text-brand-600 flex-shrink-0"
-                        title="下载"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </a>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {(!att.aiAnnotation || att.annotationStatus === 'failed') && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleReAnnotate(att.id); }}
+                            disabled={reAnnotatingId === att.id}
+                            className="text-xs text-brand-500 hover:text-brand-600 font-medium px-1.5 py-0.5 rounded hover:bg-brand-50 transition-colors disabled:opacity-50"
+                            title="AI重新标注"
+                          >
+                            {reAnnotatingId === att.id ? (
+                              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                            ) : '🤖 标注'}
+                          </button>
+                        )}
+                        <a
+                          href={getAttachmentDownloadUrl(att.id)}
+                          className="text-brand-500 hover:text-brand-600"
+                          title="下载"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </a>
+                      </div>
                     </div>
                     <video
                       controls
@@ -285,6 +394,21 @@ function DiaryDetailPage() {
                           <p className="text-xs text-surface-500 mt-0.5 line-clamp-2">{att.aiAnnotation}</p>
                         )}
                       </div>
+                      {(!att.aiAnnotation || att.annotationStatus === 'failed') && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleReAnnotate(att.id); }}
+                          disabled={reAnnotatingId === att.id}
+                          className="text-xs text-brand-500 hover:text-brand-600 font-medium px-1.5 py-0.5 rounded hover:bg-brand-50 transition-colors disabled:opacity-50 flex-shrink-0"
+                          title="AI重新标注"
+                        >
+                          {reAnnotatingId === att.id ? (
+                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          ) : '🤖 标注'}
+                        </button>
+                      )}
                     </div>
                     <audio
                       controls
@@ -337,15 +461,32 @@ function DiaryDetailPage() {
                             </div>
                           )}
                         </div>
-                        <a
-                          href={getAttachmentDownloadUrl(att.id)}
-                          className="text-brand-500 hover:text-brand-600 flex-shrink-0"
-                          title="下载"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                        </a>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {(!att.aiAnnotation || att.annotationStatus === 'failed') && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleReAnnotate(att.id); }}
+                              disabled={reAnnotatingId === att.id}
+                              className="text-xs text-brand-500 hover:text-brand-600 font-medium px-1.5 py-0.5 rounded hover:bg-brand-50 transition-colors disabled:opacity-50"
+                              title="AI重新标注"
+                            >
+                              {reAnnotatingId === att.id ? (
+                                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                              ) : '🤖 标注'}
+                            </button>
+                          )}
+                          <a
+                            href={getAttachmentDownloadUrl(att.id)}
+                            className="text-brand-500 hover:text-brand-600"
+                            title="下载"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   );

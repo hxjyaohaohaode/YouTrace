@@ -1,18 +1,25 @@
 import { useSyncStore } from '../stores/syncStore';
 
 function SyncBar() {
-  const { syncStatus, syncProgress } = useSyncStore();
+  const { syncStatus, syncProgress, syncNow } = useSyncStore();
 
   if (syncStatus === 'idle') return null;
 
   if (syncStatus === 'error') {
     return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-red-500 text-white text-center py-2 text-xs font-medium">
+      <div
+        onClick={() => syncNow()}
+        className="fixed top-0 left-0 right-0 z-50 bg-red-500 text-white text-center py-2 text-xs font-medium cursor-pointer hover:bg-red-600 transition-colors"
+      >
         <div className="flex items-center justify-center gap-2">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
-          同步失败，点击重试
+          <span>同步失败</span>
+          {syncProgress && syncProgress.failed > 0 && (
+            <span>（{syncProgress.failed}项失败）</span>
+          )}
+          <span className="underline">点击重试</span>
         </div>
       </div>
     );
