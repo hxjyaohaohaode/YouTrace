@@ -42,6 +42,19 @@ cd youji-app && npm run build          # 前端类型检查 + 构建
 cd server && npm run check             # lint + build + 14 项集成测试
 ```
 
+## 部署（Render）
+
+仓库根目录提供 [render.yaml](render.yaml) 蓝图，包含两个服务：
+
+| 服务 | 类型 | 说明 |
+|------|------|------|
+| `youtrace` | Static Site | Vite 构建产物，构建时注入 `VITE_API_BASE_URL=https://youji-api.onrender.com/api` |
+| `youji-api` | Web Service | Hono API，启动前执行 `prisma generate` + `migrate deploy` |
+
+使用方式：Render 控制台 → New → Blueprint → 选择本仓库，首次 Apply 时需在面板生成 `JWT_SECRET`（≥32 位随机字符串）。
+
+注意：免费档实例无持久磁盘，SQLite 数据随每次部署重置；需要持久化时升级实例并按 render.yaml 头部注释修改 `DATABASE_URL` 并挂载磁盘。
+
 ## 历史
 
 `legacy-v1-fastify` 分支保留早期技术栈版本（React 18 + Fastify），当前 main 为重构后的新版。

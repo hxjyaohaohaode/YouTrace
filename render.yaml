@@ -1,0 +1,54 @@
+# 有迹 v2 渲染蓝图（Render Blueprint）
+#
+# 架构：前后端分离部署
+#   - youtrace  : Static Site —— Vite 构建的 SPA（构建时注入 API 地址）
+#   - youji-api : Web Service —— Hono + Prisma(SQLite) 纯 API 服务
+#
+# 持久化说明：免费档实例没有持久磁盘，SQLite 文件随每次重新部署重置。
+# 如需数据持久化：升级为付费实例后取消下方 disk 注释，
+# 并把 DATABASE_URL 改为 file:/var/data/youji.db
+#
+# 可选集成（默认关闭，可在面板自行添加环境变量）：
+#   LLM_API_KEY / LLM_BASE_URL / LLM_MODEL   —— AI 教练远端模型
+#   SMS_PROVIDER_URL / SMS_PROVIDER_TOKEN    —— 短信服务商（必须成对配置）
+
+services:
+  - type: web
+    name: youji-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: youji-app/server
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: node dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # ≥32 位随机字符串；Apply 蓝图时在面板中生成
+      - key: JWT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://youtrace.onrender.com
+      - key: TRUST_PROXY
+        value: true
+      - key: SESSION_COOKIE_NAME
+        value: youji_session
+      - key: DATABASE_URL
+        value: file:./prisma/youji.db
+      - key: DEV_OTP_EXPOSE
+        value: false
+
+  - type: web
+    name: youtrace
+    runtime: static
+    buildCommand: cd youji-app && npm ci && VITE_API_BASE_URL=https://youji-api.onrender.com/api npm run build
+    staticPublishPath: youji-app/dist
+    routes:
+      # SPA 回退：静态文件优先命中，未命中的路径回退到 index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html

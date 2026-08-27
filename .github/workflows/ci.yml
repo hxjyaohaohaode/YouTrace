@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: youji-app/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: youji-app
+      - name: Frontend type check and production build (tsc + vite)
+        run: npm run build
+        working-directory: youji-app
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: youji-app/server/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: youji-app/server
+      - name: Prisma client generate
+        run: npx prisma generate
+        working-directory: youji-app/server
+      - name: Backend build (tsc)
+        run: npm run build
+        working-directory: youji-app/server
+      - name: Backend integration tests
+        run: npm test
+        env:
+          JWT_SECRET: ci-test-secret-0123456789abcdef0123456789abcdef
+        working-directory: youji-app/server
