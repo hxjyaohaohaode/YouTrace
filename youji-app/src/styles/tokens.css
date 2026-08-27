@@ -1,0 +1,157 @@
+:root {
+  --primary: #7C6FFF;
+  --primary-hover: #6B5CE7;
+  --primary-soft: #F0EDFF;
+  --primary-muted: #F8F6FF;
+  --primary-light: #A594FF;
+  --primary-dark: #5B4FD4;
+  --accent: #E8853D;
+  --accent-soft: #FFF3E8;
+  --success: #2EA06B;
+  --danger: #D94052;
+  --warning: #D99A2B;
+  --orange: #E8853D;
+  --violet: #7C5CFC;
+  --green: #2EA06B;
+  --red: #D94052;
+  --amber: #D99A2B;
+
+  --bg: #F7F7FA;
+  --surface: #FFFFFF;
+  --surface-hover: #F9F9FC;
+  --surface-2: #F0F0F5;
+  --surface-glass: rgba(255, 255, 255, 0.6);
+
+  --text-1: #1A1A2E;
+  --text-2: #5C5C7B;
+  --text-3: #8F8FA8;
+  --text-4: #B8B8CC;
+  --text-primary: #1A1A2E;
+  --text-secondary: #5C5C7B;
+  --text-tertiary: #8F8FA8;
+  --text-muted: #B8B8CC;
+
+  --border: #E6E6EF;
+  --border-light: #F0F0F6;
+
+  --gradient-primary: linear-gradient(135deg, #7C6FFF 0%, #B06AFF 100%);
+  --gradient-warm: linear-gradient(135deg, #FF9A56 0%, #FF6B8A 100%);
+  --gradient-cool: linear-gradient(135deg, #6C5CE7 0%, #45B7D1 100%);
+  --gradient-sunset: linear-gradient(135deg, #F093FB 0%, #F5576C 100%);
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  --shadow-xs: 0 1px 2px rgba(26, 26, 46, 0.05);
+  --shadow-sm: 0 2px 4px rgba(26, 26, 46, 0.06), 0 1px 2px rgba(26, 26, 46, 0.04);
+  --shadow-md: 0 4px 12px rgba(26, 26, 46, 0.08), 0 2px 6px rgba(26, 26, 46, 0.04);
+  --shadow-lg: 0 8px 24px rgba(26, 26, 46, 0.10), 0 4px 12px rgba(26, 26, 46, 0.05);
+  --shadow-xl: 0 16px 48px rgba(26, 26, 46, 0.12), 0 8px 24px rgba(26, 26, 46, 0.06);
+  --shadow-accent: 0 4px 14px rgba(124, 111, 255, 0.25);
+  --shadow-colored: 0 8px 24px rgba(124, 111, 255, 0.18);
+  --shadow-glow: 0 0 20px rgba(124, 111, 255, 0.25);
+  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+
+  --text-display: 2.5rem;
+  --text-title: 1.75rem;
+  --text-heading: 1.25rem;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --z-nav: 40;
+  --z-page-overlay: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-splash: 80;
+}
+
+[data-theme="dark"] {
+  --primary: #9B8FFF;
+  --primary-hover: #ADA4FF;
+  --primary-soft: rgba(155, 143, 255, 0.12);
+  --primary-muted: rgba(155, 143, 255, 0.06);
+  --primary-light: #B8A8FF;
+  --primary-dark: #7C6FFF;
+  --accent: #F0A05C;
+  --accent-soft: rgba(240, 160, 92, 0.12);
+  --success: #3FBF7E;
+  --danger: #F06070;
+  --warning: #F0B040;
+  --orange: #F0A05C;
+  --violet: #9B80FF;
+  --green: #3FBF7E;
+  --red: #F06070;
+  --amber: #F0B040;
+
+  --bg: #111118;
+  --surface: #1A1A24;
+  --surface-hover: #22222E;
+  --surface-2: #282836;
+  --surface-glass: rgba(26, 26, 36, 0.6);
+
+  --text-1: #EEEEF2;
+  --text-2: #A0A0B8;
+  --text-3: #6E6E88;
+  --text-4: #4A4A62;
+  --text-primary: #EEEEF2;
+  --text-secondary: #A0A0B8;
+  --text-tertiary: #6E6E88;
+  --text-muted: #4A4A62;
+
+  --border: #2A2A3A;
+  --border-light: #222230;
+
+  --gradient-primary: linear-gradient(135deg, #9B8FFF 0%, #B06AFF 100%);
+  --gradient-warm: linear-gradient(135deg, #FF9A56 0%, #FF6B8A 100%);
+  --gradient-cool: linear-gradient(135deg, #9B8FFF 0%, #45B7D1 100%);
+  --gradient-sunset: linear-gradient(135deg, #F093FB 0%, #F5576C 100%);
+
+  --glass-bg: rgba(26, 26, 36, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.28), 0 1px 2px rgba(0, 0, 0, 0.20);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.32), 0 2px 6px rgba(0, 0, 0, 0.20);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.36), 0 4px 12px rgba(0, 0, 0, 0.22);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.40), 0 8px 24px rgba(0, 0, 0, 0.26);
+  --shadow-accent: 0 4px 14px rgba(155, 143, 255, 0.25);
+  --shadow-colored: 0 8px 24px rgba(155, 143, 255, 0.18);
+  --shadow-glow: 0 0 20px rgba(155, 143, 255, 0.30);
+  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.20);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+
+  --text-display: 2.5rem;
+  --text-title: 1.75rem;
+  --text-heading: 1.25rem;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}

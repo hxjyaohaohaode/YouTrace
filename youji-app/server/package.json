@@ -1,0 +1,36 @@
+{
+    "name":  "youji-server",
+    "version":  "1.0.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "tsx watch src/index.ts",
+                    "build":  "tsc",
+                    "test":  "tsx --test tests/production.integration.test.ts",
+                    "start":  "node dist/index.js",
+                    "db:push":  "prisma db push",
+                    "db:generate":  "prisma generate",
+                    "db:migrate":  "prisma migrate deploy",
+                    "db:seed":  "tsx prisma/seed.ts",
+                    "db:studio":  "prisma studio",
+                    "lint":  "eslint .",
+                    "check":  "npm run lint \u0026\u0026 npm run build \u0026\u0026 npm test"
+                },
+    "dependencies":  {
+                         "@hono/node-server":  "^2.0.12",
+                         "@prisma/client":  "^6.9.0",
+                         "dotenv":  "^16.5.0",
+                         "hono":  "^4.13.0",
+                         "jsonwebtoken":  "^9.0.2",
+                         "nanoid":  "^5.1.5",
+                         "zod":  "^3.24.4"
+                     },
+    "devDependencies":  {
+                            "@types/jsonwebtoken":  "^9.0.9",
+                            "@types/node":  "^22.15.3",
+                            "prisma":  "^6.9.0",
+                            "tsx":  "^4.23.1",
+                            "typescript":  "^5.8.3",
+                            "eslint":  "^10.2.1",
+                            "typescript-eslint":  "^8.58.2"
+                        }
+}

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        working-directory: server
+        run: npm ci
+      - name: Generate Prisma client
+        working-directory: server
+        run: npm run db:generate
+        env:
+          DATABASE_URL: file:./ci.db
+      - name: Validate production migrations on a clean database
+        working-directory: server
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: file:./migration-ci.db
+      - name: Frontend lint
+        run: npm run lint
+      - name: Frontend typecheck (strict)
+        run: npm run typecheck
+      - name: Frontend production build
+        run: npm run build
+      - name: Frontend dependency audit (documented SPA exception only)
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --registry=https://registry.npmjs.org --json > audit.json
+          audit_status=$?
+          set -e
+          node scripts/check-frontend-audit.mjs audit.json
+          if [[ "$audit_status" -gt 1 ]]; then
+            echo "npm audit failed to produce a valid report (exit $audit_status)"
+            exit "$audit_status"
+          fi
+      - name: Backend lint
+        working-directory: server
+        run: npm run lint
+      - name: Backend build and integration tests
+        working-directory: server
+        run: npm run check
+      - name: Backend production dependency audit
+        working-directory: server
+        run: npm audit --omit=dev --audit-level=high --registry=https://registry.npmjs.org
