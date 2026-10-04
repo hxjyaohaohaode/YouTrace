@@ -152,7 +152,14 @@ async function firstValue(page, narrow = false) {
     await observe(page, `${label}-todo-corrected-same-id-local`, changedLocal.todos.length === 1 && changed?.text === 'Synthetic 已核对报销单' && changed.dueDate === businessDate(2), 'Local exact-ID correction, no duplicate');
     await observe(page, `${label}-todo-correction-cloud-ack`, changedLocal.outbox.length === 0 && changedRemote.length === 1 && changedRemote[0].id === todo.id && changedRemote[0].text === changed.text && changedRemote[0].dueDate === changed.dueDate, 'Queue and actual server object separately verify correction');
     await back(page, '/todo'); await waitPath(page, '/quick-note/result'); assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, receiptPath);
-    await observe(page, `${label}-todo-correction-return`, true, 'Corrected same ID/date and returned to original receipt through browser history');
+    await page.waitForFunction(date => document.body.innerText.includes('Synthetic 已核对报销单') && document.body.innerText.includes(date), {}, businessDate(2));
+    const afterReturn = await localRows(page, api.ownerId), receiptId = new URL(page.url()).searchParams.get('receipt');
+    const beforeReceipt = local.settings.find(row => row.key === `capture-applied:${receiptId}`)?.value, afterReceipt = afterReturn.settings.find(row => row.key === `capture-applied:${receiptId}`)?.value;
+    assert.deepEqual(afterReceipt, beforeReceipt, 'Current-record display must never rewrite creation receipt');
+    await observe(page, `${label}-todo-correction-return`, true, 'Current title/date visible after Back; immutable original receipt unchanged');
+    await pointer(page, 'summary', '当时写入（只读回执）');
+    await observe(page, `${label}-original-receipt-kept-separate`, (await state(page)).text.includes('交报销单') && (await state(page)).text.includes(tomorrow), 'Original creation labels/date remain available as explicitly historical evidence');
+    await pointer(page, 'summary', '当时写入（只读回执）');
   });
   await segment(page, `${label}-correct-saved-expense`, async () => {
     if (!new URL(page.url()).search.includes('receipt=')) { await back(page, new URL(page.url()).pathname); await waitPath(page, '/quick-note/result'); }
@@ -166,6 +173,24 @@ async function firstValue(page, narrow = false) {
     await observe(page, `${label}-expense-correction-exact-cents`, changed?.amount === 1625 && changed.name === 'Synthetic 已核对午饭', 'Same record updates to exact fen, without another expense');
     await pointer(page, 'summary', '查看收支统计与历史提示');
     await observe(page, `${label}-historical-insight-explicit-snapshot`, (await state(page)).text.includes('生成时的快照，不会随新记录更新'), 'Optional historical advice remains available with a timestamp and explicit non-current meaning');
+    const moneyUnclipped = await page.$$eval('[aria-label*="支出人民币"]', rows => rows.length === 3 && rows.every(el => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 && el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis' && el.innerText.includes('16.25'); }));
+    await observe(page, `${label}-stat-amount-layout-unclipped`, moneyUnclipped, 'DOM layout check only: three amounts retain cents without horizontal clipping; viewport evidence follows separately');
+    for (const [index, period] of ['今日', '本周', '本月'].entries()) {
+      const selector = `[aria-label="${period}支出人民币16.25元"]`;
+      await page.bringToFront();
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const geometry = await page.$eval(selector, el => { const rect = el.parentElement.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, center: rect.top + rect.height / 2, width: innerWidth, height: innerHeight }; });
+        if (geometry.top >= 80 && geometry.bottom <= geometry.height - 100) break;
+        const deltaY = geometry.center - geometry.height / 2;
+        await page.mouse.move(geometry.width * 0.75, geometry.height / 2);
+        await page.mouse.wheel({ deltaY });
+        actions.push({ kind: 'native-wheel-read-stat', period, deltaY });
+        await sleep(350);
+      }
+      const readable = await page.$eval(selector, el => { const rect = el.parentElement.getBoundingClientRect(), amount = el.getBoundingClientRect(); return rect.top >= 80 && rect.bottom <= innerHeight - 100 && rect.left >= 0 && rect.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis' && el.innerText === '¥16.25' && el.contains(document.elementFromPoint(amount.x + amount.width / 2, amount.y + amount.height / 2)); });
+      await observe(page, `${label}-stat-${index + 1}-actual-reading-viewport`, readable, `${period}: normal scrolling brings the label and complete ¥16.25 amount into the captured viewport`);
+    }
+    await observe(page, `${label}-next-action-clears-own-success-overlay`, !(await page.$eval('[aria-label="通知"]', el => el.innerText)).includes('已存本机：支出'), 'Opening optional analysis also clears obsolete success overlay on the same page; warnings/errors are retained');
     await pointer(page, 'summary', '查看收支统计与历史提示');
     await back(page, '/expense'); await waitPath(page, '/quick-note/result');
   });

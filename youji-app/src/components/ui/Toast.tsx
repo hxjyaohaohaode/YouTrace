@@ -69,6 +69,14 @@ export function ToastHost() {
 
   useLayoutEffect(() => subscribeToToasts(setToasts), []);
   useLayoutEffect(() => { dismissTransientToasts(); }, [location.key]);
+  useEffect(() => {
+    const nextAction = (event: MouseEvent) => {
+      const element = event.target instanceof Element ? event.target : null;
+      if (element?.closest('button,a,input,textarea,select,summary') && !element.closest('[aria-label="通知"]')) dismissTransientToasts();
+    };
+    document.addEventListener('click', nextAction, true);
+    return () => document.removeEventListener('click', nextAction, true);
+  }, []);
 
   return (
     <div

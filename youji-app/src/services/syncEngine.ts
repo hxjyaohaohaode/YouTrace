@@ -1,6 +1,7 @@
 import { api, isLoggedIn } from './apiClient';
 import { db, generateLocalId, getSetting, LOCAL_DATA_EPOCH_KEY, type OutboxRecord, type SyncEntity } from '../db';
 import { toast } from './toastBus';
+import { recordKey, isSequence } from './syncIdentity';
 import { recordSyncPayload, isSafeFrozenPayload } from './recordPayloads';
 import { goalSyncPayload } from './goalPayload';
 
@@ -31,13 +32,7 @@ export interface SyncConflict { event: SyncEvent; receivedAt: number }
 const versionKey = (key: string) => `sync-version:${key}`;
 const conflictKey = (key: string) => `sync-conflict:${key}`;
 const tableName = (entity: SyncEntity) => entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity;
-const isSequence = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value);
 
-function recordKey(record: OutboxRecord): string {
-  if (record.op === 'delete') return `${record.entity}:${String(record.payload)}`;
-  const row = record.payload as { id?: string; habitId?: string; date?: string };
-  return `${record.entity}:${record.entity === 'habitCheckins' ? `${row.habitId}|${row.date}` : row.id}`;
-}
 
 function scheduleFlush(delay: number) {
   if (paused || !isLoggedIn()) return;

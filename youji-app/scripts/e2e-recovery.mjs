@@ -142,7 +142,7 @@ async function businessRegressions(page, errors) {
     await expectText(page, 'Synthetic expense cents'); await expectText(page, 'Synthetic income cents');
     await expectText(page, '-¥12.34', true, '[aria-label="支出 12.34元"]');
     await expectText(page, '+¥56.78', true, '[aria-label="收入 56.78元"]');
-    // Each row also has a covered swipe affordance; use its visible desktop button.
+    // Open the actual record editor, explicitly confirm deletion, then close the retained draft.
     await clickControl(page, 'button[aria-label^="编辑记账 Synthetic expense cents"]'); await clickButton(page, '删除', '[role=dialog]'); await clickButton(page, '确认删除', '[aria-label="确认删除记账"]'); await clickButton(page, '取消（保留草稿）', '[role=dialog]'); await modalClosed(page);
     await expectText(page, 'Synthetic expense cents', false);
     await clickControl(page, 'button[aria-label^="编辑记账 Synthetic income cents"]'); await clickButton(page, '删除', '[role=dialog]'); await clickButton(page, '确认删除', '[aria-label="确认删除记账"]'); await clickButton(page, '取消（保留草稿）', '[role=dialog]'); await modalClosed(page);

@@ -13,6 +13,7 @@ import { useHabitStore } from '../stores/habitStore';
 import { useAuthStore } from '../stores/authStore';
 import { retainPendingEditor, readPendingEditor, releasePendingEditor } from '../services/pendingEditorMemory';
 import { SESSION_REVISION_KEY } from '../services/apiClient';
+import { currentCaptureRecord, currentReceiptSyncStatus, failedReceiptRead, type ReceiptViewState, type CurrentCaptureRecord } from '../services/captureReceiptView';
 import { recordDiagnostic } from '../services/diagnostics';
 
 const field = 'min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)] focus:outline-2 focus:outline-[var(--primary)]';
@@ -123,29 +124,36 @@ function targetPath(record: CaptureEntityRef): string {
   return `${paths[record.entity]}?record=${encodeURIComponent(record.entity === 'habitCheckins' ? record.parentId ?? record.id : record.id)}${record.entity === 'habitCheckins' ? `&date=${encodeURIComponent(record.date ?? '')}` : ''}`;
 }
 function SavedCapture({ receipt, id }: { receipt: CaptureReceipt; id: string }) {
-  const navigate = useNavigate(), [statuses, setStatuses] = useState<Record<string, string>>({}), [syncError, setSyncError] = useState('');
+  const currentOwner = useAuthStore(auth => auth.user?.id);
+  const navigate = useNavigate(), [state, setState] = useState<ReceiptViewState>({ statuses: {}, current: {}, error: '', locked: false }), [attempt, retry] = useState(0);
   const records = receipt.result.records;
   useEffect(() => {
-    const target = db;
-    const subscription = liveQuery(async () => {
-      const outbox = await target.outbox.toArray(), values: Record<string, string> = {};
+    const target = db, actorRevision = localStorage.getItem(SESSION_REVISION_KEY);
+    const isActorCurrent = () => target === db && useAuthStore.getState().user?.id === target.ownerId && localStorage.getItem(SESSION_REVISION_KEY) === actorRevision;
+    const subscription = liveQuery(() => target.transaction('r', target.tables, async () => {
+      const outbox = await target.outbox.toArray(), values: Record<string, string> = {}, current: Record<string, CurrentCaptureRecord> = {};
       for (const row of records ?? []) {
         const key = `${row.entity}:${row.id}`;
-        const ops = outbox.filter(op => op.entity === row.entity && (op.op === 'delete' ? op.payload === row.id : (op.payload as { id?: string }).id === row.id));
+        const value = await target.table(row.entity === 'diaries' ? 'diary' : row.entity).get(row.id);
+        current[key] = currentCaptureRecord(row, value);
+        if (row.entity === 'habitCheckins' && row.parentId) { const habit = await target.habits.get(row.parentId); if (habit) current[key].label = habit.name; }
         const conflict = await target.settings.get(`sync-conflict:${key}`), version = await target.settings.get(`sync-version:${key}`);
-        values[key] = conflict ? '有版本冲突，需要比较' : ops.some(op => op.status === 'blocked') ? '云端尚未接收，需要处理' : ops.length ? '本机已保存，等待云端确认' : version ? '已收到云端版本确认' : '本机已保存，云端确认未知';
+        values[key] = currentReceiptSyncStatus(row, current[key].available, outbox, Boolean(conflict), version?.value);
       }
-      return values;
-    }).subscribe({ next: value => { setStatuses(value); setSyncError(''); }, error: () => setSyncError('暂时读不到同步状态，保存回执仍在。可到设置页查看。') });
+      return { statuses: values, current };
+    })).subscribe({ next: value => { setState(isActorCurrent() ? { ...value, error: '', locked: false } : failedReceiptRead(false)); }, error: () => setState(failedReceiptRead(isActorCurrent())) });
     return () => subscription.unsubscribe();
-  }, [records]);
+  }, [records, attempt]);
+  if (state.locked || currentOwner !== db.ownerId || receipt.ownerId !== undefined && receipt.ownerId !== currentOwner) return <Frame title="需要重新核对账号" back={() => navigate('/')}><p role="alert">账号状态已变化，当前不展示上一账号的保存结果。请先确认登录身份。</p></Frame>;
   const returnTo = { path: `/quick-note/result?receipt=${encodeURIComponent(id)}`, label: '返回保存结果' };
   return <Frame title="这次记录已保存在本机" back={() => navigate('/')} footer={<div className="flex gap-3"><Button variant="ghost" className="flex-1" onClick={() => navigate('/')}>回到首页</Button><Button className="flex-1" onClick={() => navigate('/quick-note')}>再记一条</Button></div>}>
-    <p className="text-sm leading-6">下面是这次实际写入的记录。打开后可以继续核对、改期或纠错。刷新本页不会重复保存。</p>
+    <p className="text-sm leading-6">下面展示这些记录的当前内容，会跟随之后的修改。创建时写入的只读回执仍原样保留，可在下方展开。刷新不会重复保存。</p>
     {receipt.result.committedAt && <p className="text-xs text-[var(--text-3)]">本机保存时间：{new Date(receipt.result.committedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（Asia/Shanghai）</p>}
-    {syncError && <p role="alert" className="text-sm text-[var(--danger)]">{syncError}</p>}
+    {state.error && <div role="alert" className="space-y-3 text-sm text-[var(--danger)]"><p>{state.error}</p><Button variant="ghost" onClick={() => { setState({ current: {}, statuses: {}, error: '', locked: false }); retry(value => value + 1); }}>重新读取当前记录</Button></div>}
     {!records?.length && <p className="text-sm">这是一份旧版保存回执，没有精确记录引用。请在时间线按原文核对，不会再次执行旧稿。</p>}
-    <ul className="space-y-3">{records?.map(row => <li key={`${row.entity}:${row.id}`}><Link to={targetPath(row)} state={{ returnTo }} className="flex min-h-16 items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><div className="min-w-0 flex-1"><p className="break-words font-semibold">{row.label}</p><p className="mt-1 text-xs text-[var(--text-2)]">{row.date ? `${row.date} · ` : ''}{row.effect === 'updated' ? '已追加到原记录' : row.effect === 'already-recorded' ? '此前已打卡，没有重复写入' : '已创建'}</p><p className="mt-1 text-xs text-[var(--text-3)]" role="status">{statuses[`${row.entity}:${row.id}`] ?? '正在读取同步状态…'}</p></div><ChevronRight size={18} aria-hidden /></Link></li>)}</ul>
-    <details className="rounded-2xl border border-[var(--border)] p-4"><summary className="cursor-pointer py-1 font-semibold">查看已保存原文</summary><p className="mt-3 whitespace-pre-wrap break-words text-sm">{receipt.input ?? '旧版回执未保留原文副本，请从速记记录核对'}</p></details><Link to="/settings" state={{ returnTo }} className="inline-block py-3 text-sm underline">查看同步与冲突处理</Link>
+    <h2 className="text-sm font-bold">当前记录</h2>
+    <ul className="space-y-3">{records?.map(row => <li key={`${row.entity}:${row.id}`}><Link to={targetPath(row)} state={{ returnTo }} className="flex min-h-16 items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><div className="min-w-0 flex-1"><p className="break-words font-semibold">{state.current[`${row.entity}:${row.id}`]?.label ?? (state.error ? '当前记录暂不可读' : '正在读取当前记录…')}</p><p className="mt-1 break-words text-xs leading-5 text-[var(--text-2)]">{state.current[`${row.entity}:${row.id}`]?.detail}</p><p className="mt-1 text-xs text-[var(--text-3)]" role="status">{state.statuses[`${row.entity}:${row.id}`] ?? (state.error ? '同步确认未知' : '正在读取同步状态…')}</p></div><ChevronRight size={18} aria-hidden /></Link></li>)}</ul>
+    <details className="rounded-2xl border border-[var(--border)] p-4"><summary className="cursor-pointer py-1 font-semibold">当时写入（只读回执）</summary><p className="mt-3 text-xs leading-6 text-[var(--text-3)]">这是确认那一刻的证据，不代表记录现在的内容。后续纠错不会改写它。</p><ul className="mt-3 space-y-2 text-sm">{records?.map(row => <li key={`${row.entity}:${row.id}`}>{row.label}{row.date ? ` · ${row.date}` : ''} · {row.effect === 'updated' ? row.entity === 'diaries' ? '追加到原日记' : '更新原记录' : row.effect === 'already-recorded' ? '此前已有，没有重复写入' : '当时创建'}</li>)}</ul></details>
+    <details className="rounded-2xl border border-[var(--border)] p-4"><summary className="cursor-pointer py-1 font-semibold">当时确认的原文</summary><p className="mt-3 whitespace-pre-wrap break-words text-sm">{receipt.input ?? '旧版回执未保留原文副本，请从速记记录核对'}</p></details><Link to="/settings" state={{ returnTo }} className="inline-block py-3 text-sm underline">查看同步与冲突处理</Link>
   </Frame>;
 }

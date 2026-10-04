@@ -12,11 +12,11 @@ function formatYuan(fen: number): string {
 function ExpenseItemRow({ item, onEdit }: { item: ExpenseItem; onEdit: () => void }) {
   const meta = expenseCategoryIcons[item.category] ?? expenseCategoryIcons.other;
   const Icon = meta.icon;
-  return <button type="button" onClick={onEdit} id={`expense-record-${item.id}`} className="flex w-full flex-wrap items-center gap-3 rounded-xl border border-[var(--border-light)] bg-[var(--surface)] px-3 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑记账 ${item.name} ${item.date} ${formatYuan(item.amount)}元`}>
+  return <button type="button" onClick={onEdit} id={`expense-record-${item.id}`} className="flex w-full flex-wrap items-center gap-3 rounded-xl border border-[var(--border-light)] bg-[var(--surface)] px-3 py-3.5 text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑记账 ${item.name} ${item.date} ${item.isIncome ? '收入' : '支出'} ${formatYuan(item.amount)}元`}>
     <Icon size={20} className="shrink-0" style={{ color: meta.color }} aria-hidden />
     <div className="min-w-0 flex-1"><p className="break-words text-[13px] font-semibold text-[var(--text-1)]">{item.name}</p><p className="text-[11px] text-[var(--text-3)]">{meta.label} · {item.date} · 编辑</p></div>
     <div className={`flex shrink-0 items-center gap-1 font-mono text-[13px] font-bold ${item.isIncome ? 'text-[var(--success)]' : 'text-[var(--text-1)]'}`}>
-      {item.isIncome ? <ArrowUpRight size={14} aria-hidden /> : <ArrowDownRight size={14} aria-hidden />}<span>{item.isIncome ? '+' : '-'}¥{formatYuan(item.amount)}</span>
+      {item.isIncome ? <ArrowUpRight size={14} aria-hidden /> : <ArrowDownRight size={14} aria-hidden />}<span aria-label={`${item.isIncome ? '收入' : '支出'} ${formatYuan(item.amount)}元`}>{item.isIncome ? '+' : '-'}¥{formatYuan(item.amount)}</span>
     </div>
   </button>;
 }
