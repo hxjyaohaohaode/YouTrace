@@ -37,8 +37,12 @@ async function login(page, phone, nickname) {
   await page.waitForSelector('#login-code'); await page.type('#login-code', sent.devCode);
   const verifiedResponse = page.waitForResponse((r) => r.url().endsWith('/api/auth/verify') && r.request().method() === 'POST');
   await clickText(page, '验证');
-  const verified = await (await verifiedResponse).json();
-  if (verified.needRegister) { await page.waitForSelector('#login-nickname'); await page.type('#login-nickname', nickname); await clickText(page, '开始使用'); }
+  assert.equal((await verifiedResponse).status(), 200, 'synthetic OTP verification must succeed');
+  // An existing-account login intentionally reloads the whole document at the
+  // account boundary. Chromium may discard that request's body on navigation;
+  // use the actual registration/redirect UI instead of rereading an evicted body.
+  await page.waitForFunction(() => Boolean(document.querySelector('#login-nickname')) || location.pathname !== '/login');
+  if (await page.$('#login-nickname')) { await page.type('#login-nickname', nickname); await clickText(page, '开始使用'); }
   await page.waitForFunction(() => location.pathname !== '/login', { timeout: 20000 });
   await page.waitForSelector('h1,h2', { timeout: 20000 });
   if (new URL(page.url()).pathname === '/onboarding') await clickText(page, '跳过');
@@ -285,6 +289,8 @@ async function businessRegressions(page) {
     await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'false');
     await expectAttribute(page, '[aria-label="每天最多1条"]', 'aria-checked', 'true');
     assert.equal(await page.$eval('[role=radiogroup][aria-label="教练风格"] [aria-checked="true"]', (el) => el.textContent.includes('数据型')), true, 'account coach style must survive reload');
+    await delay(350);
+    await page.screenshot({ path: join(artifactDir, 'youtrace-1280-settings-dark.png'), fullPage: true });
     // Restore the original appearance before the existing responsive screenshots.
     await clickButton(page, '跟随系统', '[role=radiogroup][aria-label="主题"]');
     await clickControl(page, '[role=switch][aria-label="教练推送"]');
