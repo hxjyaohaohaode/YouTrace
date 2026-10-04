@@ -66,6 +66,9 @@
   --font-extrabold: var(--font-extrabold);
 }
 
+/* Keep resets in the base layer: unlayered padding/margin/background rules
+   override every Tailwind utility, moving real controls underneath the sidebar. */
+@layer base {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
@@ -130,6 +133,8 @@ input, textarea, select {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-4);
+}
+
 }
 
 @media (prefers-reduced-motion: reduce) {

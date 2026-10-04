@@ -58,6 +58,8 @@ try {
   const errors = []; page.on('pageerror', (error) => errors.push(error.name));
   await page.setViewport({ width: 1280, height: 900 });
   await login(page, '13900009901', 'Synthetic A'); step('Real OTP-cookie registration and onboarding');
+  assert.ok(await page.$eval('main', (el) => Number.parseFloat(getComputedStyle(el).marginLeft) >= 260), 'desktop content must clear fixed sidebar');
+  step('Tailwind spacing survives base reset and clears desktop navigation');
   await addTodo(page, 'Synthetic A private todo');
   await page.click('[aria-label="新建待办"]'); await page.type('[role=dialog] input', 'Retained modal draft');
   const focused = await page.evaluate(() => document.activeElement?.tagName); assert.equal(focused, 'INPUT');

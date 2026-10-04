@@ -36,8 +36,10 @@ jobs:
       - name: Backend lint, build, auth and synchronization regressions
         run: npm run check
         working-directory: youji-app/server
-      - name: Production dependency audit
-        run: npm audit --omit=dev --audit-level=high && npm --prefix server audit --omit=dev --audit-level=high
+      - name: All dependency audit
+        run: npm audit --audit-level=high && npm --prefix server audit --audit-level=high
+      - name: Install Chinese screenshot fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk
       - name: Real Chromium HTTP, IndexedDB and responsive recovery flows
         run: npm run test:browser
         env:
