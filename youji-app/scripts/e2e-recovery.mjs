@@ -18,6 +18,7 @@ const logs = [];
 const report = [];
 const children = [];
 let browser;
+let coveredTargetCount = 0;
 let currentScenario = 'existing browser regression';
 const step = (name, detail) => { report.push({ name, passed: true, ...(detail ? { detail } : {}) }); console.log(`PASS ${name}`); };
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -47,11 +48,31 @@ async function route(page, path) { await page.bringToFront(); await page.goto(fr
 async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForSelector('[role=dialog] input'); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
 // The expanded business cases use real pointer and keyboard input. DOM evaluation
 // below only reads rendered controls/assertions; it never seeds stores or IndexedDB.
+async function pointerClick(page, target) {
+  await target.scrollIntoView();
+  const interception = await target.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return el.contains(hit) ? null : { tag: hit?.tagName, role: hit?.getAttribute('role'), ariaLabel: hit?.getAttribute('aria-label') };
+  });
+  if (interception) {
+    console.log('WAIT for unobscured pointer target', JSON.stringify(interception));
+    await page.screenshot({ path: join(artifactDir, `covered-target-${++coveredTargetCount}.png`) });
+  }
+  // Locator stability does not imply the center is unobscured. A real transient
+  // notification may cover a control after scrolling; wait for that actual UI
+  // obstruction to clear rather than clicking through it or changing app state.
+  await page.waitForFunction((el) => {
+    if (!el.isConnected) return false;
+    const box = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  }, {}, target);
+  await target.asLocator().click();
+}
 async function clickControl(page, selector) {
   await page.bringToFront();
-  // Puppeteer's locator waits for visibility, enabled state, and a stable box,
-  // including the existing spring modal entrance, before a genuine pointer click.
-  await page.locator(selector).click();
+  const target = await page.waitForSelector(selector, { visible: true });
+  try { await pointerClick(page, target); } finally { await target.dispose(); }
 }
 async function clickButton(page, label, scope = 'body', contains = false) {
   await page.bringToFront();
@@ -65,7 +86,7 @@ async function clickButton(page, label, scope = 'body', contains = false) {
         && button.getBoundingClientRect().width > 0 && getComputedStyle(button).visibility !== 'hidden';
     });
   }, {}, label, scope, contains);
-  try { await handle.asElement().asLocator().click(); } finally { await handle.dispose(); }
+  try { await pointerClick(page, handle.asElement()); } finally { await handle.dispose(); }
 }
 async function fillControl(page, selector, value) {
   await clickControl(page, selector);
