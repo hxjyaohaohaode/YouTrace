@@ -340,3 +340,18 @@ test('an active initial epoch read failure remains visibly blocked rather than f
   finally { storage.db.settings.get = original; }
   assert.equal(store.getState().preferenceSync.state, 'blocked'); assert.match(store.getState().preferenceSync.error ?? '', /storage read failed/);
 });
+
+test('rapid quiet-time field saves merge with the latest durable sibling field and reject stale same-field edits', { timeout: 15_000 }, async () => {
+  const cloud = server(); globalThis.fetch = cloud.handle;
+  const store = await freshStore(); await ready(store);
+  await Promise.all([
+    store.getState().updateQuietHours({ start: '22:15' }, { start: '23:00' }),
+    store.getState().updateQuietHours({ end: '08:30' }, { end: '07:00' }),
+  ]);
+  assert.deepEqual(store.getState().quietHours, { enabled: true, start: '22:15', end: '08:30' });
+  await assert.rejects(store.getState().updateQuietHours({ start: '21:00' }, { start: '23:00' }), /刚刚/);
+  await store.getState().syncPreferences();
+  assert.equal(cloud.snapshot().settings.quietStart, '22:15'); assert.equal(cloud.snapshot().settings.quietEnd, '08:30');
+  await assert.rejects(store.getState().updateSetting('eveningReviewTime', '20:00', '22:00'), /刚刚/);
+  assert.equal(store.getState().eveningReviewTime, '21:00');
+});

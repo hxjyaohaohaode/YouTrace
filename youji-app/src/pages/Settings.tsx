@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { liveQuery } from 'dexie';
 import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
+import { TimeSettingInput } from '../components/settings/TimeSettingInput';
 import { PreferenceSyncPanel } from '../components/settings/PreferenceSyncPanel';
 import { SyncConflictPanel } from '../components/settings/SyncConflictPanel';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -229,9 +230,6 @@ export default function Settings() {
     } finally { budgetSaveGuard.current = false; setBudgetSaving(false); }
   };
 
-  const handleQuietTimeChange = (part: 'start' | 'end', value: string) => {
-    savePreference('quietHours', { ...settings.quietHours, [part]: value });
-  };
 
   const handleClear = async () => {
     try {
@@ -364,7 +362,8 @@ export default function Settings() {
                 onChange={(next) => savePreference('eveningReviewEnabled', next)}
               />
 
-              {settings.eveningReviewEnabled && <div><label htmlFor="evening-review-time" className="mb-1 block text-xs text-[var(--text-2)]">晚间复盘时间</label><input id="evening-review-time" type="time" value={settings.eveningReviewTime} onChange={(event) => savePreference('eveningReviewTime', event.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm" /></div>}
+              <TimeSettingInput id="evening-review-time" label="晚间复盘时间" value={settings.eveningReviewTime} onSave={(value, expected) => settings.updateSetting('eveningReviewTime', value, expected)} />
+              {!settings.eveningReviewEnabled && <p className="text-xs text-[var(--text-3)]">复盘已关闭，仍可调整保留的时间</p>}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-light)] pt-2">
                 <div>
                   <p className="text-[13px] font-semibold text-[var(--text-1)]">推送频率</p>
@@ -403,21 +402,13 @@ export default function Settings() {
                 label="免打扰时段"
                 sub="此期间不推送教练消息"
                 checked={settings.quietHours.enabled}
-                onChange={(next) => savePreference('quietHours', { ...settings.quietHours, enabled: next })}
+                onChange={(next) => { setPreferenceError(''); void settings.updateQuietHours({ enabled: next }).catch((cause: unknown) => setPreferenceError(cause instanceof Error ? cause.message : '设置未保存，请重试')); }}
               />
-              {settings.quietHours.enabled && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label htmlFor="quiet-start" className="mb-1 block text-xs font-medium text-[var(--text-3)]">开始</label>
-                    <input id="quiet-start" type="time" value={settings.quietHours.start} onChange={(e) => handleQuietTimeChange('start', e.target.value)} className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-1)]" />
-                  </div>
-                  <span className="mt-5 text-[var(--text-3)]" aria-hidden>—</span>
-                  <div className="flex-1">
-                    <label htmlFor="quiet-end" className="mb-1 block text-xs font-medium text-[var(--text-3)]">结束</label>
-                    <input id="quiet-end" type="time" value={settings.quietHours.end} onChange={(e) => handleQuietTimeChange('end', e.target.value)} className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-1)]" />
-                  </div>
-                </motion.div>
-              )}
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex items-center gap-3">
+                  <TimeSettingInput id="quiet-start" label="免打扰开始" value={settings.quietHours.start} onSave={(value, expected) => settings.updateQuietHours({ start: value }, { start: expected })} />
+                  <TimeSettingInput id="quiet-end" label="免打扰结束" value={settings.quietHours.end} onSave={(value, expected) => settings.updateQuietHours({ end: value }, { end: expected })} />
+              </motion.div>
+              {!settings.quietHours.enabled && <p className="text-xs text-[var(--text-3)]">免打扰已关闭，时段与未保存输入仍保留</p>}
             </div>
           </section>
 

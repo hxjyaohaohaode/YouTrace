@@ -39,7 +39,8 @@ interface SettingsState extends AppSettings {
   loaded: boolean;
   preferenceSync: PreferenceSyncStatus;
   loadSettings: () => Promise<void>;
-  updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => Promise<void>;
+  updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K], expected?: AppSettings[K]) => Promise<void>;
+  updateQuietHours: (changes: Partial<QuietHours>, expected?: Partial<QuietHours>) => Promise<void>;
   resetSettings: () => Promise<void>;
   syncPreferences: () => Promise<void>;
   resolvePreferenceConflict: (choice: 'local' | 'server', conflictId: string) => Promise<void>;
@@ -369,13 +370,14 @@ export const useSettingsStore = create<SettingsState>(() => ({
     await refreshView();
     void synchronize();
   },
-  updateSetting: async (key, value) => {
+  updateSetting: async (key, value, expected) => {
     if (key === 'theme') {
       if (!['light', 'dark', 'system'].includes(String(value))) throw new Error('外观设置无效');
       await db.settings.put({ key, value });
     } else {
       await transaction((state) => {
         const before = desired(state);
+        if (expected !== undefined && !same(before[key as keyof AccountSettings], expected)) throw new Error('这个设置刚刚在其他位置变化，输入已保留，请核对最新版本');
         if (!validAccount({ ...before, [key]: value })) throw new Error('偏好格式不正确，原设置未改变');
         if (!db.ownerId) { Object.assign(state.initial, { [key]: value }); return; }
         if (!state.queued) state.queued = { changes: {}, baseRevision: state.server?.revision ?? null, base: cloneAccount(before), ...(state.active ? { parentId: state.active.id } : {}) };
@@ -384,6 +386,19 @@ export const useSettingsStore = create<SettingsState>(() => ({
     }
     await refreshView();
     if (key !== 'theme' && db.ownerId) schedule(key === 'coachStyle' ? 0 : 300);
+  },
+  updateQuietHours: async (changes, expected) => {
+    await transaction((state) => {
+      const before = desired(state);
+      if (expected && Object.entries(expected).some(([key, value]) => before.quietHours[key as keyof QuietHours] !== value)) throw new Error('这个时间刚刚在其他位置变化，输入已保留，请核对最新版本');
+      const quietHours = { ...before.quietHours, ...changes };
+      if (!validAccount({ ...before, quietHours })) throw new Error('请补全有效的免打扰时间');
+      if (!db.ownerId) { state.initial.quietHours = quietHours; return; }
+      if (!state.queued) state.queued = { changes: {}, baseRevision: state.server?.revision ?? null, base: cloneAccount(before), ...(state.active ? { parentId: state.active.id } : {}) };
+      state.queued.changes.quietHours = quietHours;
+    });
+    await refreshView();
+    if (db.ownerId) schedule(300);
   },
   resetSettings: async () => {
     for (const key of Object.keys(defaultSettings) as (keyof AppSettings)[]) await useSettingsStore.getState().updateSetting(key, defaultSettings[key]);
