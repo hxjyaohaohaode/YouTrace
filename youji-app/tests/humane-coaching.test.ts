@@ -257,7 +257,7 @@ test('atomic delivery shares one cap across competing flows, prevents duplicate 
 
 test('direct expense alerts respect disabled, quiet, snoozed and shared budget limits', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T15:15:00Z') });
-  useExpenseStore.setState({ monthBudget: 10000 });
+  useExpenseStore.setState({ monthBudget: 10000, budgetStatus: 'configured' });
   await storage.db.expenses.put({ id: 'budget-expense', name: 'synthetic', amount: 9000, category: 'food', date: getToday() });
   await setPreferences({ coachPushEnabled: false });
   await checkBudgetThreshold();

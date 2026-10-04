@@ -49,7 +49,7 @@ async function login(page, phone, nickname) {
   await page.waitForFunction(() => location.pathname === '/' && Boolean(document.querySelector('main')), { timeout: 20000 });
 }
 async function route(page, path) { await page.bringToFront(); await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); }
-async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForSelector('[role=dialog] input'); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
+async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled'); }); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
 // The expanded business cases use real pointer and keyboard input. DOM evaluation
 // below reads rendered controls/assertions. A separately named migration case
 // creates only an explicit synthetic pre-upgrade IndexedDB source; current app
@@ -129,13 +129,13 @@ async function businessRegressions(page, errors) {
     assert.equal(await page.$$eval('[role=dialog] button', (buttons) => buttons.find((b) => b.textContent.trim() === '保存')?.disabled), true, 'zero expense cannot be saved');
     await fillControl(page, '#expense-amount', '12.34');
     await fillControl(page, '#expense-name', 'Synthetic expense cents');
-    await clickControl(page, '[role=dialog] [role=radio][aria-label="学习"]');
+    await clickControl(page, '[role=dialog] select[aria-label="记账分类"]'); await page.keyboard.press('Home'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await expectText(page, 'Synthetic expense cents');
     await clickControl(page, '[aria-label="添加花销"]');
     await fillControl(page, '#expense-amount', '56.78');
     await clickButton(page, '收入', '[role=dialog]');
-    await page.waitForSelector('[role=dialog] [aria-label="支出分类"]', { hidden: true });
+    assert.equal(await page.$eval('[role=dialog] button[aria-pressed=true]', el => el.textContent.trim()), '收入');
     await fillControl(page, '#expense-name', 'Synthetic income cents');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await reloadPage(page);
@@ -143,9 +143,9 @@ async function businessRegressions(page, errors) {
     await expectText(page, '-¥12.34', true, '[aria-label="支出 12.34元"]');
     await expectText(page, '+¥56.78', true, '[aria-label="收入 56.78元"]');
     // Each row also has a covered swipe affordance; use its visible desktop button.
-    await clickControl(page, 'button.hidden[aria-label="删除 Synthetic expense cents"]');
+    await clickControl(page, 'button[aria-label^="编辑记账 Synthetic expense cents"]'); await clickButton(page, '删除', '[role=dialog]'); await clickButton(page, '确认删除', '[aria-label="确认删除记账"]'); await clickButton(page, '取消（保留草稿）', '[role=dialog]'); await modalClosed(page);
     await expectText(page, 'Synthetic expense cents', false);
-    await clickControl(page, 'button.hidden[aria-label="删除 Synthetic income cents"]');
+    await clickControl(page, 'button[aria-label^="编辑记账 Synthetic income cents"]'); await clickButton(page, '删除', '[role=dialog]'); await clickButton(page, '确认删除', '[aria-label="确认删除记账"]'); await clickButton(page, '取消（保留草稿）', '[role=dialog]'); await modalClosed(page);
     await expectText(page, 'Synthetic income cents', false);
     await reloadPage(page);
     await expectText(page, 'Synthetic expense cents', false); await expectText(page, 'Synthetic income cents', false);
@@ -184,14 +184,14 @@ async function businessRegressions(page, errors) {
     await route(page, '/diary');
     await clickControl(page, '[aria-label="写日记"]');
     await fillControl(page, '#diary-content', 'Synthetic diary original: 今天完成了一件小事。');
-    await clickControl(page, '[aria-label="选择心情"] button:first-child');
+    await clickControl(page, '[role=dialog] button[aria-label="开心"]');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await reloadPage(page);
     await expectText(page, 'Synthetic diary original: 今天完成了一件小事。');
     await expectText(page, '8/10', true, 'main span');
     await clickControl(page, 'button[aria-label^="编辑"][aria-label$="的日记"]');
     await fillControl(page, '#diary-content', 'Synthetic diary revised: 保留修改后的完整内容。');
-    await clickControl(page, '[aria-label="选择心情"] button:nth-child(3)');
+    await clickControl(page, '[role=dialog] button[aria-label="平静"]');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await reloadPage(page);
     await expectText(page, 'Synthetic diary revised: 保留修改后的完整内容。');
@@ -210,7 +210,7 @@ async function businessRegressions(page, errors) {
     await clickControl(page, '[aria-label="新建目标"]');
     await fillControl(page, '[role=dialog] input[placeholder="想完成什么？"]', 'Synthetic 学习目标');
     await clickControl(page, 'select[aria-label="领域"]');
-    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
     assert.equal(await page.$eval('select[aria-label="领域"]', (el) => el.value), '学习');
     await clickButton(page, '创建', '[role=dialog]'); await modalClosed(page);
     await clickControl(page, '[aria-label="将目标进度设为 100%"]');
@@ -501,10 +501,10 @@ try {
   assert.ok(await page.$eval('main', (el) => Number.parseFloat(getComputedStyle(el).marginLeft) >= 260), 'desktop content must clear fixed sidebar');
   step('Tailwind spacing survives base reset and clears desktop navigation');
   await addTodo(page, 'Synthetic A private todo');
-  await page.click('[aria-label="新建待办"]'); await page.type('[role=dialog] input', 'Retained modal draft');
+  await page.click('[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled'); }); await page.type('[role=dialog] input', 'Retained modal draft');
   const focused = await page.evaluate(() => document.activeElement?.tagName); assert.equal(focused, 'INPUT');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true });
-  await page.click('[aria-label="新建待办"]'); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
+  await page.click('[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled') && input.value === 'Retained modal draft'; }); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true }); step('Modal typing keeps focus; Escape/back/reopen retains unsaved input');
   await page.click('input[type=checkbox] + span');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');
@@ -520,7 +520,7 @@ try {
   await clickText(page, '查看确认稿');
   await page.waitForFunction(() => location.pathname === '/quick-note/result');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.body.textContent.includes('明天学习英语'));
-  await clickText(page, '确认保存'); await page.waitForFunction(() => location.pathname === '/'); step('Capture review survives refresh and confirms transactionally');
+  await clickText(page, '确认保存所选记录'); await page.waitForFunction(() => location.search.includes('receipt=')); await clickText(page, '回到首页'); await page.waitForFunction(() => location.pathname === '/'); step('Capture review survives refresh and confirms transactionally');
   const paths = ['/', '/schedule', '/quick-note', '/expense', '/todo', '/habit', '/diary', '/coach', '/insights', '/settings', '/goal', '/timeline'];
   for (const width of [360, 768, 1280]) {
     await page.setViewport({ width, height: 900 });

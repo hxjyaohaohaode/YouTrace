@@ -1,7 +1,8 @@
+import { assertTodoContext, consumeTodoDraft, type TodoContext } from '../components/todo/todoDraft';
 import { create } from 'zustand';
-import { db, generateLocalId } from '../db';
+import { db, generateLocalId, LOCAL_DATA_EPOCH_KEY } from '../db';
 import { commitLocalMutation } from '../services/localMutation';
-import { getToday } from '../utils/date';
+import { getToday, parseBusinessDate } from '../utils/date';
 
 export type Priority = 'high' | 'medium' | 'low';
 
@@ -11,24 +12,48 @@ export interface TodoItem {
   dueDate?: string;
   priority: Priority;
   done: boolean;
+  /** Absent on legacy records; never inferred from a deadline. */
+  completedAt?: number | null;
 }
 
+interface TodoUndo { before: TodoItem; after: TodoItem }
 const MAX_UNDO = 20;
+const pending = new Set<string>();
+export const sameTodoSnapshot = (left: TodoItem | undefined, right: TodoItem) => Boolean(left) && [...new Set([...Object.keys(left!), ...Object.keys(right)])].every((key) => JSON.stringify(left![key as keyof TodoItem]) === JSON.stringify(right[key as keyof TodoItem]));
+
+function validateTodo(item: TodoItem): TodoItem {
+  const text = item.text.trim();
+  if (!text || text.length > 200) throw new Error('待办内容需为 1–200 个字符');
+  if (!['high', 'medium', 'low'].includes(item.priority) || typeof item.done !== 'boolean') throw new Error('请选择有效的优先级和完成状态');
+  if (item.dueDate) {
+    try { parseBusinessDate(item.dueDate); } catch { throw new Error('请选择有效的截止日期'); }
+  }
+  return { ...item, text, dueDate: item.dueDate || undefined };
+}
+
+async function writeTodo(existing: TodoItem, replacement: TodoItem | null, draft?: TodoContext) {
+  if (pending.has(existing.id)) throw new Error('这条待办正在保存，请稍后');
+  pending.add(existing.id);
+  const database = db;
+  try {
+    await commitLocalMutation('todos', replacement ? 'upsert' : 'delete', replacement ? { ...replacement, dueDate: replacement.dueDate ?? null, completedAt: replacement.completedAt ?? null } : existing.id, async () => {
+      if (!sameTodoSnapshot(await database.todos.get(existing.id), existing)) throw new Error('待办刚刚更新，输入已保留。请核对最新记录后重试');
+      if (draft) { if (replacement) await consumeTodoDraft(draft); else await assertTodoContext(draft); }
+      return replacement ? database.todos.put(replacement) : database.todos.delete(existing.id);
+    }, [database.todos], existing);
+  } finally { pending.delete(existing.id); }
+}
 
 interface TodoState {
   items: TodoItem[];
-  undoStack: TodoItem[];
+  undoStack: TodoUndo[];
   loaded: boolean;
-
   loadFromDB: () => Promise<void>;
-  addItem: (item: Omit<TodoItem, 'id' | 'done'>) => Promise<TodoItem>;
+  addItem: (item: Omit<TodoItem, 'id' | 'done'>, id?: string, draft?: TodoContext) => Promise<TodoItem>;
+  updateItem: (id: string, updates: Partial<Omit<TodoItem, 'id'>>, expected?: TodoItem, draft?: TodoContext) => Promise<TodoItem>;
   toggleTodo: (id: string) => Promise<void>;
   undoLast: () => Promise<void>;
-  removeItem: (id: string) => Promise<void>;
-}
-
-function isTodoRecord(value: Record<string, unknown>): boolean {
-  return typeof value.id === 'string' && typeof value.text === 'string';
+  removeItem: (id: string, expected?: TodoItem, draft?: TodoContext) => Promise<void>;
 }
 
 export const useTodoStore = create<TodoState>((set, get) => ({
@@ -37,73 +62,54 @@ export const useTodoStore = create<TodoState>((set, get) => ({
   loaded: false,
 
   loadFromDB: async () => {
-    const rows = await db.todos.toArray();
-    const items: TodoItem[] = rows
-      .filter((row) => isTodoRecord(row as unknown as Record<string, unknown>))
-      .map((row) => ({
-        id: row.id,
-        text: row.text,
-        dueDate: (row as { dueDate?: string }).dueDate || undefined,
-        priority: (row.priority as Priority) || 'medium',
-        done: Boolean(row.done),
-      }));
-    set({ items, undoStack: [], loaded: true });
+    const database = db;
+    const { rows, epoch } = await database.transaction('r', database.todos, database.settings, async () => ({ rows: await database.todos.toArray(), epoch: (await database.settings.get(LOCAL_DATA_EPOCH_KEY))?.value }));
+    if (database !== db || (await database.settings.get(LOCAL_DATA_EPOCH_KEY))?.value !== epoch) return;
+    // Keep the complete record snapshot: stripping metadata weakens CAS and can erase source evidence.
+    const items = rows.filter((row) => typeof row.id === 'string' && typeof row.text === 'string');
+    set({ items, loaded: true });
   },
 
-  addItem: async (item) => {
-    const newItem: TodoItem = {
-      id: generateLocalId(),
-      text: item.text,
-      dueDate: item.dueDate || undefined,
-      priority: item.priority || 'medium',
-      done: false,
-    };
-
-    await commitLocalMutation('todos', 'upsert', newItem, () => db.todos.put(newItem));
-    set((state) => ({ items: [newItem, ...state.items] }));
-
-
+  addItem: async (item, id = generateLocalId(), draft) => {
+    const database = db;
+    const newItem = validateTodo({ ...item, id, done: false, completedAt: null });
+    await commitLocalMutation('todos', 'upsert', { ...newItem, dueDate: newItem.dueDate ?? null }, async () => { if (draft) await consumeTodoDraft(draft); return database.todos.add(newItem); }, [database.todos], null);
+    set((state) => ({ items: state.items.some((row) => row.id === id) ? state.items : [newItem, ...state.items] }));
     return newItem;
   },
 
+  updateItem: async (id, updates, expected, draft) => {
+    const existing = expected ?? get().items.find((item) => item.id === id);
+    if (!existing || existing.id !== id) throw new Error('未找到这条待办，请返回列表核对');
+    const updated = validateTodo({ ...existing, ...updates, id, completedAt: updates.done === false ? null : updates.done === true && !existing.done ? Date.now() : existing.completedAt ?? null });
+    await writeTodo(existing, updated, draft);
+    set((state) => ({ items: state.items.map((item) => item.id === id && sameTodoSnapshot(item, existing) ? updated : item) }));
+    return updated;
+  },
+
   toggleTodo: async (id) => {
-    const item = get().items.find((i) => i.id === id);
-    if (!item) return;
-
-    const updated: TodoItem = { ...item, done: !item.done };
-
-    await commitLocalMutation('todos', 'upsert', updated, () => db.todos.put(updated), undefined, item);
-    set((state) => ({
-      items: state.items.map((i) => (i.id === id ? updated : i)),
-      undoStack: [...state.undoStack.slice(-(MAX_UNDO - 1)), item],
-    }));
-
-
+    const existing = get().items.find((item) => item.id === id);
+    if (!existing) throw new Error('未找到这条待办');
+    const updated = await get().updateItem(id, { done: !existing.done }, existing);
+    set((state) => ({ undoStack: [...state.undoStack.slice(-(MAX_UNDO - 1)), { before: existing, after: updated }] }));
   },
 
   undoLast: async () => {
-    const { undoStack, items } = get();
-    if (undoStack.length === 0) return;
-    const last = undoStack[undoStack.length - 1];
-    if (!items.some((i) => i.id === last.id)) {
-      set({ undoStack: undoStack.slice(0, -1) });
-      return;
-    }
-
-    await commitLocalMutation('todos', 'upsert', last, () => db.todos.put(last), undefined, items.find((item) => item.id === last.id));
-    set({
-      items: items.map((i) => (i.id === last.id ? last : i)),
-      undoStack: undoStack.slice(0, -1),
-    });
-
+    const entry = get().undoStack.at(-1);
+    if (!entry) return;
+    // Undo is bound to the precise result, not whichever newer version is currently visible.
+    await writeTodo(entry.after, entry.before);
+    set((state) => ({
+      items: state.items.map((item) => item.id === entry.before.id && sameTodoSnapshot(item, entry.after) ? entry.before : item),
+      undoStack: state.undoStack.filter((item) => item !== entry),
+    }));
   },
 
-  removeItem: async (id) => {
-    const existing = get().items.find((i) => i.id === id);
-    if (!existing) return;
-    await commitLocalMutation('todos', 'delete', id, () => db.todos.delete(id), undefined, existing);
-    set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
-
+  removeItem: async (id, expected, draft) => {
+    const existing = expected ?? get().items.find((item) => item.id === id);
+    if (!existing || existing.id !== id) throw new Error('未找到这条待办，请返回列表核对');
+    await writeTodo(existing, null, draft);
+    set((state) => ({ items: state.items.filter((item) => item.id !== id || !sameTodoSnapshot(item, existing)), undoStack: state.undoStack.filter((entry) => entry.before.id !== id) }));
   },
 }));
 

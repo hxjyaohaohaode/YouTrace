@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { db, generateLocalId } from '../db';
 import { commitLocalMutation } from '../services/localMutation';
-import { parseQuickNote, type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
+import { parseQuickNote, type CaptureContext, type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
 
 export interface QuickNoteRecord {
   id: string;
@@ -10,9 +10,11 @@ export interface QuickNoteRecord {
   expenses: ParsedExpense[];
   diary: string | null;
   mood: MoodLevel | null;
-  moodScore: number;
+  moodScore: number | null;
   habits: ParsedHabit[];
   todos: ParsedTodo[];
+  confirmed?: boolean;
+  captureContext?: CaptureContext;
 }
 
 interface QuickNoteState {
@@ -37,7 +39,7 @@ function toServerShape(record: QuickNoteRecord): Record<string, unknown> {
       habits: record.habits,
       todos: record.todos.map((todo) => todo.text),
     },
-    confirmed: true,
+    confirmed: record.confirmed === true,
   };
 }
 
@@ -63,6 +65,7 @@ export const useQuickNoteStore = create<QuickNoteState>((set, get) => ({
       moodScore: parsed.moodScore,
       habits: parsed.habits,
       todos: parsed.todos,
+      confirmed: false,
     };
 
     await commitLocalMutation('quickNotes', 'upsert', toServerShape(record), () => db.quickNotes.put(record));

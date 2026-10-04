@@ -41,9 +41,10 @@ const todoSyncSchema = z.object({
   baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   text: z.string().trim().min(1).max(200),
-  dueDate: isoDateSchema.optional(),
+  dueDate: isoDateSchema.nullable().optional(),
   priority: z.enum(['high', 'medium', 'low']).optional().default('medium'),
   done: z.boolean().optional().default(false),
+  completedAt: z.number().int().safe().nonnegative().max(8640000000000000).nullable().optional(),
 })
 
 const habitSyncSchema = z.object({
@@ -58,7 +59,7 @@ const habitSyncSchema = z.object({
 const quickNoteSyncSchema = z.object({
   baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
-  content: z.string().trim().min(1).max(5000),
+  content: z.string().min(1).max(5000).refine(value => value.trim().length > 0, '内容不能为空'),
   timestamp: z.union([z.number(), z.string(), z.bigint()])
     .transform((value) => Number(value))
     .pipe(z.number().int().safe().nonnegative()),
@@ -71,8 +72,8 @@ const diarySyncSchema = z.object({
   id: z.string().min(8).max(64),
   date: isoDateSchema,
   content: z.string().trim().min(1).max(10000),
-  mood: z.string().trim().max(30).optional(),
-  moodScore: z.number().int().min(1).max(10).optional(),
+  mood: z.string().trim().max(30).nullable().optional(),
+  moodScore: z.number().int().min(1).max(10).nullable().optional(),
   source: z.string().trim().max(30).optional().default('manual'),
   aiInsight: z.string().trim().max(2000).optional(),
 })
@@ -259,7 +260,10 @@ syncRoutes.post('/push', async (c) => {
         })
       }
       for (const item of data.todos ?? []) {
-        const { id, baseVersion, ...changes } = item
+        const { id, baseVersion, completedAt, ...fields } = item
+        const previous = await tx.todo.findUnique({ where: { id } })
+        // Missing legacy timestamps stay unknown, including a legacy re-toggle.
+        const changes = { ...fields, completedAt: !fields.done ? null : completedAt === undefined ? (previous?.done ? previous.completedAt : null) : completedAt === null ? null : new Date(completedAt) }
         touch('todos', id)
         await applyWrite(tx, user.id, { entity: 'todos', id, baseVersion,
           read: () => tx.todo.findUnique({ where: { id } }),

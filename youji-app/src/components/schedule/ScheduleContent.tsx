@@ -609,10 +609,10 @@ function MonthView({ date, onSelectDate }: { date: string; onSelectDate: (d: str
   );
 }
 
-export function ScheduleContent() {
+export function ScheduleContent({ initialRecord }: { initialRecord?: ScheduleRecord } = {}) {
   const [view, setView] = useState<ViewMode>('day');
-  const [showModal, setShowModal] = useState(false);
-  const [editItem, setEditItem] = useState<ScheduleRecord | undefined>(undefined);
+  const [showModal, setShowModal] = useState(Boolean(initialRecord));
+  const [editItem, setEditItem] = useState<ScheduleRecord | undefined>(() => initialRecord ? structuredClone(initialRecord) : undefined);
   const [formKey, setFormKey] = useState(0);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 

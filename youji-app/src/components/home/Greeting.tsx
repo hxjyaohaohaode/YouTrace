@@ -12,7 +12,8 @@ interface GreetingProps {
 
 export function Greeting({ greeting, date, name = '你', unreadCount = 0 }: GreetingProps) {
   const navigate = useNavigate();
-  const displayName = useScrambleText(name, true);
+  // Identity must never briefly turn into another plausible account name.
+  const displayName = name;
   const displayGreeting = useScrambleText(greeting, true, 600);
 
   return (

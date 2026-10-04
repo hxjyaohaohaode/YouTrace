@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, AlertCircle, Calendar, Clock } from 'lucide-react';
 import { useTodoStore, isOverdue, type TodoItem, type Priority } from '../../stores/todoStore';
 import { toast } from '../../services/toastBus';
-import { Checkbox } from '../ui/Checkbox';
+import { Button } from '../ui/Button';
 import { formatDateLabel, getNaturalWeekDates, getToday } from '../../utils/date';
 
 const priorityConfig: Record<Priority, { gradient: string; label: string }> = {
@@ -49,93 +49,44 @@ function dueLabel(item: TodoItem): string {
   return item.dueDate ? formatDateLabel(item.dueDate) : '无截止日期';
 }
 
-interface TodoRowProps {
-  item: TodoItem;
-  onToggle: () => void;
-  onUndo: () => void;
-}
+interface TodoRowProps { item: TodoItem; onEdit: () => void }
 
-function TodoRow({ item, onToggle, onUndo }: TodoRowProps) {
-  const [showUndo, setShowUndo] = useState(false);
-  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const priority = priorityConfig[item.priority];
-
-  const handleToggle = () => {
-    onToggle();
-    if (!item.done) {
-      setShowUndo(true);
-      if (undoTimer.current) clearTimeout(undoTimer.current);
-      undoTimer.current = setTimeout(() => setShowUndo(false), 5000);
-    }
+function TodoRow({ item, onEdit }: TodoRowProps) {
+  const [pending, setPending] = useState(false);
+  const guard = useRef(false);
+  const priority = priorityConfig[item.priority] ?? priorityConfig.medium;
+  const toggle = async () => {
+    if (guard.current) return;
+    guard.current = true; setPending(true);
+    try { await useTodoStore.getState().toggleTodo(item.id); }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : '未保存，请重试'); }
+    finally { guard.current = false; setPending(false); }
   };
-
-  useEffect(() => {
-    return () => {
-      if (undoTimer.current) clearTimeout(undoTimer.current);
-    };
-  }, []);
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 1, y: 0 }}
-      animate={{
-        opacity: item.done ? 0.6 : 1,
-        y: item.done ? 4 : 0,
-      }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="relative"
-    >
-      <div className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] px-4 py-3.5 shadow-[var(--shadow-sm)] transition-all duration-200 hover:shadow-[var(--shadow-md)]">
-        <Checkbox checked={item.done} onChange={handleToggle} ariaLabel={`完成 ${item.text}`} />
-
-        <div className="min-w-0 flex-1">
-          <motion.p
-            animate={{ textDecoration: item.done ? 'line-through' : 'none' }}
-            transition={{ duration: 0.2 }}
-            className={`truncate text-[13px] font-medium transition-colors duration-200 ${item.done ? 'text-[var(--text-3)]' : 'text-[var(--text-1)]'}`}
-          >
-            {item.text}
-          </motion.p>
-          <p className="mt-0.5 text-[11px] font-medium text-[var(--text-3)]">{dueLabel(item)}</p>
-        </div>
-
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold text-white ${priority.gradient}`}>
-          {priority.label}
-        </span>
-      </div>
-
-      <AnimatePresence>
-        {showUndo && item.done && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="absolute -top-8 right-0 flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--text-1)] px-3 py-1.5 text-xs text-white shadow-[var(--shadow-lg)]"
-          >
-            <span className="font-medium">已完成</span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUndo();
-                setShowUndo(false);
-              }}
-              className="font-bold text-[var(--primary-light)] hover:underline"
-            >
-              撤销
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
+  return <motion.div layout className="relative" id={`todo-record-${item.id}`} tabIndex={-1}>
+    <div className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] px-4 py-3.5 shadow-[var(--shadow-sm)]">
+      <input type="checkbox" checked={item.done} onChange={() => void toggle()} disabled={pending} aria-label={`${item.done ? '取消完成' : '完成'} ${item.text}`} className="h-5 w-5 shrink-0 accent-[var(--primary)]" />
+      <button type="button" onClick={onEdit} className="min-w-0 flex-1 rounded text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑待办 ${item.text} ${item.dueDate || '无日期'}`}>
+        <p className={`break-words text-[13px] font-medium ${item.done ? 'text-[var(--text-3)] line-through' : 'text-[var(--text-1)]'}`}>{item.text}</p>
+        <p className="mt-0.5 text-[11px] text-[var(--text-3)]">{dueLabel(item)}{item.dueDate ? ` · ${item.dueDate}` : ''} · 编辑</p>
+      </button>
+      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold text-white ${priority.gradient}`}>{priority.label}</span>
+    </div>
+  </motion.div>;
 }
 
-export function TodoList() {
+export function TodoList({ onEdit }: { onEdit: (item: TodoItem) => void }) {
   const items = useTodoStore((s) => s.items);
   const loaded = useTodoStore((s) => s.loaded);
-  const toggleTodo = useTodoStore((s) => s.toggleTodo);
+  const undoStack = useTodoStore((s) => s.undoStack);
+  const [undoPending, setUndoPending] = useState(false);
+  const undoGuard = useRef(false);
+  const undo = async () => {
+    if (undoGuard.current) return;
+    undoGuard.current = true; setUndoPending(true);
+    try { await useTodoStore.getState().undoLast(); }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : '撤销未完成，请重试'); }
+    finally { undoGuard.current = false; setUndoPending(false); }
+  };
 
   const groups = useMemo(() => groupTodos(items), [items]);
   const activeCount = items.filter((i) => !i.done).length;
@@ -158,6 +109,7 @@ export function TodoList() {
 
   return (
     <div className="space-y-5">
+      {undoStack.length > 0 && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--primary-soft)] p-3 text-sm"><span>已修改「{undoStack.at(-1)?.before.text}」的完成状态</span><Button variant="soft" onClick={() => void undo()} disabled={undoPending}>{undoPending ? '撤销中…' : '撤销上次完成状态'}</Button></div>}
       {activeCount === 0 && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -187,8 +139,7 @@ export function TodoList() {
                   <TodoRow
                     key={item.id}
                     item={item}
-                    onToggle={() => void toggleTodo(item.id).catch((error: unknown) => toast.error(error instanceof Error ? error.message : '未保存，请重试'))}
-                    onUndo={() => void toggleTodo(item.id).catch((error: unknown) => toast.error(error instanceof Error ? error.message : '未保存，请重试'))}
+                    onEdit={() => onEdit(item)}
                   />
                 ))}
               </AnimatePresence>

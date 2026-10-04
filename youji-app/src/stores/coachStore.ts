@@ -373,7 +373,7 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
   const moodScores = recentDiaries
     .filter((d) => typeof d.moodScore === 'number' && d.moodScore > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((d) => d.moodScore);
+    .map((d) => d.moodScore as number);
   let moodTrendText: string | null = null;
   if (moodScores.length >= 3) {
     const firstHalf = moodScores.slice(0, Math.floor(moodScores.length / 2));

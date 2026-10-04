@@ -65,6 +65,7 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
 }
 
 interface SyncStats {
+  localBlock: boolean;
   pending: number;
   blocked: number;
   pendingPreferences: number;
@@ -85,6 +86,7 @@ function SyncPanel() {
         Promise.all([db.expenses.count(), db.todos.count(), db.habits.count(), db.habitCheckins.count(), db.quickNotes.count(), db.diary.count(), db.schedules.count(), db.goalRecords.count()]),
       ]);
       return {
+        localBlock: Boolean(await db.settings.get('syncV2LocalBlock')),
         pending: pendingRows.length,
         pendingPreferences: await db.settings.where('key').startsWith('pendingSetting:').count(),
         blocked: pendingRows.filter((row) => row.status === 'blocked').length,
@@ -131,6 +133,7 @@ function SyncPanel() {
     <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
       {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
       {!stats && !error && <p role="status" className="text-sm text-[var(--text-3)]">正在读取本设备状态…</p>}
+      {stats?.localBlock && <p role="alert" className="rounded-xl border border-[var(--warning)] p-3 text-sm leading-6">旧版未确认请求含有未核对字段，已在本机停止发送。原请求、编号与修改都保留；反复点击同步不会上传它们。请先导出完整备份，再核对兼容处理。不要清空资料或把此状态当成网络故障。</p>}
       {stats && (
         <>
           <div className="flex items-center justify-between">
@@ -173,6 +176,7 @@ function SyncPanel() {
 
 export default function Settings() {
   const settings = useSettingsStore();
+  const budgetStatus = useExpenseStore((s) => s.budgetStatus);
   const monthBudgetFen = useExpenseStore((s) => s.monthBudget);
   const setMonthBudget = useExpenseStore((s) => s.setMonthBudget);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -184,7 +188,8 @@ export default function Settings() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [budgetInput, setBudgetInput] = useState<string>((monthBudgetFen / 100).toString());
+  const [budgetDraft, setBudgetInput] = useState<string | null>(null);
+  const budgetInput = budgetDraft ?? (budgetStatus === 'unset' ? '' : (monthBudgetFen / 100).toString());
   const [budgetSaving, setBudgetSaving] = useState(false);
   const budgetSaveGuard = useRef(false);
   const [budgetFeedback, setBudgetFeedback] = useState('');
@@ -214,9 +219,9 @@ export default function Settings() {
 
   const handleBudgetSave = async () => {
     if (budgetSaveGuard.current) return;
-    const yuan = parseFloat(budgetInput);
+    const yuan = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(budgetInput) ? Number(budgetInput) : NaN;
     if (!Number.isFinite(yuan) || yuan < 0 || yuan > 10_000_000) {
-      setBudgetError(true); setBudgetFeedback('请输入 0 到 10000000 之间的预算金额');
+      setBudgetError(true); setBudgetFeedback('请输入 0 到 10000000 之间的预算金额，最多两位小数');
       return;
     }
     budgetSaveGuard.current = true; setBudgetSaving(true);
@@ -321,6 +326,7 @@ export default function Settings() {
             <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
               <div className="flex items-end gap-3">
                 <div className="flex-1">
+                  <p className="mb-2 text-xs leading-6 text-[var(--text-2)]">{budgetStatus === 'unset' ? '还没有设置预算。留空不代表零预算，按需设置即可。' : budgetStatus === 'unknown' ? '这里保留了旧版本的预算值，无法判断是默认值还是你设置的。请核对后保存，不会自动清空。' : '已由你确认的每月预算'}</p>
                   <label htmlFor="budget-input" className="mb-1 block text-xs font-medium text-[var(--text-3)]">每月总预算（元）</label>
                   <input
                     id="budget-input"
@@ -338,7 +344,7 @@ export default function Settings() {
                 </div>
                 <Button size="sm" variant="ghost" disabled={budgetSaving} aria-busy={budgetSaving} onClick={() => void handleBudgetSave()}>{budgetSaving ? '保存中…' : '保存'}</Button>
               </div>
-              <p className="mt-2 text-xs text-[var(--text-3)]">预算保存在本设备；当前 ¥{(monthBudgetFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2, useGrouping: false })}</p>
+              <p className="mt-2 text-xs text-[var(--text-3)]">{budgetStatus === 'unset' ? '预算只保存在本设备，尚未设置' : `预算保存在本设备；当前 ¥${(monthBudgetFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2, useGrouping: false })}`}</p>
               <p id="budget-feedback" role={budgetError ? 'alert' : 'status'} aria-live={budgetError ? 'assertive' : 'polite'} className={`mt-1 min-h-5 text-xs ${budgetError ? 'text-[var(--danger)]' : 'text-[var(--text-2)]'}`}>{budgetFeedback}</p>
             </div>
           </section>

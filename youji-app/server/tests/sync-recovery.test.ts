@@ -514,3 +514,24 @@ test('missing database trigger fails closed with no write and no ACK', async () 
   assert.equal(await prisma.todo.count({ where: { userId: owner } }), 0)
   assert.equal(await prisma.syncReceipt.count({ where: { userId: owner } }), 0)
 })
+
+test('completion-time migration is atomic and preserves unknown legacy completions and old event bytes', async () => {
+  const database = new DatabaseSync(':memory:', { enableDoubleQuotedStringLiterals: true })
+  const root = resolve('prisma/migrations'), name = '20261004000004_todo_completion_time'
+  for (const directory of (await readdir(root)).filter(row => /^\d/.test(row) && row < name).sort()) database.exec(await readFile(join(root, directory, 'migration.sql'), 'utf8'))
+  database.exec(`INSERT INTO "User" (id,phone,nickname,updatedAt) VALUES ('old-completion-owner','synthetic-completion-phone','Synthetic',0);
+    INSERT INTO "Todo" (id,userId,text,done,updatedAt) VALUES ('old-completed-todo','old-completion-owner','Synthetic old completion',1,0);`)
+  const before = database.prepare('SELECT payload FROM "SyncChange" WHERE entityId=? ORDER BY seq DESC LIMIT 1').get('old-completed-todo')?.payload
+  const sql = await readFile(join(root, name, 'migration.sql'), 'utf8')
+  assert.throws(() => database.exec(sql.replace('COMMIT;', 'SELECT synthetic_missing_function();\nCOMMIT;')))
+  database.exec('ROLLBACK;')
+  assert.equal(database.prepare('PRAGMA table_info("Todo")').all().some(row => row.name === 'completedAt'), false)
+  assert.equal(database.prepare('SELECT name FROM sqlite_master WHERE type=\'trigger\' AND name=\'sync_Todo_update\'').all().length, 1)
+  database.exec(sql)
+  assert.equal(database.prepare('SELECT completedAt FROM "Todo" WHERE id=?').get('old-completed-todo')?.completedAt, null)
+  assert.equal(database.prepare('SELECT payload FROM "SyncChange" WHERE entityId=? ORDER BY seq DESC LIMIT 1').get('old-completed-todo')?.payload, before)
+  database.exec('UPDATE "Todo" SET "completedAt"=1791111111000 WHERE id=\'old-completed-todo\';')
+  const after = database.prepare('SELECT payload FROM "SyncChange" WHERE entityId=? ORDER BY seq DESC LIMIT 1').get('old-completed-todo')?.payload
+  assert.equal(JSON.parse(String(after)).completedAt, 1791111111000)
+  database.close()
+})

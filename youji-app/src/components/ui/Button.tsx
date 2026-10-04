@@ -12,7 +12,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)] hover:shadow-[var(--shadow-lg)] hover:brightness-110 active:scale-[0.97]',
+  primary: 'bg-[#5B46D8] text-white shadow-[var(--shadow-sm)] hover:bg-[#4935BC] active:bg-[#4935BC]',
   soft: 'bg-[var(--primary-soft)] text-[var(--primary)] hover:bg-[var(--primary)]/15 active:scale-[0.97]',
   ghost: 'bg-transparent text-[var(--text-2)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)] active:scale-[0.97]',
   danger: 'bg-[var(--danger)] text-white hover:opacity-90 active:scale-[0.97]',
@@ -20,8 +20,8 @@ const variantStyles: Record<ButtonVariant, string> = {
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-[13px] gap-1.5',
-  md: 'h-10 px-4.5 text-[14px] gap-2',
+  sm: 'min-h-11 px-3 text-[13px] gap-1.5',
+  md: 'min-h-11 px-4.5 text-[14px] gap-2',
   lg: 'h-12 px-6 text-[15px] gap-2',
 };
 
@@ -38,7 +38,7 @@ export function Button({
   return (
     <button
       type={props.type ?? 'button'}
-      className={`inline-flex items-center justify-center font-semibold transition-all duration-200 rounded-full disabled:opacity-40 disabled:cursor-not-allowed ${isIconOnly ? '' : sizeStyles[size]} ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center font-semibold transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] rounded-full disabled:opacity-40 disabled:cursor-not-allowed ${isIconOnly ? 'min-h-11 min-w-11' : sizeStyles[size]} ${variantStyles[variant]} ${className}`}
       {...props}
     >
       {Icon && <Icon size={isIconOnly ? 18 : 16} strokeWidth={2} />}

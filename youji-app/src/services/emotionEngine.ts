@@ -31,11 +31,11 @@ export function assessEmotionState(currentMessage = ''): EmotionAssessment {
     (d) => d.date >= addDays(getToday(), -6) && d.date <= getToday()
   );
 
-  const recentNotes = quickNoteStore.records.filter((r) => isWithinWindow(r.createdAt));
+  const recentNotes = quickNoteStore.records.filter((r) => r.confirmed !== false && isWithinWindow(r.createdAt));
 
   const lowMoodDiaryDays = new Set<string>();
   for (const d of recentDiaries) {
-    if ((d.mood === 'low' || d.mood === 'sad' || d.mood === 'anxious') && d.moodScore < 5) {
+    if ((d.mood === 'low' || d.mood === 'sad' || d.mood === 'anxious') && (d.moodScore === null || d.moodScore < 5)) {
       lowMoodDiaryDays.add(d.date);
     }
   }

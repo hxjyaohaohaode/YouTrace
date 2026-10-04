@@ -1,198 +1,44 @@
-import { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import {
-  Wallet, CheckSquare, BookOpen, Calendar, Tag, Activity,
-} from 'lucide-react';
-import { useExpenseStore } from '../stores/expenseStore';
-import { useTodoStore } from '../stores/todoStore';
-import { useHabitStore } from '../stores/habitStore';
-import { useDiaryStore } from '../stores/diaryStore';
-import { useScheduleStore } from '../stores/scheduleStore';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { liveQuery } from 'dexie';
+import { Wallet, CheckSquare, BookOpen, Calendar, Activity, NotebookPen, ChevronRight } from 'lucide-react';
+import { db } from '../db';
 import { PageHeader } from '../components/layout/PageHeader';
-import { formatDateLabel, getDateDaysAgo, getToday } from '../utils/date';
-
-interface TimelineEntry {
-  id: string;
-  type: 'expense' | 'todo_done' | 'habit' | 'diary' | 'schedule' | 'goal_progress';
-  title: string;
-  detail: string;
-  timestamp: number;
-  date: string;
-}
-
-const typeConfig = {
-  expense: { icon: Wallet, color: '#E8853D', label: '花销' },
-  todo_done: { icon: CheckSquare, color: '#7C6FFF', label: '完成待办' },
-  habit: { icon: Activity, color: '#2EA06B', label: '习惯' },
-  diary: { icon: BookOpen, color: '#B06AFF', label: '日记' },
-  schedule: { icon: Calendar, color: '#45B7D1', label: '日程' },
-  goal_progress: { icon: Tag, color: '#D99A2B', label: '目标' },
-};
-
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return mins + '分钟前';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + '小时前';
-  return '';
-}
-
-const typeRoute: Record<TimelineEntry['type'], string> = {
-  expense: '/expense',
-  todo_done: '/todo',
-  habit: '/habit',
-  diary: '/diary',
-  schedule: '/schedule',
-  goal_progress: '/goal',
-};
-
+import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
+import { getDateDaysAgo, getToday } from '../utils/date';
+import { timelineEntries, timelineTimeLabel, type TimelineData, type TimelineEntry } from '../services/timelineEntries';
+const types = { expense: { icon: Wallet, label: '收支' }, todo_done: { icon: CheckSquare, label: '完成待办' }, habit: { icon: Activity, label: '习惯' }, diary: { icon: BookOpen, label: '日记' }, schedule: { icon: Calendar, label: '日程' }, capture: { icon: NotebookPen, label: '原始速记' } };
+const positions = new Map<string, number>();
 export default function Timeline() {
-  const navigate = useNavigate();
-  const expenses = useExpenseStore((s) => s.items);
-  const todos = useTodoStore((s) => s.items);
-  const habits = useHabitStore((s) => s.items);
-  const diaries = useDiaryStore((s) => s.items);
-  const schedules = useScheduleStore((s) => s.items);
-
-  const entries = useMemo(() => {
-    const cutoff = getDateDaysAgo(6);
-    const result: TimelineEntry[] = [];
-
-    for (const e of expenses) {
-      if (e.date >= cutoff && e.date <= getToday()) {
-        result.push({
-          id: e.id, type: 'expense',
-          title: (e.isIncome ? '+' : '-') + '¥' + (e.amount / 100).toFixed(e.amount % 100 === 0 ? 0 : 2) + ' ' + e.name,
-          detail: '', timestamp: new Date(e.date + 'T12:00:00+08:00').getTime(), date: e.date,
-        });
-      }
-    }
-
-    for (const t of todos) {
-      if (!t.done || !t.dueDate || t.dueDate < cutoff) continue;
-      result.push({
-        id: t.id, type: 'todo_done', title: t.text, detail: '',
-        timestamp: new Date(t.dueDate + 'T12:00:00+08:00').getTime(), date: t.dueDate,
-      });
-    }
-
-    for (const h of habits) {
-      for (const c of h.recentCheckins) {
-        if (c.done && c.date >= cutoff) {
-          result.push({
-            id: h.id + '|' + c.date, type: 'habit',
-            title: h.icon + ' ' + h.name,
-            detail: h.streak > 1 ? '连续' + h.streak + '天' : '',
-            timestamp: new Date(c.date + 'T12:00:00+08:00').getTime(), date: c.date,
-          });
-        }
-      }
-    }
-
-    for (const d of diaries) {
-      if (d.date >= cutoff) {
-        result.push({
-          id: d.id, type: 'diary',
-          title: d.mood ? d.content.slice(0, 40) : d.content.slice(0, 40),
-          detail: '',
-          timestamp: new Date(d.date + 'T12:00:00+08:00').getTime(), date: d.date,
-        });
-      }
-    }
-
-    for (const s of schedules) {
-      if (s.date >= cutoff && s.date <= getToday()) {
-        result.push({
-          id: s.id, type: 'schedule',
-          title: s.title, detail: s.startTime + '-' + s.endTime,
-          timestamp: new Date(s.date + 'T12:00:00+08:00').getTime(), date: s.date,
-        });
-      }
-    }
-
-    return result.sort((a, b) => b.timestamp - a.timestamp).slice(0, 60);
-  }, [expenses, todos, habits, diaries, schedules]);
-
-  const groupedByDate = useMemo(() => {
-    const groups: Array<[string, TimelineEntry[]]> = [];
-    let currentDate = '';
-    for (const entry of entries) {
-      if (entry.date !== currentDate) {
-        currentDate = entry.date;
-        groups.push([entry.date, []]);
-      }
-      groups[groups.length - 1][1].push(entry);
-    }
-    return groups;
-  }, [entries]);
-
-  return (
-    <div className="w-full">
-      <PageHeader
-        icon={Activity}
-        gradient="from-[#45B7D1] to-[#6C5CE7]"
-        title="时间线"
-        subtitle={'近 7 天 · ' + entries.length + ' 条记录'}
-      />
-
-      {groupedByDate.length === 0 ? (
-        <div className="py-16 text-center">
-          <p className="text-sm font-medium text-[var(--text-3)]">最近没有活动记录</p>
-          <p className="mt-1 text-xs text-[var(--text-3)]">开始记录，你的生活轨迹会在这里展现</p>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {groupedByDate.map(([date, items]) => (
-            <div key={date}>
-              <div className="mb-3 flex items-center gap-3">
-                <span className="rounded-full bg-[var(--primary-soft)] px-3 py-1 text-xs font-bold text-[var(--primary)]">
-                  {formatDateLabel(date)}
-                </span>
-                <span className="text-[11px] text-[var(--text-4)]">{items.length} 条</span>
-                <div className="h-px flex-1 bg-[var(--border-light)]" />
-              </div>
-              <div className="space-y-1.5 pl-1">
-                {items.map((entry, i) => {
-                  const cfg = typeConfig[entry.type];
-                  const Icon = cfg.icon;
-                  const relative = timeAgo(entry.timestamp);
-                  return (
-                    <motion.button
-                      key={entry.id}
-                      type="button"
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: Math.min(i * 0.03, 0.3), ease: [0.16, 1, 0.3, 1] }}
-                      onClick={() => navigate(typeRoute[entry.type])}
-                      className="flex w-full items-center gap-3 rounded-[var(--radius-md)] px-3 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
-                      aria-label={`${cfg.label}: ${entry.title}`}
-                    >
-                      <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                        style={{ backgroundColor: cfg.color + '15' }}
-                      >
-                        <Icon size={14} style={{ color: cfg.color }} aria-hidden />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-[var(--text-1)]">{entry.title}</p>
-                        {entry.detail && (
-                          <p className="text-[11px] text-[var(--text-4)]">{entry.detail}</p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-[10px] font-medium text-[var(--text-4)]">
-                        {relative || cfg.label}
-                      </span>
-                    </motion.button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const location = useLocation(), navigate = useNavigate(), params = new URLSearchParams(location.search);
+  const range = ['7', '30', 'all'].includes(params.get('range') ?? '') ? params.get('range')! : '7';
+  const limit = Math.min(100000, Math.max(60, Number(params.get('limit')) || 60)), recordId = params.get('record');
+  const [data, setData] = useState<TimelineData | null>(null), [error, setError] = useState(''), [attempt, retry] = useState(0);
+  const restore = useRef(true), scrollKey = `${db.ownerId}:${location.pathname}${location.search}`;
+  useEffect(() => {
+    const target = db;
+    const subscription = liveQuery(() => target.transaction('r', [target.expenses, target.todos, target.habits, target.habitCheckins, target.diary, target.schedules, target.quickNotes], async () => ({ expenses: await target.expenses.toArray(), todos: await target.todos.toArray(), habits: await target.habits.toArray(), checkins: await target.habitCheckins.toArray(), diaries: await target.diary.toArray(), schedules: await target.schedules.toArray(), notes: await target.quickNotes.toArray() })) ).subscribe({ next: value => { setData(value); setError(''); }, error: () => setError('时间线暂时读不到本机记录，请重试。已有记录不会因此删除。') });
+    return () => subscription.unsubscribe();
+  }, [attempt]);
+  useEffect(() => { if (!data || !restore.current || recordId) return; restore.current = false; const saved = positions.get(scrollKey); if (saved !== undefined) { const frame = requestAnimationFrame(() => window.scrollTo({ top: saved, behavior: 'instant' })); return () => cancelAnimationFrame(frame); } }, [data, recordId, scrollKey]);
+  const entries = useMemo(() => data ? timelineEntries(data) : [], [data]);
+  const filtered = entries.filter(row => range === 'all' || row.date === null || row.date >= getDateDaysAgo(range === '30' ? 29 : 6) && row.date <= getToday());
+  const visible = filtered.slice(0, limit), groups: Array<[string | null, TimelineEntry[]]> = [];
+  for (const row of visible) { const last = groups.at(-1); if (last && last[0] === row.date) last[1].push(row); else groups.push([row.date, [row]]); }
+  const selected = recordId ? data?.notes.find(row => row.id === recordId) : null;
+  const returnTo = (location.state as { returnTo?: { path: string; label: string } } | null)?.returnTo;
+  const chooseRange = (value: string) => { const next = new URLSearchParams({ range: value }); navigate(`/timeline?${next}`); };
+  const open = (entry: TimelineEntry) => { positions.set(scrollKey, window.scrollY); navigate(entry.route, { state: { returnTo: { path: location.pathname + location.search, label: '返回时间线' } } }); };
+  const closeNote = () => { if (returnTo?.path.startsWith('/')) navigate(returnTo.path); else { const next = new URLSearchParams(location.search); next.delete('record'); navigate(`/timeline?${next}`, { replace: true }); } };
+  return <div className="w-full" data-component="timeline">
+    <PageHeader icon={Activity} gradient="from-[#45B7D1] to-[#6C5CE7]" title="时间线" subtitle="找回具体记录，再继续核对与修改" />
+    <div className="mb-5 flex flex-wrap items-center gap-2" role="group" aria-label="时间范围">{[['7', '近7天'], ['30', '近30天'], ['all', '全部记录']].map(([value, label]) => <Button key={value} variant={range === value ? 'primary' : 'ghost'} aria-pressed={range === value} onClick={() => chooseRange(value)}>{label}</Button>)}</div>
+    <p className="mb-5 text-xs leading-6 text-[var(--text-3)]">按记录所属日期整理。日程是计划，截止日期不是完成时间；缺少发生时间的旧记录明确标为未知。当前显示 {visible.length}/{filtered.length} 条。</p>
+    {error ? <div role="alert" className="space-y-3"><p>{error}</p><Button onClick={() => retry(value => value + 1)}>重试读取</Button></div> : !data ? <p role="status">正在读取时间线…</p> : !filtered.length ? <div className="space-y-4 rounded-2xl border border-[var(--border)] p-6"><p>这个时间范围还没有记录。</p><Link className="inline-block min-h-11 py-3 underline" to="/quick-note">写下第一条速记</Link>{range !== 'all' && <Button variant="ghost" onClick={() => chooseRange('all')}>查看更早记录</Button>}</div> : <div className="space-y-6">{groups.map(([date, rows]) => <section key={date ?? 'unknown'} aria-label={date ?? '时间未知'}><h2 className="mb-3 text-sm font-bold">{date ?? '时间未知的记录'}{date && date > getToday() ? ' · 未来日期' : ''}</h2><div className="space-y-2">{rows.map(row => { const Icon = types[row.type].icon; return <button key={row.id} type="button" onClick={() => open(row)} aria-label={`${types[row.type].label}: ${row.title}`} className="flex min-h-20 w-full items-center gap-3 rounded-xl border border-[var(--border-light)] bg-[var(--surface)] px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><Icon size={18} className="shrink-0 text-[var(--primary)]" aria-hidden /><div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{row.title}</p><p className="mt-1 text-xs leading-5 text-[var(--text-3)]">{row.detail}</p><p className="text-xs text-[var(--text-3)]">{timelineTimeLabel(row)}</p></div><ChevronRight size={16} className="shrink-0" aria-hidden /></button>; })}</div></section>)}</div>}
+    {visible.length < filtered.length && <Button className="my-6 w-full" variant="ghost" onClick={() => { const next = new URLSearchParams(location.search); next.set('limit', String(limit + 60)); navigate(`/timeline?${next}`, { replace: true }); }}>继续查看较早记录（还有 {filtered.length - visible.length} 条）</Button>}
+    {data && recordId && <Modal open onClose={closeNote} title={selected ? '原始速记' : '未找到这条速记'} footer={<Button onClick={closeNote}>{returnTo?.label ?? '返回时间线'}</Button>}>
+      {selected ? <div className="space-y-4"><p className="whitespace-pre-wrap break-words leading-7">{selected.rawInput}</p><p className="text-sm text-[var(--text-3)]">{selected.confirmed ? '这条原文已确认保存' : '旧记录的确认状态未知'}。此处保留原始记录；修改后续收支或待办不会重写这段原文。</p><Link to={`/quick-note/result?receipt=${encodeURIComponent(selected.id)}`} className="inline-block min-h-11 py-3 underline">查看本机保存结果与去向</Link></div> : <p>当前账号没有这条记录，或它已被删除。不会用同名记录代替。</p>}
+    </Modal>}
+  </div>;
 }

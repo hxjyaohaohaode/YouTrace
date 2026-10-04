@@ -1,9 +1,11 @@
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useState, useMemo } from 'react';
 import { Plus, Sparkles, TrendingUp, ChevronRight, Receipt } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { BudgetCard, StatsRow, AddExpenseModal, ExpenseDetail } from '../components/expense';
 import { PageHeader } from '../components/layout/PageHeader';
-import { useExpenseStore } from '../stores/expenseStore';
+import { Button } from '../components/ui/Button';
+import { useExpenseStore, type ExpenseItem } from '../stores/expenseStore';
 import { useCoachStore } from '../stores/coachStore';
 import { expenseCategoryIcons } from '../utils/icons';
 import { getDateDaysAgo, getToday } from '../utils/date';
@@ -135,9 +137,32 @@ function SpendingPatternCard() {
 
 export default function Expense() {
   const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<ExpenseItem | undefined>();
+  const [recoveryId, setRecoveryId] = useState<string | undefined>();
+  const [dismissed, setDismissed] = useState('');
+  const [routeSnapshot, setRouteSnapshot] = useState<{ key: string; item: ExpenseItem } | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const items = useExpenseStore((state) => state.items);
+  const loaded = useExpenseStore((state) => state.loaded);
+  const recordId = new URLSearchParams(location.search).get('record');
+  const target = recordId ? items.find((item) => item.id === recordId) : undefined;
+  const requestKey = `${location.key}:${recordId ?? ''}`;
+  if (loaded && target && routeSnapshot?.key !== requestKey) setRouteSnapshot({ key: requestKey, item: target });
+  const requestedItem = loaded && dismissed !== requestKey && routeSnapshot?.key === requestKey ? routeSnapshot.item : undefined;
+  const source = (location.state as { returnTo?: { path?: string; label?: string } } | null)?.returnTo;
+  const closeEditor = () => {
+    setEditing(undefined); setShowModal(false); setRecoveryId(undefined); setDismissed(requestKey);
+    const id = editing?.id ?? target?.id;
+    if (id) window.setTimeout(() => { const row = document.getElementById(`expense-record-${id}`); row?.scrollIntoView({ block: 'center' }); row?.focus(); }, 250);
+  };
 
   return (
     <div className="w-full">
+      {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← 返回{source.label || '来源'}</Button>}
+      {recordId && !loaded && <p role="status">正在查找这条记录…</p>}
+      {recordId && loaded && !target && <section role="status" className="mb-4 space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这条记录。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
+      {target && dismissed === requestKey && <Button variant="soft" onClick={() => setEditing(target)}>重新打开选中的记录</Button>}
       <PageHeader
         icon={Receipt}
         gradient="from-[#FF9A56] to-[#FF6B8A]"
@@ -147,7 +172,7 @@ export default function Expense() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => setShowModal(true)}
+            onClick={() => { setDismissed(requestKey); setShowModal(true); }}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
             aria-label="添加花销"
           >
@@ -174,12 +199,12 @@ export default function Expense() {
                 <h3 className="text-[13px] font-bold text-[var(--text-1)]">全部记录</h3>
               </div>
             </div>
-            <ExpenseDetail />
+            <ExpenseDetail onEdit={(item) => { setDismissed(requestKey); setEditing(item); }} />
           </div>
         </div>
       </div>
 
-      <AddExpenseModal open={showModal} onClose={() => setShowModal(false)} />
+      <AddExpenseModal key={editing?.id ?? requestedItem?.id ?? recoveryId ?? 'new'} open={showModal || Boolean(editing || requestedItem || recoveryId)} item={editing ?? requestedItem} draftId={recoveryId} onClose={closeEditor} />
     </div>
   );
 }

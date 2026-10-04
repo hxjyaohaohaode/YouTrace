@@ -102,3 +102,7 @@ Phase 1 的严重同步风险与 Phase 2/3 的最小数据基础存在依赖，�
 ## 每次会话交接
 
 先读本文件 → 看最新报告/计划 → 核对 branch/status/HEAD → 区分已提交、用户修改和外部状态 → 明确本轮范围 → 完成验证后记录准确结果。旧审计结论需标 `CONFIRMED / PARTIALLY CONFIRMED / OUTDATED / NOT FOUND / NEW ISSUE`，代码证据与线上证据分开。
+
+## 2026-10-04 原始用户任务首包（候选，待真实界面复验）
+
+完整全仓审读和独立新UI红基线后，当前优先“原文→可改候选→明确选择→持久回执→精确纠错→返回”整链。实现、兼容与未验证边界见 [CAPTURE_CORRECTION_PACKAGE.md](CAPTURE_CORRECTION_PACKAGE.md)。新Todo.completedAt为nullable事实时间，不推断旧完成日期；预算未设置/旧值待核对/显式设置分开。旧共享恢复包没有混入此次候选。新UI工件和独立产品审查未完成前，不能把单元或类型通过写成产品可上线。

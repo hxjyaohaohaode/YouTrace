@@ -1,6 +1,7 @@
 import { api, isLoggedIn } from './apiClient';
 import { db, generateLocalId, getSetting, LOCAL_DATA_EPOCH_KEY, type OutboxRecord, type SyncEntity } from '../db';
 import { toast } from './toastBus';
+import { recordSyncPayload, isSafeFrozenPayload } from './recordPayloads';
 import { goalSyncPayload } from './goalPayload';
 
 const CURSOR_KEY = 'syncV2Cursor';
@@ -45,7 +46,7 @@ function scheduleFlush(delay: number) {
 }
 
 export async function enqueueSync(entity: SyncEntity, op: 'upsert' | 'delete', payload: unknown): Promise<void> {
-  const row: OutboxRecord = { entity, op, payload: entity === 'goals' && op === 'upsert' ? goalSyncPayload(payload) : payload, queuedAt: Date.now(), status: 'pending', attempts: 0 };
+  const row: OutboxRecord = { entity, op, payload: op === 'upsert' ? entity === 'goals' ? goalSyncPayload(payload) : entity === 'expenses' || entity === 'todos' ? recordSyncPayload(entity, payload) : payload : payload, queuedAt: Date.now(), status: 'pending', attempts: 0 };
   const key = recordKey(row);
   row.baseVersion = await getSetting<string>(versionKey(key), '0');
   row.predecessorSeq = (await db.outbox.orderBy('seq').toArray()).filter((previous) => recordKey(previous) === key).at(-1)?.seq;
@@ -63,7 +64,15 @@ export function pauseSync(): void {
 async function prepareBatch(): Promise<FrozenBatch | null> {
   return db.transaction('rw', db.outbox, db.settings, async () => {
     const frozen = await getSetting<FrozenBatch | null>(BATCH_KEY, null);
-    if (frozen) return frozen;
+    if (frozen) {
+      if (!isSafeFrozenPayload(frozen.payload)) {
+        await db.settings.put({ key: 'syncV2LocalBlock', value: { reason: 'unreviewed-fields', at: Date.now() } });
+        for (const seq of frozen.seqs) if (await db.outbox.get(seq)) await db.outbox.update(seq, { status: 'blocked', lastStatus: 400 });
+        return null;
+      }
+      await db.settings.delete('syncV2LocalBlock');
+      return frozen;
+    }
     const ops = await db.outbox.orderBy('seq').toArray();
     const latest = new Map<string, OutboxRecord>();
     for (const row of ops) latest.set(recordKey(row), row);
@@ -80,7 +89,9 @@ async function prepareBatch(): Promise<FrozenBatch | null> {
       const baseVersion = row.baseVersion ?? '0';
       const candidate = structuredClone(payload);
       if (row.op === 'upsert') {
-        ((candidate[row.entity] ??= []) as unknown[]).push({ ...(row.entity === 'goals' ? goalSyncPayload(row.payload) : row.payload as object), baseVersion });
+        try {
+          ((candidate[row.entity] ??= []) as unknown[]).push({ ...(row.entity === 'goals' ? goalSyncPayload(row.payload) : row.entity === 'expenses' || row.entity === 'todos' ? recordSyncPayload(row.entity, row.payload) : row.payload as object), baseVersion });
+        } catch { await db.outbox.update(row.seq!, { status: 'blocked', lastStatus: 400 }); continue; }
       } else {
         const deletions = (candidate.deletions ??= {}) as Record<string, unknown[]>;
         (deletions[DELETE_KEYS[row.entity]] ??= []).push({ id: String(row.payload), baseVersion });
@@ -174,16 +185,16 @@ function localRow(event: SyncEvent): Record<string, unknown> {
   delete row.userId;
   for (const field of ['createdAt', 'updatedAt']) if (field in row) row[field] = millis(row[field]);
   if (event.entity === 'goals') row.syncScope = 'account';
-  if (event.entity === 'todos' && !row.dueDate) row.dueDate = undefined;
+  if (event.entity === 'todos') { if (!row.dueDate) row.dueDate = undefined; row.completedAt = row.completedAt == null ? null : millis(row.completedAt, NaN); if (!Number.isFinite(row.completedAt)) row.completedAt = null; }
   if (event.entity === 'habitCheckins') { row.confirmed = row.confirmed ?? true; row.aiReason = row.aiReason ?? undefined; }
-  if (event.entity === 'diaries') { row.quickNoteIds = []; row.moodScore = row.moodScore ?? 5; row.aiInsight = row.aiInsight ?? undefined; }
+  if (event.entity === 'diaries') { row.quickNoteIds = []; row.moodScore = row.moodScore ?? null; row.aiInsight = row.aiInsight ?? undefined; }
   if (event.entity === 'quickNotes') {
     const parsed = (row.parsed && typeof row.parsed === 'object' ? row.parsed : {}) as Record<string, unknown>;
     return {
-      id: event.entityId, rawInput: row.content, createdAt: typeof row.timestamp === 'string' && /^\d+$/.test(row.timestamp) ? Number(row.timestamp) : millis(row.timestamp),
+      id: event.entityId, rawInput: row.content, confirmed: row.confirmed === true, captureContext: parsed.captureContext, createdAt: typeof row.timestamp === 'string' && /^\d+$/.test(row.timestamp) ? Number(row.timestamp) : millis(row.timestamp),
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [], diary: typeof parsed.diary === 'string' ? parsed.diary : null,
-      mood: parsed.mood ?? null, moodScore: parsed.moodScore ?? 5, habits: Array.isArray(parsed.habits) ? parsed.habits : [],
-      todos: Array.isArray(parsed.todos) ? parsed.todos.map((item: unknown, index: number) => typeof item === 'string' ? { id: `todo-${index}`, text: item, confirmed: true } : item) : [],
+      mood: parsed.mood ?? null, moodScore: parsed.moodScore ?? null, habits: Array.isArray(parsed.habits) ? parsed.habits : [],
+      todos: Array.isArray(parsed.todos) ? parsed.todos.map((item: unknown, index: number) => typeof item === 'string' ? { id: `todo-${index}`, text: item, confirmed: row.confirmed === true } : item) : [],
       legacyParsed: parsed.legacyRaw,
     };
   }
@@ -197,7 +208,11 @@ async function applyEvent(event: SyncEvent) {
     if (event.entity === 'habits') await db.habitCheckins.where('habitId').equals(event.entityId).delete();
   } else {
     if (!event.data || typeof event.data !== 'object') throw new Error('同步记录不完整，未推进游标');
-    await table.put(localRow(event));
+    const row = localRow(event);
+    // Server diary payloads do not carry device provenance. Preserve the local
+    // source links on same-record pulls instead of silently erasing them.
+    if (event.entity === 'diaries') { const previous = await table.get(event.entityId); row.quickNoteIds = Array.isArray(previous?.quickNoteIds) ? previous.quickNoteIds : []; }
+    await table.put(row);
   }
   await db.settings.put({ key: versionKey(`${event.entity}:${event.entityId}`), value: event.seq });
 }

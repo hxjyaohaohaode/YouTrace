@@ -51,7 +51,7 @@ todoRoutes.patch('/:id/toggle', async (c) => {
   const id = c.req.param('id')
 
   const changed = await prisma.$executeRaw`
-    UPDATE "Todo" SET "done" = NOT "done", "updatedAt" = ${new Date()}
+    UPDATE "Todo" SET "done" = NOT "done", "completedAt" = CASE WHEN "done" THEN NULL ELSE ${new Date()} END, "updatedAt" = ${new Date()}
     WHERE "id" = ${id} AND "userId" = ${user.id}
   `
 

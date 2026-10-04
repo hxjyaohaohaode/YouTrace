@@ -69,7 +69,7 @@ export function decodeChangePayload(entity: string, payload: string | null): Rec
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid sync change payload')
   const row = value as Record<string, unknown>
   for (const key of ['done', 'confirmed', 'isIncome']) if (key in row) row[key] = Boolean(row[key])
-  for (const key of ['createdAt', 'updatedAt']) {
+  for (const key of ['createdAt', 'updatedAt', 'completedAt']) {
     const value = row[key]
     if (typeof value === 'string' || typeof value === 'number') {
       const utcValue = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value) ? `${value.replace(' ', 'T')}Z` : value

@@ -1,16 +1,16 @@
 import { LegacyDataNotice } from './LegacyDataNotice';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useOutlet, useLocation } from 'react-router-dom';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { DesktopSidebar } from './DesktopSidebar';
 import { TabletSidebar } from './TabletSidebar';
 import { BottomNav } from './BottomNav';
-import { AnimatePresence, motion } from 'framer-motion';
 
 export function AppLayout() {
   const isDesktop = useMediaQuery('(min-width: 1025px)');
   const isTablet = useMediaQuery('(min-width: 769px) and (max-width: 1024px)');
   const isMobile = !isDesktop && !isTablet;
   const location = useLocation();
+  const outlet = useOutlet();
   const immersive = ['/quick-note', '/quick-note/result'].includes(location.pathname);
 
   return (
@@ -23,20 +23,17 @@ export function AppLayout() {
           !immersive && isDesktop ? 'ml-[260px]' : !immersive && isTablet ? 'ml-[76px]' : ''
         } ${isMobile && !immersive ? 'pb-24' : 'pb-8'}`}
       >
-        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12">
-          <LegacyDataNotice />
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        {/* A live Outlet in an exiting transformed parent can mount the new
+            fixed capture page inside a zero-height, transparent old route.
+            Keep the route surface stable; each feature owns its transitions. */}
+        {immersive ? (
+          <div data-route-surface="capture">{outlet}</div>
+        ) : (
+          <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12" data-route-surface="workspace">
+            <LegacyDataNotice />
+            {outlet}
+          </div>
+        )}
       </main>
 
       {isMobile && !immersive && <BottomNav />}

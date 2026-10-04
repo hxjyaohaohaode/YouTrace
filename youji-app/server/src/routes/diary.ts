@@ -9,8 +9,8 @@ export const diaryRoutes = new Hono()
 const diarySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   content: z.string().trim().min(1).max(10000),
-  mood: z.string().trim().max(30).optional(),
-  moodScore: z.number().int().min(1).max(10).optional(),
+  mood: z.string().trim().max(30).nullable().optional(),
+  moodScore: z.number().int().min(1).max(10).nullable().optional(),
   source: z.string().trim().max(30).default('manual'),
   aiInsight: z.string().trim().max(2000).optional(),
 }).strict()

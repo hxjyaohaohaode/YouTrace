@@ -116,7 +116,7 @@ async function computeMoodStats() {
   const cutoff = addDays(getToday(), -6);
   const diaries = await db.diary.where('date').between(cutoff, getToday(), true, true).toArray();
   const scored = diaries
-    .filter((d) => Number.isFinite(d.moodScore) && d.moodScore >= 1 && d.moodScore <= 10)
+    .filter((d) => typeof d.moodScore === 'number' && Number.isFinite(d.moodScore) && d.moodScore >= 1 && d.moodScore <= 10)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (scored.length === 0) return { count: diaries.length, avg: null, trend: null as WeeklyStats['moodTrend'] };

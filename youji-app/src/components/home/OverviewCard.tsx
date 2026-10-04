@@ -23,6 +23,7 @@ interface OverviewItem {
 export function OverviewCard() {
   const navigate = useNavigate();
   const expenses = useExpenseStore((s) => s.items);
+  const budgetStatus = useExpenseStore((s) => s.budgetStatus);
   const monthBudget = useExpenseStore((s) => s.monthBudget);
   const habits = useHabitStore((s) => s.items);
   const diaries = useDiaryStore((s) => s.items);
@@ -74,6 +75,7 @@ export function OverviewCard() {
       icon: Wallet,
       label: '本月花销',
       ...overview.expense,
+      sub: budgetStatus === 'unset' ? '预算未设置，可按需设置' : budgetStatus === 'unknown' ? `原预算 ¥${(monthBudget / 100).toLocaleString('zh-CN')}，待核对` : overview.expense.sub,
       color: '#E8853D',
       gradient: 'from-[#FF9A56] to-[#FF6B8A]',
       path: '/expense',

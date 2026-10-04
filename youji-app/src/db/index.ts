@@ -45,7 +45,7 @@ export interface DiaryRecord {
   date: string;
   content: string;
   mood: string | null;
-  moodScore: number;
+  moodScore: number | null;
   source: 'manual' | 'ai_generated' | 'quicknote_aggregated';
   quickNoteIds: string[];
   aiInsight?: string;

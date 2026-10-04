@@ -9,7 +9,7 @@ import { parseQuickNote } from '../services/parser.js'
 export const quickNoteRoutes = new Hono()
 
 const quickNoteSchema = z.object({
-  content: z.string().trim().min(1).max(5000),
+  content: z.string().min(1).max(5000).refine(value => value.trim().length > 0, '内容不能为空'),
   timestamp: z.number().int().safe().nonnegative(),
 }).strict()
 

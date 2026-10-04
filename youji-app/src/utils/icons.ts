@@ -26,7 +26,7 @@ const zhToCanonicalCategory: Record<string, ExpenseCategoryKey> = {
 };
 
 export function normalizeExpenseCategory(category: string): ExpenseCategoryKey {
-  if (category in zhToCanonicalCategory) {
+  if (Object.hasOwn(zhToCanonicalCategory, category)) {
     return zhToCanonicalCategory[category];
   }
   const knownKeys = new Set<string>(Object.keys(expenseCategoryIcons));

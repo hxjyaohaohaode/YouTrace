@@ -1,190 +1,82 @@
-import { useState, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { UtensilsCrossed, Car, Gamepad2, BookOpen, ShoppingCart, Package, Check } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { useExpenseStore } from '../../stores/expenseStore';
+import { Input } from '../ui/Input';
+import { parseYuanToFen, sameExpenseSnapshot, useExpenseStore, type ExpenseItem } from '../../stores/expenseStore';
+import { generateLocalId } from '../../db';
 import { expenseCategoryIcons, EXPENSE_CATEGORY_KEYS } from '../../utils/icons';
 import { toast } from '../../services/toastBus';
 import { getToday } from '../../utils/date';
+import { useExpenseEditorDraft } from './useExpenseEditorDraft';
 
-const categoryComponents: Record<string, typeof UtensilsCrossed> = {
-  food: UtensilsCrossed,
-  transport: Car,
-  entertainment: Gamepad2,
-  study: BookOpen,
-  daily: ShoppingCart,
-  other: Package,
-};
+interface AddExpenseModalProps { open: boolean; onClose: () => void; item?: ExpenseItem; draftId?: string }
+interface ExpenseForm { id: string; name: string; amount: string; category: string; date: string; isIncome: boolean; base: ExpenseItem | null }
 
-const MAX_AMOUNT_FEN = 100_000_000_00;
-
-interface AddExpenseModalProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-export function AddExpenseModal({ open, onClose }: AddExpenseModalProps) {
-  const savingGuard = useRef(false);
+function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'open'>) {
+  const draft = useExpenseEditorDraft<ExpenseForm>(item?.id ?? draftId ?? 'new', { id: item?.id ?? generateLocalId(), name: item?.name ?? '', amount: item ? (item.amount / 100).toFixed(2) : '', category: item?.category ?? 'food', date: item?.date ?? getToday(), isIncome: Boolean(item?.isIncome), base: item ?? null });
   const [saving, setSaving] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('food');
-  const [name, setName] = useState('');
-  const [isIncome, setIsIncome] = useState(false);
-  const addItem = useExpenseStore((s) => s.addItem);
-
-  const parsedYuan = parseFloat(amount);
-  const fenValue = Number.isFinite(parsedYuan) ? Math.round(parsedYuan * 100) : 0;
-  const amountValid = fenValue > 0 && fenValue <= MAX_AMOUNT_FEN;
-
-  const handleSave = async () => {
-    if (savingGuard.current) return;
-    if (!amountValid) {
-      toast.error(isIncome ? '请输入有效的收入金额' : '请输入有效的金额（大于0）');
-      return;
-    }
-
-    const label = expenseCategoryIcons[category]?.label ?? '其他';
-
-    savingGuard.current = true;
-    setSaving(true);
-    try {
-      await addItem({
-        name: (name.trim() || label).slice(0, 100),
-        amount: fenValue,
-        category,
-        date: getToday(),
-        isIncome,
-      });
-      setAmount('');
-      setName('');
-      setCategory('food');
-      setIsIncome(false);
-      onClose();
-    } catch {
-      toast.error('保存失败，输入已保留，请重试');
-    } finally { savingGuard.current = false; setSaving(false); }
+  const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleted, setDeleted] = useState(Boolean(draftId));
+  const copyId = useRef(generateLocalId());
+  const guard = useRef(false);
+  const firstInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (draft.ready) firstInput.current?.focus(); }, [draft.ready, deleted]);
+  const current = useExpenseStore((state) => state.items.find((row) => row.id === item?.id));
+  const form = draft.value;
+  const stale = !deleted && Boolean(item && (!current || !form.base || !sameExpenseSnapshot(current, form.base)));
+  const amount = parseYuanToFen(form.amount);
+  const update = (patch: Partial<ExpenseForm>) => { if (guard.current) return; draft.update({ ...form, ...patch }); setError(''); setConfirmDelete(false); };
+  const close = async () => {
+    if (guard.current) return;
+    if (!draft.ready) { onClose(); return; }
+    try { await draft.prepare(); onClose(); }
+    catch { setError('草稿尚未保留，暂未关闭以免丢失输入。请重试保留草稿，或先复制输入'); }
   };
-
-  return (
-    <Modal open={open} onClose={onClose} title="记一笔" footer={
-      <>
-        <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
-        <Button size="sm" onClick={() => void handleSave()} disabled={!amountValid || saving}>{saving ? '保存中…' : '保存'}</Button>
-      </>
-    }>
-      <div className="space-y-5">
-        <div className="py-4 text-center">
-          <motion.p
-            key={amount}
-            initial={{ scale: 0.95, opacity: 0.5 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="font-mono text-5xl font-extrabold tracking-tight text-[var(--text-1)]"
-          >
-            ¥{amount || '0'}
-          </motion.p>
-          <label htmlFor="expense-amount" className="sr-only">金额</label>
-          <input
-            id="expense-amount"
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            aria-invalid={Boolean(amount) && !amountValid}
-            className={`mt-3 w-full bg-transparent text-center text-xl outline-none placeholder:text-[var(--text-3)] ${amount && !amountValid ? 'text-[var(--danger)]' : 'text-[var(--text-1)]'}`}
-            autoFocus
-          />
-          {Boolean(amount) && !amountValid && (
-            <p role="alert" className="mt-1 text-xs text-[var(--danger)]">金额需大于 0 且不超过一亿</p>
-          )}
-        </div>
-
-        <div className="flex rounded-full bg-[var(--surface-2)] p-1" role="radiogroup" aria-label="收支类型">
-          <button
-            type="button"
-            onClick={() => setIsIncome(false)}
-            aria-checked={!isIncome}
-            role="radio"
-            className={`flex-1 rounded-full py-2.5 text-sm font-semibold transition-all duration-200 ${
-              !isIncome ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-[var(--shadow-xs)]' : 'text-[var(--text-3)]'
-            }`}
-          >
-            支出
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsIncome(true)}
-            aria-checked={isIncome}
-            role="radio"
-            className={`flex-1 rounded-full py-2.5 text-sm font-semibold transition-all duration-200 ${
-              isIncome ? 'bg-[var(--surface)] text-[var(--success)] shadow-[var(--shadow-xs)]' : 'text-[var(--text-3)]'
-            }`}
-          >
-            收入
-          </button>
-        </div>
-
-        {!isIncome && (
-          <div>
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-3)]">分类</p>
-            <div className="grid grid-cols-6 gap-2 sm:gap-3" role="radiogroup" aria-label="支出分类">
-              {EXPENSE_CATEGORY_KEYS.map((key) => {
-                const cat = expenseCategoryIcons[key];
-                const Icon = categoryComponents[key] ?? Package;
-                const isSelected = category === key;
-                return (
-                  <motion.button
-                    key={key}
-                    whileTap={{ scale: 0.95 }}
-                    type="button"
-                    onClick={() => setCategory(key)}
-                    aria-checked={isSelected}
-                    role="radio"
-                    aria-label={cat.label}
-                    className={`relative flex flex-col items-center gap-2 rounded-[var(--radius-lg)] border p-2 transition-all duration-200 sm:p-3 ${
-                      isSelected
-                        ? 'border-2 border-[var(--primary)]/30 bg-gradient-to-br from-[var(--primary-soft)] to-[var(--primary-muted)]'
-                        : 'border-transparent bg-[var(--surface-2)] hover:bg-[var(--border)]'
-                    }`}
-                  >
-                    <div
-                      className="flex h-9 w-9 items-center justify-center rounded-xl sm:h-10 sm:w-10"
-                      style={{ background: `linear-gradient(135deg, ${cat.color}20, ${cat.color}08)` }}
-                    >
-                      <Icon size={17} style={{ color: isSelected ? cat.color : `${cat.color}80` }} aria-hidden />
-                    </div>
-                    <span className={`text-[11px] font-semibold ${isSelected ? 'text-[var(--primary)]' : 'text-[var(--text-2)]'}`}>
-                      {cat.label}
-                    </span>
-                    {isSelected && (
-                      <motion.span
-                        layoutId="categoryCheck"
-                        className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--primary)] shadow-[var(--shadow-xs)]"
-                      >
-                        <Check size={10} className="text-white" aria-hidden />
-                      </motion.span>
-                    )}
-                  </motion.button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <div>
-          <label htmlFor="expense-name" className="mb-1 block text-xs font-medium text-[var(--text-3)]">备注</label>
-          <input
-            id="expense-name"
-            value={name}
-            onChange={(e) => setName(e.target.value.slice(0, 100))}
-            maxLength={100}
-            placeholder="备注（可选）"
-            className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8 placeholder:text-[var(--text-3)]"
-          />
-        </div>
-      </div>
-    </Modal>
-  );
+  const save = async () => {
+    if (guard.current || !draft.ready || amount === null) return;
+    guard.current = true; setSaving(true); setError('');
+    try {
+      const context = await draft.prepare();
+      const values = { name: form.name.trim() || expenseCategoryIcons[form.category]?.label || '其他', amount, category: form.category, date: form.date, isIncome: form.isIncome };
+      if (item && form.base && !deleted) await useExpenseStore.getState().updateItem(item.id, values, form.base, context);
+      else await useExpenseStore.getState().addItem(values, deleted ? copyId.current : form.id, context);
+      toast.success(deleted ? '已另存为新记录' : '记账已保存到本机'); onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : '未保存，输入已保留，请重试'); }
+    finally { guard.current = false; setSaving(false); }
+  };
+  const remove = async () => {
+    if (guard.current || !item || !form.base) return;
+    guard.current = true; setSaving(true); setError('');
+    try {
+      draft.update(form);
+      const context = await draft.prepare();
+      await useExpenseStore.getState().removeItem(item.id, form.base, context);
+      setDeleted(true); setConfirmDelete(false); toast.success('记录已删除，编辑稿保留');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : '删除未完成，输入已保留'); }
+    finally { guard.current = false; setSaving(false); }
+  };
+  return <Modal open onClose={close} title={deleted ? '已删除记录的编辑稿' : item ? '编辑记账' : '记一笔'} className="max-h-[90dvh] overflow-y-auto" footer={<>
+    {item && !deleted && <Button variant="ghost" onClick={() => setConfirmDelete(true)} disabled={saving || !draft.ready}>删除</Button>}
+    <Button variant="ghost" onClick={close} disabled={saving}>取消（保留草稿）</Button>
+    <Button onClick={() => void save()} disabled={saving || !draft.ready || stale || amount === null || Boolean(draftId && !draft.restored)}>{saving ? '保存中…' : deleted ? '另存为新记录' : '保存'}</Button>
+  </>}>
+    <div className="space-y-4">
+      <p className="text-xs text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复未提交编辑稿；保存前不会修改记账' : '取消会保留本机草稿，不修改记账'}</p>
+      {deleted && <p role="status" className="text-sm">原记录已不存在，不会恢复已删除的编号。{draftId && !draft.loading && !draft.restored ? '未找到这条记录的本机草稿。' : '可检查编辑稿后另存为一笔新记录。'}</p>}
+      {(draft.error || error) && <div role="alert" className="text-sm text-[var(--danger)]">{error || draft.error}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
+      {stale && <div role="alert" className="space-y-2 rounded-lg bg-[var(--surface-2)] p-3 text-sm">记录已有更新或被删除，你的编辑稿仍保留{current && <><p className="break-words">最新记录：{current.name} · {current.date} · {current.isIncome ? '收入' : '支出'} ¥{(current.amount / 100).toFixed(2)} · {expenseCategoryIcons[current.category]?.label || current.category}</p><Button variant="soft" onClick={() => update({ base: current })}>已核对，继续使用我的编辑稿</Button></>}</div>}
+      <fieldset disabled={saving || !draft.ready || Boolean(draftId && !draft.restored)} className="space-y-4">
+        <Input id="expense-amount" ref={firstInput} label="金额（人民币元）*" inputMode="decimal" value={form.amount} onChange={(event) => update({ amount: event.target.value })} placeholder="0.00" error={form.amount && amount === null ? '请输入大于 0 的金额，最多两位小数，不超过一亿元' : undefined} />
+        <div className="flex flex-wrap gap-3" role="group" aria-label="收支类型"><Button variant={form.isIncome ? 'soft' : 'primary'} aria-pressed={!form.isIncome} onClick={() => update({ isIncome: false })}>支出</Button><Button variant={form.isIncome ? 'primary' : 'soft'} aria-pressed={form.isIncome} onClick={() => update({ isIncome: true })}>收入</Button></div>
+        <label className="block text-sm font-semibold">分类<select aria-label="记账分类" value={form.category} onChange={(event) => update({ category: event.target.value })} className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3">{EXPENSE_CATEGORY_KEYS.map((key) => <option key={key} value={key}>{expenseCategoryIcons[key].label}</option>)}</select></label>
+        <Input id="expense-name" label="名称 / 备注" value={form.name} onChange={(event) => update({ name: event.target.value })} maxLength={100} placeholder="如：午饭、交通、工资" />
+        <Input id="expense-date" label="记账日期 *" type="date" value={form.date} onChange={(event) => update({ date: event.target.value })} />
+        <p className="text-xs text-[var(--text-3)]">{form.date || '请选择日期'} · {form.isIncome ? '收入' : '支出'} {amount === null ? '金额待确认' : `CNY ¥${(amount / 100).toFixed(2)}`}</p>
+      </fieldset>
+      {confirmDelete && <section className="space-y-3 rounded-xl border border-[var(--danger)] p-3" aria-label="确认删除记账"><p className="break-words text-sm">删除「{item?.name}」？删除会同步，不能撤销为原记录。当前编辑稿会保留，可另存为新记录。</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={saving}>保留记录</Button><Button variant="danger" onClick={() => void remove()} disabled={saving || stale}>确认删除</Button></div></section>}
+    </div>
+  </Modal>;
 }
+
+export function AddExpenseModal({ open, ...props }: AddExpenseModalProps) { return open ? <ExpenseEditor {...props} /> : null; }

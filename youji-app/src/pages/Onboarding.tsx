@@ -29,7 +29,7 @@ const onboardingSteps = [
   {
     icon: Shield,
     title: '数据只属于你',
-    description: '游客记录保存在当前浏览器；登录后支持的记录会同步到账号。使用在线 AI 教练时，消息和相关数据摘要会发送到服务端及配置的模型服务。',
+    description: '当前版本需要登录。输入草稿先保留在本机，确认保存的记录才会同步到你的账号。使用在线 AI 教练时，消息和相关数据摘要会发送到服务端及配置的模型服务。',
     color: '#D99A2B',
     bgClass: 'bg-gradient-to-br from-[#D99A2B]/20 via-[var(--bg)] to-[#E8853D]/10',
   },

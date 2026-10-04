@@ -110,7 +110,7 @@ test('fake IndexedDB: capture confirmation is atomic, idempotent and appends dia
   const { applyCaptureDraft } = await import('../src/services/quickNoteIntegration.ts');
   const { getToday } = await import('../src/utils/date.ts');
   await current.diary.put({ id: 'capture-diary-001', date: getToday(), content: 'original diary', mood: null, moodScore: 5, source: 'manual', quickNoteIds: [], createdAt: 1, updatedAt: 1 });
-  const draft = { id: 'capture-idempotent-001', input: 'unreviewed input', expenses: [{ id: 'expense-draft-001', name: 'edited name', amount: 1234, category: 'food', confirmed: true }], habits: [], todos: [{ id: 'todo-draft-001', text: 'edited task', confirmed: true }], diary: 'reviewed addition', mood: null, moodScore: 5 };
+  const draft = { id: 'capture-idempotent-001', input: 'unreviewed input', expenses: [{ id: 'expense-draft-001', name: 'edited name', amount: 1234, category: 'food', confirmed: true, date: getToday(), currency: 'CNY' as const }], diaryDate: getToday(), habits: [], todos: [{ id: 'todo-draft-001', text: 'edited task', confirmed: true }], diary: 'reviewed addition', mood: null, moodScore: 5 };
   const first = await applyCaptureDraft(draft);
   assert.equal(first.expenseCount, 1);
   assert.equal((await current.quickNotes.get(draft.id))?.expenses[0].name, 'edited name');
@@ -136,11 +136,14 @@ test('fake IndexedDB: confirming old capture cannot erase or overwrite another t
   await saveCaptureDraft({ ...a, input: 'tab A edited source' });
   assert.equal((await loadCaptureDraft())?.id, b.id);
   assert.equal((await loadCaptureDraft(a.id))?.input, 'tab A edited source');
-  await applyCaptureDraft(a);
+  // A stale preview must fork rather than overwrite A's newer edited review.
+  await assert.rejects(applyCaptureDraft(a), /另存为草稿/);
+  await applyCaptureDraft((await loadCaptureDraft(a.id))!);
   assert.equal((await loadCaptureDraft())?.id, b.id);
   assert.equal((await loadCaptureDraft(b.id))?.input, b.input);
   assert.equal((await current.settings.get('quicknote_draft'))?.value, b.input);
-  await saveCaptureDraft(a);
+  const lateCopy = await saveCaptureDraft(a);
+  assert.notEqual(lateCopy, a.id, 'late differing autosave is preserved separately');
   assert.equal(await loadCaptureDraft(a.id), null, 'late autosave cannot resurrect confirmed draft');
 });
 

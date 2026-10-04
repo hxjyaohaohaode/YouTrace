@@ -175,3 +175,32 @@ test('real API + fake IndexedDB: accepting a stale goal comparison never consume
   assert.equal((await storage.db.goalRecords.get(goalId))?.progress, 100);
   assert.equal(await storage.db.outbox.count(), 2);
 });
+
+test('real API + fake IndexedDB: completion time survives event replay, clear rebuild and undo without inventing legacy dates', async () => {
+  const { useTodoStore } = await import('../src/stores/todoStore.ts');
+  // Resolve the previous test's deliberately preserved conflict before this independent fixture.
+  const oldConflict = 'sync-conflict:goals:roundtrip-goal-collision-001';
+  await sync.acceptRemoteConflict(oldConflict, (await sync.readConflictSnapshot(oldConflict))!);
+  const id = 'completion-time-todo-001'; await createLocal(id, 'Synthetic completion time');
+  await useTodoStore.getState().loadFromDB(); sync.pauseSync(); await useTodoStore.getState().toggleTodo(id);
+  const completedAt = (await storage.db.todos.get(id))!.completedAt; assert.equal(typeof completedAt, 'number');
+  await sync.retryBlockedSync(); await sync.pullServerChanges();
+  assert.equal((await storage.db.todos.get(id))?.completedAt, completedAt);
+  const sql = await prisma.syncChange.findFirstOrThrow({ where: { entity: 'todos', entityId: id }, orderBy: { seq: 'desc' } });
+  assert.equal(Number(JSON.parse(sql.payload!).completedAt), completedAt);
+  sync.pauseSync(); await storage.clearAllData(); await sync.retryBlockedSync(); await sync.pullServerChanges();
+  assert.equal((await storage.db.todos.get(id))?.completedAt, completedAt, 'clean client rebuild uses the persisted change payload');
+  await useTodoStore.getState().loadFromDB(); sync.pauseSync(); await useTodoStore.getState().toggleTodo(id); await sync.retryBlockedSync(); await sync.pullServerChanges();
+  assert.equal((await storage.db.todos.get(id))?.done, false); assert.equal((await storage.db.todos.get(id))?.completedAt, null);
+  assert.equal((await prisma.todo.findUniqueOrThrow({ where: { id } })).completedAt, null);
+});
+
+test('real API + fake IndexedDB: original capture whitespace survives cloud replay exactly', async () => {
+  const capture = await import('../src/services/quickNoteIntegration.ts');
+  const input = await capture.forkCaptureInput(), original = '  Synthetic original line\n\tsecond line  \n';
+  await capture.saveCaptureInput(input, original); const draft = await capture.createCaptureDraft(original, input); draft.diary = null;
+  await capture.saveCaptureDraft(draft, true); sync.pauseSync(); await capture.applyCaptureDraft(draft); await sync.retryBlockedSync(); await sync.pullServerChanges();
+  assert.equal((await storage.db.quickNotes.get(draft.id))?.rawInput, original);
+  assert.equal((await prisma.quickNote.findUniqueOrThrow({ where: { id: draft.id } })).content, original);
+  assert.equal(await storage.db.settings.get(input.key), undefined);
+});
