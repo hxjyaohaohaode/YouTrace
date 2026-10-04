@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { liveQuery } from 'dexie';
 import { Wallet, CheckSquare, BookOpen, Calendar, Activity, NotebookPen, ChevronRight } from 'lucide-react';
+import { isStaticPageEntry } from '../lib/navigation';
 import { db } from '../db';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -15,7 +16,8 @@ export default function Timeline() {
   const range = ['7', '30', 'all'].includes(params.get('range') ?? '') ? params.get('range')! : '7';
   const limit = Math.min(100000, Math.max(60, Number(params.get('limit')) || 60)), recordId = params.get('record');
   const [data, setData] = useState<TimelineData | null>(null), [error, setError] = useState(''), [attempt, retry] = useState(0);
-  const restore = useRef(true), scrollKey = `${db.ownerId}:${location.pathname}${location.search}`;
+  const navigationType = useNavigationType();
+  const restore = useRef(!isStaticPageEntry(location.state, db.ownerId ?? '', '/timeline', navigationType)), scrollKey = `${db.ownerId}:${location.pathname}${location.search}`;
   useEffect(() => {
     const target = db;
     const subscription = liveQuery(() => target.transaction('r', [target.expenses, target.todos, target.habits, target.habitCheckins, target.diary, target.schedules, target.quickNotes], async () => ({ expenses: await target.expenses.toArray(), todos: await target.todos.toArray(), habits: await target.habits.toArray(), checkins: await target.habitCheckins.toArray(), diaries: await target.diary.toArray(), schedules: await target.schedules.toArray(), notes: await target.quickNotes.toArray() })) ).subscribe({ next: value => { setData(value); setError(''); }, error: () => setError('时间线暂时读不到本机记录，请重试。已有记录不会因此删除。') });

@@ -45,3 +45,15 @@ export function directoryOrigin(state: unknown, ownerId: string) {
   const value = state as Record<string, unknown>;
   return value.entry === 'youtrace-directory' && value.ownerId === ownerId ? navigationReturnTarget(value.from) : null;
 }
+
+/** Explicit plain-page navigation; precise record and immersive routes own their focus. */
+export function staticPageEntry(path: string, ownerId: string | undefined) {
+  return ownerId && path !== '/quick-note' && navigationReturnTarget(path)?.path === path && !path.includes('?') && !path.includes('#')
+    ? { entry: 'youtrace-static-page', path, ownerId }
+    : undefined;
+}
+export function isStaticPageEntry(state: unknown, ownerId: string, path: string, navigationType: string) {
+  if (navigationType !== 'PUSH' || !ownerId || !state || typeof state !== 'object' || Array.isArray(state) || !staticPageEntry(path, ownerId)) return false;
+  const value = state as Record<string, unknown>;
+  return value.entry === 'youtrace-static-page' && value.ownerId === ownerId && value.path === path;
+}

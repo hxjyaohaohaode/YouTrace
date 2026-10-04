@@ -1,4 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { staticPageEntry } from '../../lib/navigation';
+import { useAuthStore } from '../../stores/authStore';
 import { motion } from 'framer-motion';
 import {
   Home, Calendar, Mic, BarChart3, MessageCircle, BookOpen,
@@ -29,6 +31,7 @@ const items: NavItem[] = [
 export function TabletSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const ownerId = useAuthStore(state => state.user?.id);
 
   return (
     <aside
@@ -55,7 +58,7 @@ export function TabletSidebar() {
               key={item.path}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.92 }}
-              onClick={() => navigate(item.path)}
+              onClick={() => navigate(item.path, { state: staticPageEntry(item.path, ownerId) })}
               className={`relative mb-1 flex w-full flex-col items-center gap-1 py-2.5 transition-all duration-200 ${
                 isActive
                   ? 'text-[var(--primary)]'
@@ -68,7 +71,7 @@ export function TabletSidebar() {
               <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all ${isActive ? 'bg-gradient-to-br from-[var(--primary-soft)] to-[var(--primary-muted)]' : ''}`}>
                 <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
               </div>
-              <span className="text-[9px] font-medium">{item.label}</span>
+              <span className={`text-[11px] font-medium ${isActive ? 'text-[var(--text-1)]' : ''}`}>{item.label}</span>
               {isActive && (
                 <motion.div
                   layoutId="tabletSidebarIndicator"

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { destinations, destinationFor, isMoreDestination, navigationGroups, navigationReturnTarget, parseDirectoryPosition, directoryEntry, directoryOrigin } from '../src/lib/navigation';
+import { destinations, destinationFor, isMoreDestination, navigationGroups, navigationReturnTarget, parseDirectoryPosition, directoryEntry, directoryOrigin, staticPageEntry, isStaticPageEntry } from '../src/lib/navigation';
 import { ROUTE_IDS, clearDiagnostics, diagnosticSnapshot, recordDiagnostic } from '../src/services/diagnostics';
 
 test('feature directory exposes each actual business destination once and includes first-use tasks and data controls', () => {
@@ -35,4 +35,14 @@ test('only an app-entered directory state for the current account can use native
   assert.equal(directoryOrigin({ from: '/todo?record=old-id', ownerId: 'synthetic-owner-a' }, 'synthetic-owner-a'), null);
   assert.equal(directoryOrigin(state, ''), null); assert.equal(directoryEntry('/more', 'synthetic-owner-a'), undefined);
   assert.equal(directoryEntry('/todo', undefined), undefined);
+});
+
+test('only same-account explicit static PUSH may place the destination heading', () => {
+  const state = staticPageEntry('/settings', 'synthetic-owner-a');
+  assert.equal(isStaticPageEntry(state, 'synthetic-owner-a', '/settings', 'PUSH'), true);
+  for (const type of ['POP', 'REPLACE']) assert.equal(isStaticPageEntry(state, 'synthetic-owner-a', '/settings', type), false);
+  assert.equal(isStaticPageEntry(state, 'synthetic-owner-b', '/settings', 'PUSH'), false);
+  assert.equal(isStaticPageEntry(state, 'synthetic-owner-a', '/coach', 'PUSH'), false);
+  assert.equal(isStaticPageEntry({}, 'synthetic-owner-a', '/settings', 'PUSH'), false);
+  for (const path of ['/more', '/quick-note', '/quick-note/result', '/expense?record=synthetic', '//example.invalid']) assert.equal(staticPageEntry(path, 'synthetic-owner-a'), undefined);
 });

@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { directoryEntry, isMoreDestination } from '../../lib/navigation';
+import { directoryEntry, isMoreDestination, staticPageEntry } from '../../lib/navigation';
 import { useAuthStore } from '../../stores/authStore';
 import { Home, Calendar, Mic, BarChart3, Grid2X2 } from 'lucide-react';
 
@@ -41,7 +41,7 @@ export function BottomNav() {
               <button
                 key={item.path}
                 type="button"
-                onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : undefined); }}
+                onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : { state: staticPageEntry(item.path, ownerId) }); }}
                 aria-current={location.pathname === item.path ? 'page' : undefined}
                 className="relative -mt-7 flex flex-col items-center"
                 aria-label={item.label}
@@ -53,7 +53,7 @@ export function BottomNav() {
                 >
                   <Icon size={24} />
                 </motion.div>
-                <span className="mt-1 text-[10px] font-bold text-[var(--primary)]">{item.label}</span>
+                <span className="mt-1 text-[11px] font-bold text-[var(--text-1)]">{item.label}</span>
               </button>
             );
           }
@@ -61,7 +61,7 @@ export function BottomNav() {
           return (
             <button
               key={item.path}
-              onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : undefined); }}
+              onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : { state: staticPageEntry(item.path, ownerId) }); }}
               className="relative flex flex-col items-center gap-1 px-4 py-2"
               aria-label={item.label}
               aria-current={location.pathname === item.path ? 'page' : undefined}
@@ -73,7 +73,7 @@ export function BottomNav() {
                   className={`transition-colors duration-200 ${isActive ? 'text-[var(--primary)]' : 'text-[var(--text-3)]'}`}
                 />
               </div>
-              <span className={`text-[10px] transition-colors duration-200 ${isActive ? 'text-[var(--primary)] font-bold' : 'text-[var(--text-3)] font-medium'}`}>
+              <span className={`text-[11px] transition-colors duration-200 ${isActive ? 'text-[var(--text-1)] font-bold' : 'text-[var(--text-3)] font-medium'}`}>
                 {item.label}
               </span>
             </button>

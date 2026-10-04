@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { StaticPageEntry } from '../components/layout/StaticPageEntry';
 import { AppLayout } from '../components/layout/AppLayout';
 import { useAuthStore } from '../stores/authStore';
 
@@ -57,19 +58,19 @@ export function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-          <Route path="/" element={<FirstVisitGate><Home /></FirstVisitGate>} />
-          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/" element={<StaticPageEntry path="/"><FirstVisitGate><Home /></FirstVisitGate></StaticPageEntry>} />
+          <Route path="/schedule" element={<StaticPageEntry path="/schedule"><Schedule /></StaticPageEntry>} />
           <Route path="/quick-note" element={<QuickNote />} />
           <Route path="/quick-note/result" element={<QuickNoteResult />} />
-          <Route path="/expense" element={<Expense />} />
-          <Route path="/habit" element={<Habit />} />
-          <Route path="/todo" element={<Todo />} />
-          <Route path="/diary" element={<Diary />} />
-          <Route path="/coach" element={<Coach />} />
-          <Route path="/insights" element={<CoachInsights />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/goal" element={<Goal />} />
-          <Route path="/timeline" element={<Timeline />} />
+          <Route path="/expense" element={<StaticPageEntry path="/expense"><Expense /></StaticPageEntry>} />
+          <Route path="/habit" element={<StaticPageEntry path="/habit"><Habit /></StaticPageEntry>} />
+          <Route path="/todo" element={<StaticPageEntry path="/todo"><Todo /></StaticPageEntry>} />
+          <Route path="/diary" element={<StaticPageEntry path="/diary"><Diary /></StaticPageEntry>} />
+          <Route path="/coach" element={<StaticPageEntry path="/coach"><Coach /></StaticPageEntry>} />
+          <Route path="/insights" element={<StaticPageEntry path="/insights"><CoachInsights /></StaticPageEntry>} />
+          <Route path="/settings" element={<StaticPageEntry path="/settings"><Settings /></StaticPageEntry>} />
+          <Route path="/goal" element={<StaticPageEntry path="/goal"><Goal /></StaticPageEntry>} />
+          <Route path="/timeline" element={<StaticPageEntry path="/timeline"><Timeline /></StaticPageEntry>} />
           <Route path="/more" element={<More />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

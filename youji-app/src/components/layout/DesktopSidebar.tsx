@@ -5,6 +5,7 @@ import {
   Home, Calendar, Mic, BarChart3, MessageCircle, BookOpen,
   CheckSquare, Target, Settings, Sparkles, Activity
 } from 'lucide-react';
+import { staticPageEntry } from '../../lib/navigation';
 import { useAuthStore } from '../../stores/authStore';
 
 interface SidebarItem {
@@ -76,12 +77,12 @@ export function DesktopSidebar() {
               )}
               <motion.button
                 type="button"
-                onClick={() => navigate(item.path)}
+                onClick={() => navigate(item.path, { state: staticPageEntry(item.path, user?.id) })}
                 aria-current={isActive ? 'page' : undefined}
                 whileTap={{ scale: 0.97 }}
                 className={`group relative mb-0.5 flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-[13px] font-medium transition-all duration-200 ${
                   isActive
-                    ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white font-semibold shadow-[var(--shadow-glow)]'
+                    ? 'bg-[#5B46D8] text-white font-semibold shadow-[var(--shadow-glow)]'
                     : 'text-[var(--text-2)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)]'
                 }`}
               >
