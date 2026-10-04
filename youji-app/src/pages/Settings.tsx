@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { liveQuery } from 'dexie';
 import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
 import { SyncConflictPanel } from '../components/settings/SyncConflictPanel';
@@ -181,6 +181,10 @@ export default function Settings() {
   const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [budgetInput, setBudgetInput] = useState<string>((monthBudgetFen / 100).toString());
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const budgetSaveGuard = useRef(false);
+  const [budgetFeedback, setBudgetFeedback] = useState('');
+  const [budgetError, setBudgetError] = useState(false);
 
   const handleExport = async (legacy = false) => {
     try {
@@ -200,13 +204,21 @@ export default function Settings() {
   };
 
   const handleBudgetSave = async () => {
+    if (budgetSaveGuard.current) return;
     const yuan = parseFloat(budgetInput);
     if (!Number.isFinite(yuan) || yuan < 0 || yuan > 10_000_000) {
-      toast.error('预算格式不正确');
+      setBudgetError(true); setBudgetFeedback('请输入 0 到 10000000 之间的预算金额');
       return;
     }
-    await setMonthBudget(Math.round(yuan * 100));
-    toast.success('预算已更新');
+    budgetSaveGuard.current = true; setBudgetSaving(true);
+    setBudgetError(false); setBudgetFeedback('正在保存预算…');
+    try {
+      const fen = Math.round(yuan * 100);
+      await setMonthBudget(fen);
+      setBudgetFeedback(`已保存 ¥${(fen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 预算`);
+    } catch {
+      setBudgetError(true); setBudgetFeedback('预算未保存，输入已保留，请重试');
+    } finally { budgetSaveGuard.current = false; setBudgetSaving(false); }
   };
 
   const handleQuietTimeChange = (part: 'start' | 'end', value: string) => {
@@ -304,16 +316,20 @@ export default function Settings() {
                     id="budget-input"
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
                     value={budgetInput}
-                    onChange={(e) => setBudgetInput(e.target.value)}
+                    onChange={(e) => { setBudgetInput(e.target.value); setBudgetFeedback(''); setBudgetError(false); }}
+                    aria-describedby="budget-feedback"
+                    aria-invalid={budgetError}
+                    disabled={budgetSaving}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handleBudgetSave(); }}
                     className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-[var(--primary)]"
                   />
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => void handleBudgetSave()}>保存</Button>
+                <Button size="sm" variant="ghost" disabled={budgetSaving} aria-busy={budgetSaving} onClick={() => void handleBudgetSave()}>{budgetSaving ? '保存中…' : '保存'}</Button>
               </div>
-              <p className="mt-2 text-xs text-[var(--text-3)]">预算保存在本设备；当前 ¥{(monthBudgetFen / 100).toFixed(0)}</p>
+              <p className="mt-2 text-xs text-[var(--text-3)]">预算保存在本设备；当前 ¥{(monthBudgetFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2, useGrouping: false })}</p>
+              <p id="budget-feedback" role={budgetError ? 'alert' : 'status'} aria-live={budgetError ? 'assertive' : 'polite'} className={`mt-1 min-h-5 text-xs ${budgetError ? 'text-[var(--danger)]' : 'text-[var(--text-2)]'}`}>{budgetFeedback}</p>
             </div>
           </section>
 

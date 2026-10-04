@@ -267,9 +267,15 @@ async function businessRegressions(page) {
 
   await scenario('Settings: budget/theme/reminder save and reload; account preference receives HTTP ACK', async () => {
     await route(page, '/settings');
+    await fillControl(page, '#budget-input', '-1');
+    await clickButton(page, '保存', 'section[aria-label="预算"]');
+    await expectText(page, '请输入 0 到 10000000 之间的预算金额', true, '#budget-feedback');
+    await expectAttribute(page, '#budget-input', 'aria-invalid', 'true');
     await fillControl(page, '#budget-input', '4321');
     await clickButton(page, '保存', 'section[aria-label="预算"]');
     await expectText(page, '预算保存在本设备；当前 ¥4321');
+    await expectText(page, '已保存 ¥4,321 预算', true, '#budget-feedback');
+    assert.equal(await page.$eval('[aria-label="通知"]', (el) => el.textContent.includes('预算')), false, 'budget feedback must stay inline rather than obscure the next setting');
     await clickButton(page, '深色', '[role=radiogroup][aria-label="主题"]');
     await expectAttribute(page, 'html', 'data-theme', 'dark');
     await clickControl(page, '[role=switch][aria-label="教练推送"]');
