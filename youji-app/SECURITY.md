@@ -50,3 +50,14 @@ Diary 字符串主键重建、打卡按日唯一、业务索引）。CI 在干�
 `prisma migrate deploy` 完整验证。对已有的非空 SQLite 数据库，首次切换到
 `migrate deploy` 前仍需按 Prisma 的 baseline 流程登记现有迁移，不能直接把
 `db push` 创建的数据库当成已迁移数据库。
+
+
+## 2026-10-04 恢复候选更新
+
+上文历史会话/依赖说明以本节及 [验证报告](../docs/RECOVERY_TEST_REPORT.md) 为准：退出已将会话不可逆摘要持久撤销，业务路由也检查账号存在与预期账号头。新同步协议拒绝旧版本并保留队列，见 [SYNC_PROTOCOL](../docs/SYNC_PROTOCOL.md)。
+
+Hono升级至4.13.13兼容线，nanoid升级至5.1.16兼容线；Prisma6工具链定向覆盖deepmerge-ts为8.0.0，以修复递归对象合并栈耗尽。覆盖只作用于@prisma/config依赖，generate、干净migrate deploy、构建及真实SQLite集成回归需一起通过；不得把它当成已升级Prisma大版本。来源：[GHSA-ggr8-5vv4-36mx](https://github.com/advisories/GHSA-ggr8-5vv4-36mx)。本轮前后端生产依赖审计均为0项公告，审计结果随时间变化，不等于产品不存在漏洞。
+
+本地诊断仅记录内存中有界的页面/控件类型、状态码与耗时，不记录输入内容、账号、标题或查询参数，不接入第三方遥测。旧共享库原文、outbox与冲突副本仅通过用户明确操作导出，不自动上传。
+
+原文“满足个人信息保护法”的概括不构成本轮法律合规结论。真实运营主体、隐私条款、数据留存/跨境安排和生产安全必须独立核对；本轮不作法律认证。
