@@ -19,6 +19,7 @@ const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
 const apiPort = 3339, frontPort = 5289, origin = `http://127.0.0.1:${frontPort}`;
 const environment = { ...process.env, NODE_ENV: 'test', PORT: String(apiPort), DATABASE_URL: `file:${join(scratch, 'synthetic.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: origin, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', LLM_API_KEY: '', VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${apiPort}` };
 const results = [], actions = [], traffic = [], infrastructure = [], children = [];
+const surfaceNames = new WeakMap();
 let browser, sequence = 0;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -36,7 +37,7 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   }
   return files;
 }
-const metadata = { kind: 'first-package-scripted-outcomes-await-independent-review', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'All remaining Y3–Y9 scenarios', 'Manual human-operated review'] };
+const metadata = { kind: 'first-package-scripted-outcomes-await-independent-review', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the single receipt-reread task', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'All remaining Y3–Y9 scenarios', 'Manual human-operated review'] };
 function launch(command, args, cwd) { const child = spawn(command, args, { cwd, env: environment, stdio: ['ignore', 'ignore', 'pipe'] }); child.stderr.on('data', () => infrastructure.push('synthetic-service-stderr')); children.push(child); return child; }
 async function ready(url) { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(url)).ok) return; } catch {} await sleep(150); } throw new Error('Isolated service did not start'); }
 async function state(page) { return page.evaluate(() => ({ capturedAt: new Date().toISOString(), path: location.pathname + location.search, title: document.title, text: document.body.innerText, scroll: { x: scrollX, y: scrollY }, visibility: document.visibilityState, focused: document.hasFocus(), activeElement: { tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label') }, animations: document.getAnimations().map(animation => ({ playState: animation.playState, currentTime: String(animation.currentTime), target: animation.effect?.target?.tagName })), viewport: { width: innerWidth, height: innerHeight }, headings: [...document.querySelectorAll('h1,h2,h3')].map(el => el.textContent), controls: [...document.querySelectorAll('button,input,textarea,select,a')].filter(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height).map(el => ({ tag: el.tagName, text: el.textContent?.trim().slice(0, 180), label: el.getAttribute('aria-label'), type: el.getAttribute('type'), disabled: el.disabled, value: ['INPUT','TEXTAREA','SELECT'].includes(el.tagName) ? el.value : undefined, box: el.getBoundingClientRect().toJSON(), opacity: getComputedStyle(el).opacity, color: getComputedStyle(el).color, backgroundColor: getComputedStyle(el).backgroundColor, backgroundImage: getComputedStyle(el).backgroundImage, fontSize: getComputedStyle(el).fontSize, hitAtCenter: (() => { const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { tag: hit?.tagName, label: hit?.getAttribute('aria-label'), isTarget: el.contains(hit) }; })(), ancestors: (() => { const rows = []; for (let node = el.parentElement; node && rows.length < 8; node = node.parentElement) { const css = getComputedStyle(node); rows.push({ tag: node.tagName, box: node.getBoundingClientRect().toJSON(), position: css.position, opacity: css.opacity, transform: css.transform, overflow: css.overflow, display: css.display }); } return rows; })() })) })); }
@@ -44,10 +45,10 @@ async function capture(page, name) { const stem = `${String(++sequence).padStart
 async function observe(page, name, pass, detail) { const evidence = await capture(page, name); results.push({ name, status: pass === null ? 'observed-context' : pass ? 'observed-pass' : 'observed-fail', detail, screenshot: evidence.screenshot, snapshot: evidence.snapshot }); console.log(`${pass === null ? 'CONTEXT' : pass ? 'OBSERVED' : 'PRODUCT GAP'} ${name}: ${detail}`); return evidence.state; }
 async function segment(page, name, operation) { try { await operation(); } catch (error) { const evidence = await capture(page, name).catch(() => ({})); results.push({ name, status: 'blocked', detail: error.message, screenshot: evidence.screenshot, snapshot: evidence.snapshot }); console.log(`BLOCKED ${name}: ${error.message}`); } }
 async function visibleHandle(page, selector, text) { const handle = await page.waitForFunction((selector, text) => [...document.querySelectorAll(selector)].find(el => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden' && !el.disabled && (text === undefined || el.textContent.trim() === text); }), { timeout: 7000 }, selector, text); return handle.asElement(); }
-async function pointer(page, selector, text) { await page.bringToFront(); const element = await visibleHandle(page, selector, text); try { await element.scrollIntoView(); await page.waitForFunction(el => { const r = el.getBoundingClientRect(); return el.isConnected && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 7000 }, element); await element.asLocator().click(); actions.push({ at: new Date().toISOString(), kind: 'native-pointer', selector, text, path: new URL(page.url()).pathname }); } finally { await element.dispose(); } }
-async function fill(page, selector, text) { await pointer(page, selector); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.sendCharacter(text); assert.equal(await page.$eval(selector, el => el.value), text); actions.push({ at: new Date().toISOString(), kind: 'native-text', selector, syntheticText: text }); }
+async function pointer(page, selector, text) { await page.bringToFront(); const element = await visibleHandle(page, selector, text); try { await element.scrollIntoView(); await page.waitForFunction(el => { const r = el.getBoundingClientRect(); return el.isConnected && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 7000 }, element); await element.asLocator().click(); actions.push({ at: new Date().toISOString(), kind: 'native-pointer', surface: surfaceNames.get(page), selector, text, path: new URL(page.url()).pathname }); } finally { await element.dispose(); } }
+async function fill(page, selector, text) { await pointer(page, selector); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.sendCharacter(text); assert.equal(await page.$eval(selector, el => el.value), text); actions.push({ at: new Date().toISOString(), kind: 'native-text', surface: surfaceNames.get(page), selector, syntheticText: text }); }
 async function nav(page, label) { await pointer(page, 'aside nav button', label); await sleep(350); }
-async function waitPath(page, path) { const started = Date.now(); await page.waitForFunction(path => location.pathname === path, { timeout: 15000 }, path); actions.push({ at: new Date().toISOString(), kind: 'route-observed', path, waitedMs: Date.now() - started }); await sleep(350); }
+async function waitPath(page, path) { const started = Date.now(); await page.waitForFunction(path => location.pathname === path, { timeout: 15000 }, path); actions.push({ at: new Date().toISOString(), kind: 'route-observed', surface: surfaceNames.get(page), path, waitedMs: Date.now() - started }); await sleep(350); }
 async function login(page, phone, nickname) {
   await page.bringToFront(); await page.goto(`${origin}/login`, { waitUntil: 'networkidle0' });
   actions.push({ kind: 'initial-entry-url', path: '/login' });
@@ -63,6 +64,7 @@ async function login(page, phone, nickname) {
 }
 async function isolated(name, viewport, body) {
   const context = await browser.createBrowserContext(), page = await context.newPage();
+  surfaceNames.set(page, name);
   await page.setViewport(viewport); await page.emulateTimezone('Asia/Shanghai'); page.setDefaultTimeout(10000); page.setDefaultNavigationTimeout(30000); await page.bringToFront();
   page.on('pageerror', error => infrastructure.push({ scenario: name, pageError: error.name }));
   page.on('response', response => { const path = new URL(response.url()).pathname; if (path.startsWith('/api/') && !path.startsWith('/api/auth/')) { traffic.push({ scenario: name, path, status: response.status(), method: response.request().method() }); if (response.status() >= 500) infrastructure.push({ scenario: name, httpFailure: response.status(), path }); } });
@@ -91,6 +93,15 @@ async function localRows(page, owner) {
     };
   }), owner);
 }
+async function saveRecordEvidence(name, local, remote, selected, extra = {}) {
+  const snapshots = [];
+  for (const [entity, ids] of Object.entries(selected)) for (const id of ids) {
+    const table = entity === 'diaries' ? 'diary' : entity, key = `${entity}:${id}`;
+    const pending = local.outbox.filter(row => row.entity === entity && (row.payload === id || row.payload?.id === id)).map(row => ({ seq: row.seq, op: row.op, entity: row.entity, recordId: id, status: row.status ?? 'pending', baseVersion: row.baseVersion, predecessorSeq: row.predecessorSeq, attempts: row.attempts, lastStatus: row.lastStatus }));
+    snapshots.push({ entity, id, local: local[table]?.find(row => row.id === id) ?? null, server: remote[entity]?.find(row => row.id === id) ?? null, version: local.settings.find(row => row.key === `sync-version:${key}`) ?? null, conflict: local.settings.find(row => row.key === `sync-conflict:${key}`) ?? null, pending });
+  }
+  await writeFile(join(artifacts, `${name}-record-state.json`), JSON.stringify({ syntheticOnly: true, capturedAt: new Date().toISOString(), totalOutbox: local.outbox.length, localCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, local[entity === 'diaries' ? 'diary' : entity]?.length])), serverCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, remote[entity]?.length])), snapshots, ...extra }, null, 2));
+}
 async function selectedDetail(page, expected) {
   return page.evaluate(expected => [...document.querySelectorAll('[role=dialog], [aria-selected=true], [aria-current=true], [data-record-detail], form')].some(el => {
     const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
@@ -112,11 +123,115 @@ async function dateInput(page, selector, iso) {
 }
 async function checked(page, selector, value) { if (await page.$eval(selector, el => el.checked) !== value) await pointer(page, selector); assert.equal(await page.$eval(selector, el => el.checked), value); }
 async function settledRows(page, api) { let local; for (let i = 0; i < 60; i++) { local = await localRows(page, api.ownerId); if (!local.outbox.length) return local; await sleep(250); } return local; }
-async function back(page, from) { await page.bringToFront(); await page.goBack({ waitUntil: 'domcontentloaded' }); actions.push({ kind: 'browser-history-back', from }); await sleep(400); }
+async function back(page, from) { await page.bringToFront(); await page.goBack({ waitUntil: 'domcontentloaded' }); actions.push({ kind: 'browser-history-back', surface: surfaceNames.get(page), from }); await sleep(400); }
+async function discoverMobileTasks(page) {
+  await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
+  await capture(page, 'YN-empty-home-expanded-functions');
+  for (const [name, path] of [['待办', '/todo'], ['习惯', '/habit']]) {
+    const entry = await page.evaluate(({ name, path }) => [...document.querySelectorAll('main button,main a,nav button,nav a')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (el.getAttribute('aria-label') === name || el.textContent.trim() === name || el.getAttribute('href') === path); }).map(el => ({ tag: el.tagName, text: el.textContent.trim(), label: el.getAttribute('aria-label'), href: el.getAttribute('href'), box: el.getBoundingClientRect().toJSON() })), { name, path });
+    await observe(page, `YN-discover-${name === '待办' ? 'todo' : 'habit'}-entry`, entry.length ? null : false, entry.length ? `A rendered ${name} entry exists; opening/creation still require their own task, not granted by presence` : `After opening the actual first-use function list, no rendered ${name} entry is available in Home or mobile navigation`);
+  }
+  await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
+}
+async function retrieveOlderThanMonth(page, api, existingHistoryCount) {
+  const oldDate = businessDate(-45), name = 'Synthetic 同名跨月午饭';
+  const fixtures = (await api('/expenses/batch', { items: [{ amount: 1379, category: 'food', name, date: businessDate() }, { amount: 1379, category: 'food', name, date: oldDate }] })).expenses;
+  const target = fixtures.find(row => row.date === oldDate), recent = fixtures.find(row => row.date === businessDate());
+  assert.ok(target && recent);
+  await writeFile(join(artifacts, 'Y2-older-than-month-fixture.json'), JSON.stringify({ setup: 'isolated API setup, not user-created history', target, recent }, null, 2));
+  if (new URL(page.url()).pathname !== '/timeline') { await nav(page, '时间线'); await waitPath(page, '/timeline'); }
+  await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'browser-reload-after-explicit-fixture', fixtureOnly: true, purpose: 'older-than-month paired records' });
+  let pulled;
+  for (let attempt = 0; attempt < 40; attempt++) { pulled = await localRows(page, api.ownerId); if (pulled.expenses.some(row => row.id === target.id)) break; await sleep(250); }
+  assert.ok(pulled.expenses.some(row => row.id === target.id), 'Old record fixture must be pulled before range observations');
+  await pointer(page, 'button', '近30天');
+  const oldSelector = `section[aria-label="${oldDate}"] button[aria-label="收支: -¥13.79 ${name}"]`;
+  const recentSelector = `section[aria-label="${businessDate()}"] button[aria-label="收支: -¥13.79 ${name}"]`;
+  await page.waitForFunction(selector => new URLSearchParams(location.search).get('range') === '30' && document.querySelector('[aria-label="时间范围"] button[aria-pressed="true"]')?.textContent === '近30天' && Boolean(document.querySelector(selector)), {}, recentSelector);
+  const expandRangeToEnd = async expectedTotal => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const next = await page.$$eval('button', nodes => nodes.find(el => el.textContent.startsWith('继续查看较早记录'))?.textContent.trim());
+      if (!next) break;
+      const previousCount = await page.evaluate(() => document.body.innerText.match(/当前显示 (\d+)\/(\d+) 条/)?.[1]);
+      await pointer(page, 'button', next);
+      await page.waitForFunction(previous => document.body.innerText.match(/当前显示 (\d+)\/(\d+) 条/)?.[1] !== previous, {}, previousCount);
+    }
+    const complete = await page.evaluate(expected => document.body.innerText.includes(`当前显示 ${expected}/${expected} 条`) && ![...document.querySelectorAll('button')].some(el => el.textContent.startsWith('继续查看较早记录')), expectedTotal);
+    assert.equal(complete, true, `Selected range must expose its known ${expectedTotal} fixture records before absence is tested`);
+  };
+  await expandRangeToEnd(existingHistoryCount + 1);
+  await observe(page, 'Y2-month-filter-excludes-old-retains-recent-pair', !await page.$(oldSelector) && Boolean(await page.$(recentSelector)), 'After reading to the selected range end (all known recent fixtures, no continuation left), the recent same-name pair remains and the 45-day-old record is absent');
+  await pointer(page, 'button', '全部记录');
+  await page.waitForFunction(selector => new URLSearchParams(location.search).get('range') === 'all' && document.querySelector('[aria-label="时间范围"] button[aria-pressed="true"]')?.textContent === '全部记录' && Boolean(document.querySelector(selector)), {}, recentSelector);
+  await expandRangeToEnd(existingHistoryCount + 2);
+  assert.ok(await page.$(oldSelector), 'All-record range and continuation must expose the actual old date');
+  const oldHandle = await visibleHandle(page, oldSelector); await oldHandle.scrollIntoView(); await oldHandle.dispose(); await sleep(250); const before = await state(page); await capture(page, 'Y2-older-than-month-origin');
+  await pointer(page, oldSelector); await waitPath(page, '/expense');
+  await observe(page, 'Y2-older-than-month-exact-editor', await selectedDetail(page, { content: name, date: oldDate, amount: '13.79' }), 'Date distinguishes the older record from a same-name same-amount recent record');
+  await fill(page, '#expense-name', 'Synthetic 已核对45天前午饭'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
+  const saved = await settledRows(page, api), remote = (await api('/expenses')).expenses;
+  await saveRecordEvidence('Y2-older-than-month-paired-records', saved, { expenses: remote }, { expenses: [target.id, recent.id] });
+  await observe(page, 'Y2-older-than-month-same-id-cloud-ack', saved.outbox.length === 0 && saved.expenses.length === pulled.expenses.length && remote.length === pulled.expenses.length && remote.some(row => row.id === target.id && row.date === oldDate && row.name === 'Synthetic 已核对45天前午饭') && remote.some(row => row.id === recent.id && row.date === recent.date && row.name === name && row.amount === 1379), 'Exact old ID corrected and acknowledged; recent same-name counterexample and total count unchanged');
+  await back(page, '/expense'); await waitPath(page, '/timeline'); const returned = await state(page);
+  await observe(page, 'Y2-older-than-month-return-all-range-position', await page.$eval('button[aria-pressed="true"]', el => el.textContent === '全部记录') && Math.abs(returned.scroll.y - before.scroll.y) < 40 && returned.text.includes('Synthetic 已核对45天前午饭'), `All-record range retained, original ${before.scroll.y}px / return ${returned.scroll.y}px`);
+}
+async function receiptReadFailureAfterUpdate(page) {
+  await login(page, '13900008805', 'Synthetic YR');
+  await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
+  await fill(page, 'textarea[aria-label="速记内容"]', '午饭8元'); await pointer(page, 'button', '查看确认稿'); await waitPath(page, '/quick-note/result');
+  await checked(page, 'input[aria-label="将这段文字记入日记"]', false); await checked(page, 'input[aria-label="我愿意记录这次心情"]', false);
+  await pointer(page, 'button', '确认保存所选记录'); await page.waitForFunction(() => location.search.includes('receipt='));
+  const api = await apiFor(page), initial = await settledRows(page, api), expense = initial.expenses[0]; assert.equal(initial.expenses.length, 1);
+  const receiptBefore = initial.settings.find(row => row.key.startsWith('capture-applied:')); assert.ok(receiptBefore);
+  await saveRecordEvidence('YR-initial-ack', initial, { expenses: (await api('/expenses')).expenses }, { expenses: [expense.id] }, { originalReceipt: receiptBefore });
+  const currentLink = `a[href="/expense?record=${encodeURIComponent(expense.id)}"]`;
+  await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('已收到云端版本确认'), {}, currentLink);
+  await observe(page, 'YR-initial-current-and-ack', true, 'First tab has already rendered current expense and its actual cloud acknowledgment before the fault');
+  const peerTarget = page.browserContext().waitForTarget(target => target.type() === 'page' && target !== page.target()).then(target => ({ target }), error => ({ error }));
+  await page.keyboard.down('Control'); try { await pointer(page, currentLink); } finally { await page.keyboard.up('Control'); }
+  const openedTarget = await peerTarget; if (openedTarget.error) throw openedTarget.error;
+  actions.push({ kind: 'native-control-click-open-peer-tab', sourceSurface: surfaceNames.get(page), href: `/expense?record=${expense.id}` });
+  const peer = await openedTarget.target.page(); assert.ok(peer); surfaceNames.set(peer, 'YR-peer-edit-1280'); await peer.setViewport({ width: 1280, height: 900 }); await peer.emulateTimezone('Asia/Shanghai');
+  peer.on('pageerror', error => infrastructure.push({ scenario: 'YR-peer', pageError: error.name }));
+  peer.on('response', response => { const path = new URL(response.url()).pathname; if (path.startsWith('/api/') && !path.startsWith('/api/auth/')) { traffic.push({ scenario: 'YR-peer', path, status: response.status(), method: response.request().method() }); if (response.status() >= 500) infrastructure.push({ scenario: 'YR-peer', httpFailure: response.status(), path }); } });
+  let recorder;
+  try {
+    const targets = [];
+    for (const [surface, observedPage] of [['YR-receipt-reread-1280', page], ['YR-peer-edit-1280', peer]]) { const session = await observedPage.createCDPSession(); const { targetInfo } = await session.send('Target.getTargetInfo'); targets.push({ surface, targetId: targetInfo.targetId, url: observedPage.url() }); await session.detach(); }
+    metadata.receiptCrossTabEvidence = { trace: 'YR-receipt-reread-1280-trace.json', scope: 'One continuous browser-global Chrome trace spanning both tabs; page-attributed native actions and separate videos', targets, videos: ['YR-receipt-reread-1280.webm', 'YR-peer-edit-1280.webm'] };
+    recorder = await peer.screencast({ path: join(artifacts, 'YR-peer-edit-1280.webm'), fps: 12, quality: 35 });
+    await peer.bringToFront(); await waitPath(peer, '/expense'); await peer.waitForSelector('#expense-name');
+    metadata.receiptCrossTabEvidence.targets.find(row => row.surface === 'YR-peer-edit-1280').readyUrl = peer.url();
+    await capture(peer, 'YR-peer-actual-editor');
+    // Only this already-loaded receipt tab fails one read. The peer performs
+    // a real same-ID edit; no application records or UI values are injected.
+    await page.evaluate(id => { window.__receiptReadFaults = 0; const original = IDBObjectStore.prototype.get; window.__restoreReceiptRead = () => { IDBObjectStore.prototype.get = original; }; IDBObjectStore.prototype.get = function(key) { if (this.name === 'expenses' && key === id && this.transaction.mode === 'readonly' && this.transaction.objectStoreNames.contains('outbox') && this.transaction.objectStoreNames.contains('goalRecords')) { IDBObjectStore.prototype.get = original; window.__receiptReadFaults++; throw new DOMException('Synthetic receipt read failure', 'UnknownError'); } return original.call(this, key); }; }, expense.id);
+    actions.push({ kind: 'synthetic-one-shot-IDB-read-fault', scope: 'first tab / exact expense ID / all-table readonly receipt query' });
+    await fill(peer, '#expense-name', 'Synthetic 另一页已核对午饭'); await pointer(peer, '[role=dialog] button', '保存'); await peer.waitForSelector('[role=dialog]', { hidden: true });
+    const peerSaved = await settledRows(peer, api), remote = (await api('/expenses')).expenses;
+    await saveRecordEvidence('YR-peer-corrected', peerSaved, { expenses: remote }, { expenses: [expense.id] });
+    await observe(peer, 'YR-peer-same-id-real-cloud-edit', peerSaved.outbox.length === 0 && remote.length === 1 && remote[0].id === expense.id && remote[0].name === 'Synthetic 另一页已核对午饭', 'Second same-account tab edited through actual controls and server acknowledged that exact ID');
+    await page.bringToFront(); await page.waitForFunction(() => document.body.innerText.includes('重新读取当前记录'));
+    const readFailure = await page.$eval('ul', el => el.innerText);
+    await observe(page, 'YR-failed-reread-clears-old-content-and-ack', await page.evaluate(() => window.__receiptReadFaults === 1) && readFailure.includes('当前记录暂不可读') && readFailure.includes('同步确认未知') && !readFailure.includes('已收到云端版本确认') && !readFailure.includes('午饭'), 'A later read failed after a previously confirmed view; stale current content and ACK are both withdrawn');
+    await pointer(page, 'summary', '当时写入（只读回执）');
+    await observe(page, 'YR-readonly-original-survives-reread-failure', (await state(page)).text.includes('不代表记录现在的内容'), 'Immutable original receipt remains available with its historical meaning during current-state read failure');
+    await pointer(page, 'button', '重新读取当前记录');
+    await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Synthetic 另一页已核对午饭') && document.querySelector(selector)?.textContent.includes('已收到云端版本确认'), {}, currentLink);
+    const after = await localRows(page, api.ownerId); assert.deepEqual(after.settings.find(row => row.key === receiptBefore.key), receiptBefore);
+    await saveRecordEvidence('YR-retry-current', after, { expenses: (await api('/expenses')).expenses }, { expenses: [expense.id] }, { originalReceipt: receiptBefore, receiptAfterCorrection: after.settings.find(row => row.key === receiptBefore.key) });
+    await observe(page, 'YR-retry-current-restores-latest-not-creation', after.expenses.length === 1, 'Explicit retry displays the actual updated record and matching acknowledgment; creation receipt bytes and record count are unchanged');
+  } finally {
+    await page.evaluate(() => { window.__restoreReceiptRead?.(); delete window.__restoreReceiptRead; }).catch(() => undefined);
+    if (recorder) await recorder.stop(); await peer.close();
+  }
+}
+
 async function firstValue(page, narrow = false) {
   if (narrow) { await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); actions.push({ kind: 'browser-prefers-reduced-motion', value: 'reduce' }); }
   const label = narrow ? 'Y1N' : 'Y1'; await login(page, narrow ? '13900008803' : '13900008801', `Synthetic ${label}`);
   await observe(page, `${label}-first-use-one-record-task`, (await state(page)).text.includes('先记一件刚发生的事') && !(await state(page)).text.includes('¥2,500'), 'New account sees a clear first action and no invented budget');
+  if (narrow) await discoverMobileTasks(page);
   await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
   await fill(page, 'textarea[aria-label="速记内容"]', '明天要交报销单；午饭15');
   await observe(page, `${label}-native-input-visible`, true, 'Requested phrase is visible after actual home navigation, not a direct capture URL');
@@ -144,11 +259,13 @@ async function firstValue(page, narrow = false) {
     await fill(page, '#todo-text', 'Synthetic 已核对报销单'); await dateInput(page, '#todo-date', businessDate(2));
     await pointer(page, '[role=dialog] button', '取消（保留草稿）'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const cancelledLocal = await localRows(page, api.ownerId), cancelledRemote = (await api('/todos')).todos.find(row => row.id === todo.id);
+    await saveRecordEvidence(`${label}-todo-cancel`, cancelledLocal, { todos: [cancelledRemote] }, { todos: [todo.id] });
     await observe(page, `${label}-todo-cancel-does-not-mutate`, cancelledLocal.todos.length === 1 && cancelledLocal.todos[0].text === todo.text && cancelledLocal.todos[0].dueDate === tomorrow && cancelledRemote.text === todo.text && cancelledRemote.dueDate === tomorrow, 'Cancel retained a draft only; both local and server original remain unchanged');
     await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'reload-cancelled-todo-draft' }); await page.waitForSelector('#todo-text');
     await observe(page, `${label}-todo-cancel-reload-retains-draft`, await page.$eval('#todo-text', el => el.value) === 'Synthetic 已核对报销单', 'Cancel persisted the draft but did not edit the original');
     await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const changedLocal = await settledRows(page, api), changed = changedLocal.todos.find(row => row.id === todo.id), changedRemote = (await api('/todos')).todos;
+    await saveRecordEvidence(`${label}-todo-corrected`, changedLocal, { todos: changedRemote }, { todos: [todo.id] });
     await observe(page, `${label}-todo-corrected-same-id-local`, changedLocal.todos.length === 1 && changed?.text === 'Synthetic 已核对报销单' && changed.dueDate === businessDate(2), 'Local exact-ID correction, no duplicate');
     await observe(page, `${label}-todo-correction-cloud-ack`, changedLocal.outbox.length === 0 && changedRemote.length === 1 && changedRemote[0].id === todo.id && changedRemote[0].text === changed.text && changedRemote[0].dueDate === changed.dueDate, 'Queue and actual server object separately verify correction');
     await back(page, '/todo'); await waitPath(page, '/quick-note/result'); assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, receiptPath);
@@ -156,9 +273,18 @@ async function firstValue(page, narrow = false) {
     const afterReturn = await localRows(page, api.ownerId), receiptId = new URL(page.url()).searchParams.get('receipt');
     const beforeReceipt = local.settings.find(row => row.key === `capture-applied:${receiptId}`)?.value, afterReceipt = afterReturn.settings.find(row => row.key === `capture-applied:${receiptId}`)?.value;
     assert.deepEqual(afterReceipt, beforeReceipt, 'Current-record display must never rewrite creation receipt');
+    await saveRecordEvidence(`${label}-current-receipt`, afterReturn, { todos: changedRemote }, { todos: [todo.id] }, { originalReceipt: beforeReceipt, receiptAfterCorrection: afterReceipt });
     await observe(page, `${label}-todo-correction-return`, true, 'Current title/date visible after Back; immutable original receipt unchanged');
     await pointer(page, 'summary', '当时写入（只读回执）');
     await observe(page, `${label}-original-receipt-kept-separate`, (await state(page)).text.includes('交报销单') && (await state(page)).text.includes(tomorrow), 'Original creation labels/date remain available as explicitly historical evidence');
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const geometry = await page.evaluate(date => { const el = [...document.querySelectorAll('details[open] li')].find(el => el.textContent.startsWith('交报销单') && el.textContent.includes(date)); if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, center: r.top + r.height / 2, width: innerWidth, height: innerHeight }; }, tomorrow);
+      assert.ok(geometry, 'Original todo row must exist inside the expanded read-only receipt');
+      if (geometry.top >= 80 && geometry.bottom <= geometry.height - 100) break;
+      const deltaY = geometry.center - geometry.height / 2; await page.mouse.move(geometry.width * 0.75, geometry.height / 2); await page.mouse.wheel({ deltaY }); actions.push({ kind: 'native-wheel-read-original-receipt', deltaY }); await sleep(300);
+    }
+    const originalReadable = await page.evaluate(date => { const el = [...document.querySelectorAll('details[open] li')].find(el => el.textContent.startsWith('交报销单') && el.textContent.includes(date)); if (!el) return false; const r = el.getBoundingClientRect(); return r.top >= 80 && r.bottom <= innerHeight - 100 && r.left >= 0 && r.right <= innerWidth && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, tomorrow);
+    await observe(page, `${label}-original-todo-date-reading-viewport`, originalReadable, 'Original creation title and earlier date are actually visible after normal scrolling when needed, separately from the current-record card');
     await pointer(page, 'summary', '当时写入（只读回执）');
   });
   await segment(page, `${label}-correct-saved-expense`, async () => {
@@ -168,6 +294,7 @@ async function firstValue(page, narrow = false) {
     await fill(page, '#expense-amount', '16.25'); await fill(page, '#expense-name', 'Synthetic 已核对午饭');
     await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const changedLocal = await settledRows(page, api), changed = changedLocal.expenses.find(row => row.id === expense.id), changedRemote = (await api('/expenses')).expenses;
+    await saveRecordEvidence(`${label}-expense-corrected`, changedLocal, { expenses: changedRemote }, { expenses: [expense.id] });
     await observe(page, `${label}-expense-correction-cloud-ack`, changedLocal.outbox.length === 0 && changedLocal.expenses.length === 1 && changedRemote.length === 1 && changedRemote[0].id === expense.id && changedRemote[0].amount === 1625 && changedRemote[0].name === 'Synthetic 已核对午饭', 'No extra record; exact server correction and ACK');
     await observe(page, `${label}-expense-page-current-vs-history`, !(await state(page)).text.includes('当日/累计支出¥0') && !(await state(page)).text.includes('已记录支出 ¥0.00'), 'Stale coach snapshots must not be presented as current spending beside the actual edited amount');
     await observe(page, `${label}-expense-correction-exact-cents`, changed?.amount === 1625 && changed.name === 'Synthetic 已核对午饭', 'Same record updates to exact fen, without another expense');
@@ -240,6 +367,7 @@ async function retrievePast(page) {
     await pointer(page, selector); await waitPath(page, '/expense'); await observe(page, 'Y2-old-expense-exact', await selectedDetail(page, { content: target.name, date: target.date, amount: '10.65' }), 'Correct target among same-named records, including exact date and cents');
     await fill(page, '#expense-name', 'Synthetic 已修正历史账单'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const changedLocal = await settledRows(page, api), changed = changedLocal.expenses.find(row => row.id === target.id), remote = (await api('/expenses')).expenses;
+    await saveRecordEvidence('Y2-near-week-expense-corrected', changedLocal, { expenses: remote }, { expenses: [target.id] });
     await observe(page, 'Y2-old-expense-local-correction', changedLocal.expenses.length === 70 && changed?.date === target.date && changed.name === 'Synthetic 已修正历史账单', 'Exact local ID/date, count unchanged');
     await observe(page, 'Y2-old-expense-cloud-ack', changedLocal.outbox.length === 0 && remote.length === 70 && remote.some(row => row.id === target.id && row.date === target.date && row.name === 'Synthetic 已修正历史账单'), 'Each old expense edit also verified on actual server');
     await back(page, '/expense'); await waitPath(page, '/timeline'); const returned = await state(page);
@@ -252,11 +380,13 @@ async function retrievePast(page) {
     await observe(page, 'Y2-old-diary-real-date-unknown-mood', await page.$eval('#diary-content', el => el.value) === target.content && (await state(page)).text.includes(`${target.date} 的心情`) && !(await state(page)).text.includes('今天的心情'), 'Exact old object and its date shown; unknown mood is not five');
     const corrected = `Synthetic 已修正 · ${target.content}`; await fill(page, '#diary-content', corrected); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const afterDiary = await settledRows(page, api); const saved = (await api(`/diary/${target.id}`)).diary;
+    await saveRecordEvidence('Y2-diary-corrected', afterDiary, { diaries: [saved] }, { diaries: [target.id] });
     await observe(page, 'Y2-diary-cloud-ack', afterDiary.outbox.length === 0 && afterDiary.diary.length === 7, 'Diary acknowledgment and unchanged count checked independently');
     await writeFile(join(artifacts, 'Y2-corrected-diary.json'), JSON.stringify({ expectedId: target.id, expectedDate: target.date, expectedContent: corrected, actual: saved }, null, 2));
     await observe(page, 'Y2-diary-same-id-date-server', saved.content === corrected && saved.date === target.date && saved.moodScore === null, 'Actual server row retains ID/date and unknown emotion');
     await back(page, '/diary'); await waitPath(page, '/timeline'); await observe(page, 'Y2-diary-return-corrected-source', (await state(page)).text.includes('Synthetic 已修正'), 'Return sees the corrected source');
   });
+  await segment(page, 'Y2-older-than-month-complete-task', () => retrieveOlderThanMonth(page, api, expenses.length + diaries.length + 1));
 }
 async function recoverStorage(page) {
   await login(page, '13900008804', 'Synthetic YF');
@@ -289,7 +419,9 @@ try {
   await isolated('Y2-retrieve-past-1280', { width: 1280, height: 900 }, retrievePast);
   await isolated('Y1N-first-value-360', { width: 360, height: 800 }, page => firstValue(page, true));
   await isolated('YF-storage-recovery-1280', { width: 1280, height: 900 }, recoverStorage);
-  for (const name of ['Y1-first-value-1280', 'Y2-retrieve-past-1280', 'Y1N-first-value-360', 'YF-storage-recovery-1280']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  await isolated('YR-receipt-reread-1280', { width: 1280, height: 900 }, receiptReadFailureAfterUpdate);
+  for (const name of ['YR-receipt-reread-1280', 'Y1-first-value-1280', 'Y2-retrieve-past-1280', 'Y1N-first-value-360', 'YF-storage-recovery-1280']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  assert.ok((await stat(join(artifacts, 'YR-peer-edit-1280.webm'))).size > 0, 'Missing peer video; both pages share the continuous YR browser trace');
 } catch (error) { infrastructure.push({ fatal: error.message }); process.exitCode = 2; }
 finally {
   if (browser) await browser.close();
