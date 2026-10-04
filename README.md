@@ -18,33 +18,15 @@ AI 驱动的生活记录与教练应用：花销、待办、习惯、打卡、�
 └── AI提示词.md          # 教练域提示词设计
 ```
 
-## 快速开始
+## 快速开始与验证
 
-```bash
-cd youji-app
-npm install
-cd server && npm install && npx prisma generate && npx prisma migrate deploy
+使用 Node 24，从合成开发数据库开始，安装/配置/运行命令见 [应用说明](youji-app/README.md)。
 
-# 配置环境变量后启动
-cp .env.example .env           # 根目录 → 前端
-cp server/.env.example server/.env   # 后端（生产环境必须提供 ≥32 位 JWT_SECRET）
+当前恢复候选已引入按账号本地隔离、事务outbox、Sync v2变更序列/墓碑/冲突保全和会话撤销；生产迁移、真实服务与浏览器验收状态见 [验证报告](docs/RECOVERY_TEST_REPORT.md)。目标仍为本设备功能，旧共享库只隔离/导出，不自动推定归属。
 
-npm run dev      # 终端1：后端 :3000
-npm run dev      # 终端2（youji-app 根）：前端 :5180，/api 由 Vite 代理
-```
+## 历史部署配置（未经本轮生产验收）
 
-> 注意：两次 `npm run dev` 分别在 `youji-app/server` 与 `youji-app` 目录执行，详见 [youji-app/README.md](youji-app/README.md)。
-
-测试：
-
-```bash
-cd youji-app && npm run build          # 前端类型检查 + 构建
-cd server && npm run check             # lint + build + 14 项集成测试
-```
-
-## 部署（Render）
-
-仓库根目录提供 [render.yaml](render.yaml) 蓝图，包含两个服务：
+不要直接Apply或重部署现有真实服务；先完成备份/restore和单独发布审批。仓库根目录保留 [render.yaml](render.yaml) 蓝图，包含两个服务：
 
 | 服务 | 类型 | 说明 |
 |------|------|------|
@@ -57,4 +39,4 @@ cd server && npm run check             # lint + build + 14 项集成测试
 
 ## 历史
 
-`legacy-v1-fastify` 分支保留早期技术栈版本（React 18 + Fastify），当前 main 为重构后的新版。
+当前分支政策仅保留main。早期legacy历史只从经过验证的离线备份只读参考，不重新建分支或直接合并。
