@@ -502,10 +502,8 @@ test('user settings patch validates input and persists', async () => {
   const { cookie } = await registerUser('13900001005', 'settings-user')
 
   const patched = await patchJson('/api/user/settings', {
-    coachStyle: 'strict',
-    quietStart: '22:30',
-    quietEnd: '06:30',
-    pushLimit: 5,
+    protocol: 1, mutationId: 'settings-integration-save', baseRevision: '0',
+    changes: { coachStyle: 'strict', quietStart: '22:30', quietEnd: '06:30', pushLimit: 5 },
   }, { Cookie: cookie })
   assert.equal(patched.status, 200)
   const settings = await patched.json() as { settings: Record<string, unknown> }
@@ -513,10 +511,10 @@ test('user settings patch validates input and persists', async () => {
   assert.equal(settings.settings.quietStart, '22:30')
   assert.equal(settings.settings.pushLimit, 5)
 
-  const invalidTime = await patchJson('/api/user/settings', { quietStart: '25:99' }, { Cookie: cookie })
+  const invalidTime = await patchJson('/api/user/settings', { protocol: 1, mutationId: 'settings-invalid-time', baseRevision: '1', changes: { quietStart: '25:99' } }, { Cookie: cookie })
   assert.equal(invalidTime.status, 400)
 
-  const emptyBody = await patchJson('/api/user/settings', {}, { Cookie: cookie })
+  const emptyBody = await patchJson('/api/user/settings', { protocol: 1, mutationId: 'settings-empty-body', baseRevision: '1', changes: {} }, { Cookie: cookie })
   assert.equal(emptyBody.status, 400)
 
   const unauthenticated = await patchJson('/api/user/settings', { pushLimit: 3 })
@@ -545,13 +543,13 @@ test('sync v2 round-trips records, deletion events, cursors and ownership', asyn
     protocol: 2, mutationId: 'mallory-update-0001', schedules: [{ id: scheduleId, title: '篡改', date: '2026-08-24', startTime: '10:00', endTime: '11:00' }],
   }, { Cookie: mallory.cookie })
   assert.equal(foreign.status, 403)
-  const pulled = await request('/api/sync/pull?protocol=2&cursor=0', { headers: { Cookie: alice.cookie } })
+  const pulled = await request('/api/sync/pull?protocol=2&features=goals-v1&cursor=0', { headers: { Cookie: alice.cookie } })
   assert.equal(pulled.status, 200)
   const page = await pulled.json() as { events: Array<{ entity: string; entityId: string; operation: string; data: { title: string } }>; nextCursor: string }
   assert.equal(page.events.filter((e) => e.entity === 'schedules').length, 1)
   assert.equal(page.events.find((e) => e.entity === 'schedules')!.data.title, '小组会')
   assert.equal(page.events.filter((e) => e.entity === 'habitCheckins').length, 1)
-  const incremental = await request(`/api/sync/pull?protocol=2&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
+  const incremental = await request(`/api/sync/pull?protocol=2&features=goals-v1&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
   assert.equal(((await incremental.json()) as { events: unknown[] }).events.length, 0)
   const deletions = { scheduleIds: [{ id: scheduleId, baseVersion: version(scheduleId) }], expenseIds: [{ id: expenseId, baseVersion: version(expenseId) }] }
   const deleted = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'alice-delete-0001', deletions }, { Cookie: alice.cookie })
@@ -560,11 +558,11 @@ test('sync v2 round-trips records, deletion events, cursors and ownership', asyn
   assert.equal(foreignDelete.status, 403)
   const replay = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'alice-delete-0001', deletions }, { Cookie: alice.cookie })
   assert.equal(replay.status, 200)
-  const afterDelete = await request(`/api/sync/pull?protocol=2&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
+  const afterDelete = await request(`/api/sync/pull?protocol=2&features=goals-v1&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
   const events = ((await afterDelete.json()) as { events: Array<{ operation: string }> }).events
   assert.equal(events.filter((e) => e.operation === 'delete').length, 2)
   assert.equal(await prisma.todo.count({ where: { id: todoId } }), 1)
-  assert.equal((await request('/api/sync/pull?protocol=2&cursor=not-a-seq', { headers: { Cookie: alice.cookie } })).status, 400)
+  assert.equal((await request('/api/sync/pull?protocol=2&features=goals-v1&cursor=not-a-seq', { headers: { Cookie: alice.cookie } })).status, 400)
   assert.equal((await request('/api/sync/pull?since=1970-01-01', { headers: { Cookie: alice.cookie } })).status, 426)
   const invalidPush = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'invalid-mutation-0001', expenses: [{ id: 'short', amount: -5, category: '', name: '', date: 'bad' }] }, { Cookie: alice.cookie })
   assert.equal(invalidPush.status, 400)

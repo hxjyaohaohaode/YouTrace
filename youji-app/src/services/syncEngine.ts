@@ -1,11 +1,12 @@
 import { api, isLoggedIn } from './apiClient';
 import { db, generateLocalId, getSetting, LOCAL_DATA_EPOCH_KEY, type OutboxRecord, type SyncEntity } from '../db';
 import { toast } from './toastBus';
+import { goalSyncPayload } from './goalPayload';
 
 const CURSOR_KEY = 'syncV2Cursor';
 const BATCH_KEY = 'syncV2Batch';
-const ENTITIES: SyncEntity[] = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins'];
-const DELETE_KEYS: Record<SyncEntity, string> = { schedules: 'scheduleIds', expenses: 'expenseIds', todos: 'todoIds', habits: 'habitIds', quickNotes: 'quickNoteIds', diaries: 'diaryIds', habitCheckins: 'habitCheckinIds' };
+const ENTITIES: SyncEntity[] = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins', 'goals'];
+const DELETE_KEYS: Record<SyncEntity, string> = { goals: 'goalIds', schedules: 'scheduleIds', expenses: 'expenseIds', todos: 'todoIds', habits: 'habitIds', quickNotes: 'quickNoteIds', diaries: 'diaryIds', habitCheckins: 'habitCheckinIds' };
 let flushing = false;
 let paused = false;
 let generation = 0;
@@ -21,14 +22,14 @@ export interface SyncEvent {
   operation: 'upsert' | 'delete';
   data: Record<string, unknown> | null;
 }
-interface PullPage { protocol: 2; events: SyncEvent[]; nextCursor: string; hasMore: boolean }
+interface PullPage { protocol: 2; features: string[]; events: SyncEvent[]; nextCursor: string; hasMore: boolean }
 interface Version { entity: SyncEntity; entityId: string; seq: string }
 interface Ack { protocol: 2; mutationId: string; acknowledged: true; versions: Version[] }
 interface FrozenBatch { mutationId: string; seqs: number[]; keys: string[]; payload: Record<string, unknown> }
 export interface SyncConflict { event: SyncEvent; receivedAt: number }
 const versionKey = (key: string) => `sync-version:${key}`;
 const conflictKey = (key: string) => `sync-conflict:${key}`;
-const tableName = (entity: SyncEntity) => entity === 'diaries' ? 'diary' : entity;
+const tableName = (entity: SyncEntity) => entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity;
 const isSequence = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value);
 
 function recordKey(record: OutboxRecord): string {
@@ -44,7 +45,7 @@ function scheduleFlush(delay: number) {
 }
 
 export async function enqueueSync(entity: SyncEntity, op: 'upsert' | 'delete', payload: unknown): Promise<void> {
-  const row: OutboxRecord = { entity, op, payload, queuedAt: Date.now(), status: 'pending', attempts: 0 };
+  const row: OutboxRecord = { entity, op, payload: entity === 'goals' && op === 'upsert' ? goalSyncPayload(payload) : payload, queuedAt: Date.now(), status: 'pending', attempts: 0 };
   const key = recordKey(row);
   row.baseVersion = await getSetting<string>(versionKey(key), '0');
   row.predecessorSeq = (await db.outbox.orderBy('seq').toArray()).filter((previous) => recordKey(previous) === key).at(-1)?.seq;
@@ -79,7 +80,7 @@ async function prepareBatch(): Promise<FrozenBatch | null> {
       const baseVersion = row.baseVersion ?? '0';
       const candidate = structuredClone(payload);
       if (row.op === 'upsert') {
-        ((candidate[row.entity] ??= []) as unknown[]).push({ ...(row.payload as object), baseVersion });
+        ((candidate[row.entity] ??= []) as unknown[]).push({ ...(row.entity === 'goals' ? goalSyncPayload(row.payload) : row.payload as object), baseVersion });
       } else {
         const deletions = (candidate.deletions ??= {}) as Record<string, unknown[]>;
         (deletions[DELETE_KEYS[row.entity]] ??= []).push({ id: String(row.payload), baseVersion });
@@ -172,6 +173,7 @@ function localRow(event: SyncEvent): Record<string, unknown> {
   const row: Record<string, unknown> = { ...event.data, id: event.entityId };
   delete row.userId;
   for (const field of ['createdAt', 'updatedAt']) if (field in row) row[field] = millis(row[field]);
+  if (event.entity === 'goals') row.syncScope = 'account';
   if (event.entity === 'todos' && !row.dueDate) row.dueDate = undefined;
   if (event.entity === 'habitCheckins') { row.confirmed = row.confirmed ?? true; row.aiReason = row.aiReason ?? undefined; }
   if (event.entity === 'diaries') { row.quickNoteIds = []; row.moodScore = row.moodScore ?? 5; row.aiInsight = row.aiInsight ?? undefined; }
@@ -206,9 +208,9 @@ async function pullPages(): Promise<void> {
   const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
   let cursor = await getSetting<string>(CURSOR_KEY, '0');
   for (;;) {
-    const page = await api.get<PullPage>(`/sync/pull?protocol=2&cursor=${encodeURIComponent(cursor)}&limit=500`, 30_000);
+    const page = await api.get<PullPage>(`/sync/pull?protocol=2&features=goals-v1&cursor=${encodeURIComponent(cursor)}&limit=500`, 30_000);
     if (paused || !isLoggedIn()) return;
-    if (page.protocol !== 2 || !Array.isArray(page.events) || !isSequence(page.nextCursor) || typeof page.hasMore !== 'boolean') throw new Error('同步协议不兼容，保留本地修改');
+    if (page.protocol !== 2 || !Array.isArray(page.features) || !page.features.includes('goals-v1') || !Array.isArray(page.events) || !isSequence(page.nextCursor) || typeof page.hasMore !== 'boolean') throw new Error('同步协议不兼容，保留本地修改');
     let previous = BigInt(cursor);
     for (const event of page.events) {
       if (!ENTITIES.includes(event.entity) || !isSequence(event.seq) || BigInt(event.seq) <= previous || typeof event.entityId !== 'string' || !['upsert', 'delete'].includes(event.operation)) throw new Error('同步顺序无效，未推进游标');
@@ -222,7 +224,8 @@ async function pullPages(): Promise<void> {
         const key = `${event.entity}:${event.entityId}`;
         const known = await getSetting<string>(versionKey(key), '0');
         if (BigInt(event.seq) <= BigInt(known)) continue;
-        if (pending.has(key) || (event.entity === 'habits' && event.operation === 'delete' && [...pending].some((id) => id.startsWith(`habitCheckins:${event.entityId}|`)))) {
+        const localOnlyGoal = event.entity === 'goals' && (await db.goalRecords.get(event.entityId));
+        if ((localOnlyGoal && localOnlyGoal.syncScope !== 'account') || pending.has(key) || (event.entity === 'habits' && event.operation === 'delete' && [...pending].some((id) => id.startsWith(`habitCheckins:${event.entityId}|`)))) {
           const previous = await getSetting<SyncConflict | null>(conflictKey(key), null);
           if (!previous || BigInt(previous.event.seq) < BigInt(event.seq)) await db.settings.put({ key: conflictKey(key), value: { event, receivedAt: Date.now() } satisfies SyncConflict });
           continue;
@@ -252,16 +255,33 @@ export async function retryBlockedSync(): Promise<void> {
   await flush();
 }
 
-export async function acceptRemoteConflict(key: string): Promise<void> {
+export interface ConflictSnapshot { event: SyncEvent; local: unknown; pendingSeqs: number[] }
+
+function relatedOperation(record: OutboxRecord, event: SyncEvent): boolean {
+  return recordKey(record) === `${event.entity}:${event.entityId}` || (event.entity === 'habits' && event.operation === 'delete' && recordKey(record).startsWith(`habitCheckins:${event.entityId}|`));
+}
+
+export async function readConflictSnapshot(key: string): Promise<ConflictSnapshot | null> {
+  const database = db;
+  return database.transaction('r', database.tables, async () => {
+    const conflict = await getSetting<SyncConflict | null>(key, null);
+    if (!key.startsWith('sync-conflict:') || !conflict) return null;
+    return { event: conflict.event, local: await database.table(tableName(conflict.event.entity)).get(conflict.event.entityId), pendingSeqs: (await database.outbox.toArray()).filter((row) => relatedOperation(row, conflict.event)).map((row) => row.seq!) };
+  });
+}
+
+export async function acceptRemoteConflict(key: string, expected: ConflictSnapshot): Promise<void> {
   if (flushing || await getSetting(BATCH_KEY, null)) throw new Error('还有结果未确认的同步请求，请先重试同步');
   await db.transaction('rw', db.tables, async () => {
     if (await getSetting(BATCH_KEY, null)) throw new Error('同步请求结果尚未确认，请先重试');
     const conflict = await getSetting<SyncConflict | null>(key, null);
     if (!key.startsWith('sync-conflict:') || !conflict) throw new Error('冲突已变化，请刷新');
+    const snapshot = await readConflictSnapshot(key);
+    if (!snapshot || JSON.stringify(snapshot) !== JSON.stringify(expected)) throw new Error('比较中的版本刚刚变化，尚未处理。请重新打开比较，核对最新内容');
     const recordId = `${conflict.event.entity}:${conflict.event.entityId}`;
     const currentVersion = await getSetting<string>(versionKey(recordId), '0');
     if (BigInt(currentVersion) >= BigInt(conflict.event.seq)) { await db.settings.delete(key); return; }
-    const ops = (await db.outbox.toArray()).filter((row) => recordKey(row) === recordId || (conflict.event.entity === 'habits' && conflict.event.operation === 'delete' && recordKey(row).startsWith(`habitCheckins:${conflict.event.entityId}|`)));
+    const ops = (await db.outbox.toArray()).filter((row) => relatedOperation(row, conflict.event));
     const local = await db.table(tableName(conflict.event.entity)).get(conflict.event.entityId);
     // A recovery copy survives resolution and is included in the local export.
     await db.settings.put({ key: `sync-recovery:${generateLocalId()}`, value: { local, mutations: ops, remote: conflict, resolvedAt: Date.now() } });

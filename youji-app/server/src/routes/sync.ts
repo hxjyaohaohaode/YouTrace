@@ -87,8 +87,22 @@ const checkinSyncSchema = z.object({
   aiReason: z.string().trim().max(500).optional(),
 })
 
+const goalSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
+  id: z.string().min(8).max(64),
+  title: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(2000).default(''),
+  level: z.enum(['short', 'medium', 'long']),
+  domain: z.string().trim().min(1).max(50),
+  priority: z.enum(['low', 'medium', 'high']),
+  progress: z.number().int().min(0).max(100),
+  targetDate: isoDateSchema.refine((value) => { const date = new Date(value + 'T00:00:00Z'); return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value }, '目标日期无效').nullable().default(null),
+  createdAt: z.number().int().safe().nonnegative().max(8640000000000000).optional(),
+})
+
 const deletionSchema = z.object({ id: z.string().min(8).max(100), baseVersion: baseVersionSchema }).strict()
 const deletionsSchema = z.object({
+  goalIds: z.array(deletionSchema).max(1000).optional(),
   scheduleIds: z.array(deletionSchema).max(2000).optional(),
   expenseIds: z.array(deletionSchema).max(2000).optional(),
   todoIds: z.array(deletionSchema).max(2000).optional(),
@@ -101,6 +115,7 @@ const deletionsSchema = z.object({
 const syncPayloadSchema = z.object({
   protocol: z.literal(2),
   mutationId: z.string().min(8).max(128),
+  goals: z.array(goalSyncSchema).max(1000).optional(),
   schedules: z.array(scheduleSyncSchema).max(500).optional(),
   expenses: z.array(expenseSyncSchema).max(1000).optional(),
   todos: z.array(todoSyncSchema).max(1000).optional(),
@@ -114,6 +129,7 @@ const syncPayloadSchema = z.object({
 
 const pullQuerySchema = z.object({
   protocol: z.literal('2'),
+  features: z.literal('goals-v1'),
   cursor: z.string().regex(/^(0|[1-9][0-9]{0,18})$/).default('0').refine((value) => /^[0-9]+$/.test(value) && BigInt(value) <= 9223372036854775807n),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
 })
@@ -121,13 +137,14 @@ const pullQuerySchema = z.object({
 async function requireSyncInfrastructure() {
   // `prisma db push` does not install triggers. Fail closed rather than ACK a lost write.
   const triggers = await prisma.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'sync_%'`
-  const tables = ['Schedule', 'Expense', 'Todo', 'Habit', 'QuickNote', 'Diary', 'HabitCheckin']
+  const tables = ['Schedule', 'Expense', 'Todo', 'Habit', 'QuickNote', 'Diary', 'HabitCheckin', 'Goal']
   const found = new Set(triggers.map((trigger) => trigger.name))
   return tables.every((table) => ['insert', 'update', 'delete', 'no_resurrection', 'identity_immutable'].every((suffix) => found.has(`sync_${table}_${suffix}`)))
 }
 
 syncRoutes.get('/pull', async (c) => {
   if (c.req.query('protocol') !== '2') return c.json({ error: '请升级客户端后再同步，保留本地修改', code: 'SYNC_UPGRADE_REQUIRED', protocol: 2 }, 426)
+  if (c.req.query('features') !== 'goals-v1') return c.json({ error: '请刷新或升级有迹后继续同步，旧版本不支持目标数据；本地修改仍保留', code: 'SYNC_CLIENT_UPGRADE_REQUIRED', protocol: 2, requiredFeatures: ['goals-v1'] }, 426)
   const query = pullQuerySchema.safeParse(c.req.query())
   if (!query.success) return c.json({ error: query.error.flatten(), code: 'INVALID_SYNC_CURSOR' }, 400)
   const user = c.get('user') as AuthUser
@@ -146,6 +163,7 @@ syncRoutes.get('/pull', async (c) => {
   const page = rows.slice(0, limit)
   return c.json({
     protocol: 2,
+    features: ['goals-v1'],
     events: page.map((row) => ({ seq: row.seq.toString(), entity: row.entity, entityId: row.entityId, operation: row.operation, data: decodeChangePayload(row.entity, row.payload) })),
     nextCursor: page.at(-1)?.seq.toString() ?? cursor,
     hasMore: rows.length > limit,
@@ -213,6 +231,15 @@ syncRoutes.post('/push', async (c) => {
         touched.set(key, { entity, entityId })
       }
 
+      for (const item of data.goals ?? []) {
+        const { id, baseVersion, createdAt, ...changes } = item
+        touch('goals', id)
+        await applyWrite(tx, user.id, { entity: 'goals', id, baseVersion,
+          read: () => tx.goal.findUnique({ where: { id } }),
+          create: () => tx.goal.create({ data: { id, userId: user.id, ...changes, ...(createdAt === undefined ? {} : { createdAt: new Date(createdAt) }) } }),
+          update: () => tx.goal.update({ where: { id }, data: changes }),
+        })
+      }
       for (const item of data.schedules ?? []) {
         const { id, baseVersion, ...changes } = item
         touch('schedules', id)
@@ -282,11 +309,17 @@ syncRoutes.post('/push', async (c) => {
         if (existing) await tx.habitCheckin.update({ where: { id: existing.id }, data: changes })
         else await tx.habitCheckin.create({ data: { id: generateId(), habitId, date, ...changes } })
       }
-      for (const entity of ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins'] as const) {
+      for (const entity of ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins', 'goals'] as const) {
         if (data[entity]?.length) synced[entity] = data[entity].length
       }
 
       const deletions = data.deletions
+      for (const item of deletions?.goalIds ?? []) {
+        touch('goals', item.id)
+        await applyDeletion(tx, user.id, { entity: 'goals', ...item,
+          read: () => tx.goal.findUnique({ where: { id: item.id } }), remove: () => tx.goal.delete({ where: { id: item.id } }),
+        })
+      }
       for (const item of deletions?.scheduleIds ?? []) {
         touch('schedules', item.id)
         await applyDeletion(tx, user.id, { entity: 'schedules', ...item,
@@ -340,7 +373,7 @@ syncRoutes.post('/push', async (c) => {
           },
         })
       }
-      for (const [key, ack] of [['scheduleIds', 'deletedSchedules'], ['expenseIds', 'deletedExpenses'], ['todoIds', 'deletedTodos'], ['habitIds', 'deletedHabits'], ['quickNoteIds', 'deletedQuickNotes'], ['diaryIds', 'deletedDiaries'], ['habitCheckinIds', 'deletedHabitCheckins']] as const) {
+      for (const [key, ack] of [['goalIds', 'deletedGoals'], ['scheduleIds', 'deletedSchedules'], ['expenseIds', 'deletedExpenses'], ['todoIds', 'deletedTodos'], ['habitIds', 'deletedHabits'], ['quickNoteIds', 'deletedQuickNotes'], ['diaryIds', 'deletedDiaries'], ['habitCheckinIds', 'deletedHabitCheckins']] as const) {
         if (deletions?.[key]?.length) synced[ack] = deletions[key].length
       }
       const versions = []

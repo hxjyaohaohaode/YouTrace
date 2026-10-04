@@ -2,12 +2,12 @@
 
 Status: **Implemented in the isolated SQLite fixture; production migration and rollout are BLOCKED_EXTERNAL.**
 
-This is the minimal P0 protocol for schedules, expenses, todos, habits, habit checkins, quick notes and diaries. Goals, account settings, chat, insights and push messages are not included in this feed. Unsupported top-level push keys are rejected, never silently ACKed.
+This is the minimal P0 protocol for schedules, expenses, todos, habits, habit checkins, quick notes, diaries and goals. Account settings use a separate versioned CAS/receipt protocol; chat, insights and push messages are not included in this feed. Unsupported top-level push keys are rejected, never silently ACKed.
 
 ## Safety properties
 
 - Authentication supplies the owner. Payload `userId` is never trusted. Every feed query and receipt is owner-scoped; existing foreign IDs fail before mutation. Checkins derive ownership from their habit.
-- Every insert, update and delete of the seven supported tables, including REST, raw SQL todo toggles and expense batches, writes a `SyncChange` in the same database transaction through SQLite triggers.
+- Every insert, update and delete of the eight supported tables, including REST, raw SQL todo toggles and expense batches, writes a `SyncChange` in the same database transaction through SQLite triggers.
 - An event stores a full immutable row image, or a deletion with a null image. Consequently a later REST edit does not erase its preceding change image.
 - A mutation receipt, all requested business writes and all emitted events commit together. No partial ACK is returned. Failed mutations receive no success receipt.
 - Tombstones prevent re-insertion of a deleted owner/entity/ID at the database boundary, not just in the sync route. Normal updates require an exact acknowledged base version.
@@ -19,7 +19,7 @@ This is the minimal P0 protocol for schedules, expenses, todos, habits, habit ch
 Request:
 
 ```text
-GET /api/sync/pull?protocol=2&cursor=0&limit=500
+GET /api/sync/pull?protocol=2&features=goals-v1&cursor=0&limit=500
 ```
 
 `cursor` is an unsigned decimal string between 0 and SQLite's signed 64-bit maximum. `limit` is 1–2000, default 500. Timestamps are not cursors. A cursor is not an access token: every query separately filters authenticated ownership. Clients must store it in the corresponding account database.
@@ -29,6 +29,7 @@ Response:
 ```json
 {
   "protocol": 2,
+  "features": ["goals-v1"],
   "events": [
     {
       "seq": "1042",
@@ -88,7 +89,7 @@ Rules:
 - Persist the exact batch payload and mutation ID **before** sending. Retry that payload and ID after timeout, response loss, process restart or retryable failure.
 - A new record permits omitted `baseVersion` or `"0"` only if there is no live row and no tombstone. An existing record requires its exact last event sequence.
 - Existing-record deletion requires a matching base version. Already-tombstoned deletion is idempotent. Deleting an unknown ID with base 0/omitted durably tombstones the ID and emits a delete event; a late offline create cannot resurrect it.
-- Deletion keys are `scheduleIds`, `expenseIds`, `todoIds`, `habitIds`, `quickNoteIds`, `diaryIds`, `habitCheckinIds`. Values are arrays of `{id,baseVersion}`, not v1 string arrays.
+- Deletion keys are `scheduleIds`, `expenseIds`, `todoIds`, `habitIds`, `quickNoteIds`, `diaryIds`, `habitCheckinIds`, `goalIds`. Values are arrays of `{id,baseVersion}`, not v1 string arrays.
 - Checkin logical IDs in events, versions and deletion requests are `habitId|YYYY-MM-DD`. An upsert supplies `habitId` and `date`; the returned row image also retains its server row `id`. Deleting a habit emits child deletion events before the habit deletion event.
 - Habits are processed before checkins within a batch. A missing parent is an explicit whole-batch rejection. A foreign parent is an ownership rejection.
 - Two diary IDs for one owner/date are a conflict. The server does not overwrite the first diary, silently merge content, remap the second ID or ACK the rejected candidate. The second original remains in the client's durable rejected queue; this is not a separate server-side conflict-draft archive.
@@ -133,6 +134,7 @@ Errors preserve the mutation ID when parsed. A rejected v2 batch returns `acknow
 | `INVALID_SYNC_CURSOR` | 400 | Invalid/overflow cursor or page limit |
 | `SYNC_RETRY_REQUIRED` | 503 | Explicit concurrency/busy failure; retry exact frozen payload/ID |
 | `SYNC_MIGRATION_REQUIRED` | 503 | Required trigger missing; pause and investigate migration |
+| `SYNC_CLIENT_UPGRADE_REQUIRED` | 426 pull | Goal-unaware v2 client must refresh/upgrade; retain all local mutations |
 | `SYNC_UPGRADE_REQUIRED` | 426 pull / 503 push | v1 is disabled; update client and retain its queue |
 
 Legacy push deliberately uses 503 plus `Retry-After:60`: known v1 clients delete queued work after repeated 4xx responses. A 426 push gate would therefore cause the very loss this change prevents. There is no v1 write or timestamp-paging fallback. Rate limits return 429 with `Retry-After`. Invalid authentication follows the shared auth boundary. No non-ACK response authorizes local queue deletion.
@@ -143,13 +145,15 @@ New files only:
 
 - `20261004000000_sync_v2_ledger`: tables, indexes, seven-table baseline events, 35 DB triggers; explicit `BEGIN IMMEDIATE`/`COMMIT` protects both backfill and trigger installation
 - `20261004000001_revoked_sessions`: independent session-revocation storage requested by the auth tranche
+- `20261004000002_goal_lifecycle`: additive Goal table, ownership/immutable identity checks, five ledger/tombstone triggers; atomic and no automatic local upload
+- `20261004000003_account_preferences`: separate complete account preference document and immutable mutation receipts, preserving the existing User fields as an atomic compatibility mirror
 
 No historic migration was edited. The new migration is additive and preserves existing rows. It does not repair the known unsafe populated-data behavior of historical `sync_foundation`, reconstruct pre-cutover deletes, or prove production schema/history. Empty database installation passing is not permission to run the full chain against an unknown populated legacy database.
 
 Before production, all remain **BLOCKED_EXTERNAL** until verified:
 
 1. Identify actual database engine, path, migration history and deployed version without restarting the service. Make a consistent backup and prove restore in isolation.
-2. Rehearse the exact observed upgrade path on an isolated copy with a content/count manifest. Resolve historic migration defects without rewriting already-applied checksums. Verify foreign keys, all 35 trigger definitions, backfill counts for all seven entities and a real end-to-end page/mutation round trip.
+2. Rehearse the exact observed upgrade path on an isolated copy with a content/count manifest. Resolve historic migration defects without rewriting already-applied checksums. Verify foreign keys, all 40 trigger definitions, backfill counts for the original seven entities plus the new Goal lifecycle, and a real end-to-end page/mutation round trip.
 3. Preserve old local/guest/shared libraries and unsent drafts without assuming ownership. Plan cutover for old devices; deleted IDs from before this feed existed cannot be inferred retroactively. Unsafe legacy data must not be blindly bulk-uploaded as new records.
 4. Stage a coordinated client/server protocol transition, test two real devices, offline edits, tombstones, diary conflict recovery, quota/crash interruption and account changes. Server fixture tests do not substitute for that rollout exercise.
 5. Validate persistent storage, backup/restore and rollback. Rolling the client back to v1 does not permit restoring the unsafe v1 write endpoint. Preserve the new ledger and receipts on rollback.
@@ -173,3 +177,16 @@ Use `prisma migrate deploy` for the reviewed path. `prisma db push` does not cre
 The Node SQLite fixture enables double-quoted string literals **only to match the existing Prisma SQLite compatibility behavior for empty historical migrations**. It does not repair or approve the historical nonexistent checkin `createdAt` source column or populated migration deletions.
 
 Fresh isolated `prisma migrate deploy`, server TypeScript build and focused lint were also run. Production data, PostgreSQL migration, production CI and deployed rollout were not accessed or claimed verified.
+
+
+## Goal adoption and client compatibility
+
+Goal writes use `/api/sync/push` (`goals` / `deletions.goalIds`), and reads use the same versioned pull feed. There is no second unversioned Goal write API. Manual progress is reversible; task or habit similarity never produces completion. The wire contains only id, title, description, level, domain, priority, progress, targetDate, original createdAt and baseVersion. Unknown legacy fields stay in local recovery copies, not network requests.
+
+The new client requires the `goals-v1` pull feature. An older v2 client receives an explicit 426 rather than encountering an unknown event and repeatedly failing at that page. New client and server must be staged as a pair. Frozen pre-upgrade mutation batches retain their exact payload and ID; no upgrade is permission to clear them. A client rollback that lacks this feature cannot resume sync and must not re-enable unsafe writes.
+
+Local account database version 2 adds `goalRecords` and transactionally copies every original field from the existing `goals` table while recording source snapshots. The original table remains as an isolated source. Merely incrementing the Dexie schema version does **not** stop old JavaScript: Dexie can reopen an older declared schema. The different physical table prevents an old window from changing an active synchronized goal. New/changed/deleted old-source records are detectable and can be explicitly kept as new local copies; a source deletion never silently deletes the current or cloud goal. All recovery decisions bind the compared snapshots and preserve originals in export. Upgrade quota/interruption rolls back the copy and metadata together.
+
+Existing local-only goals do not upload automatically. The user selects and previews their full editable fields and destination account, then explicitly enables sync. Original copies remain under `goal-local-copy:*`. A cloud event colliding with an unadopted local goal is saved as a conflict rather than overwriting it. Choosing a cloud conflict binds the exact displayed event, local record and pending operation IDs; a later change requires a new comparison. Whole-goal edits intentionally conflict instead of guessing field-level merges.
+
+Local backup format version 2 keeps active rows under `tables.goals`, original account-table sources under `tables.legacyGoalSources`, and includes `storageVersion` plus all recovery snapshots in settings. This does not claim ownership of the separate old shared `youtrace` database.

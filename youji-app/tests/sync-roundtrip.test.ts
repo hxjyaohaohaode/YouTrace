@@ -81,7 +81,7 @@ test('real API + fake IndexedDB: newer remote edit preserves pending local input
   assert.equal((await storage.db.todos.get('roundtrip-todo-002'))?.text, 'offline local draft');
   const key = 'sync-conflict:todos:roundtrip-todo-002';
   assert.ok(await storage.db.settings.get(key));
-  await sync.acceptRemoteConflict(key);
+  await sync.acceptRemoteConflict(key, (await sync.readConflictSnapshot(key))!);
   assert.equal((await storage.db.todos.get('roundtrip-todo-002'))?.text, 'remote edit');
   assert.equal(await storage.db.outbox.count(), 0);
   assert.equal((await storage.db.settings.toArray()).filter((row) => row.key.startsWith('sync-recovery:')).length, 1);
@@ -95,4 +95,83 @@ test('real API + fake IndexedDB: paginated equal-timestamp changefeed imports ev
   const actual = new Set((await storage.db.todos.toArray()).filter((row) => row.id.startsWith('bulk-client-')).map((row) => row.id));
   assert.equal(actual.size, count);
   for (let i = 0; i < count; i++) assert.ok(actual.has(`bulk-client-${i}`));
+});
+
+test('real API + fake IndexedDB: goal upload retries the exact lost-response batch and preserves original date', async () => {
+  const { useGoalStore } = await import('../src/stores/goalStore.ts');
+  sync.pauseSync();
+  const legacy = { id: 'roundtrip-goal-legacy-001', title: 'Synthetic selected goal', description: 'Preserved original', level: 'medium' as const, domain: '生活', priority: 'high' as const, progress: 25, targetDate: '2026-12-01', createdAt: 1000, updatedAt: 2000 };
+  await storage.db.goalRecords.put(legacy);
+  await useGoalStore.getState().enableSync([legacy], 'synthetic-roundtrip-a');
+  loseResponse = true;
+  await sync.retryBlockedSync();
+  assert.equal(await storage.db.outbox.count(), 1);
+  const row = await prisma.goal.findUnique({ where: { id: legacy.id } });
+  assert.equal(row?.createdAt.getTime(), 1000);
+  assert.equal(row?.progress, 25);
+  const events = await prisma.syncChange.count({ where: { entity: 'goals' } });
+  await sync.flush();
+  assert.equal(await storage.db.outbox.count(), 0);
+  assert.deepEqual(requests.at(-1), requests.at(-2));
+  assert.equal(await prisma.syncChange.count({ where: { entity: 'goals' } }), events);
+});
+
+test('real API + fake IndexedDB: goal conflict retains offline progress, adopts explicit remote, and delete cannot resurrect', async () => {
+  const { useGoalStore } = await import('../src/stores/goalStore.ts');
+  await useGoalStore.getState().loadFromDB();
+  sync.pauseSync();
+  await useGoalStore.getState().updateProgress('roundtrip-goal-legacy-001', 75);
+  await prisma.goal.update({ where: { id: 'roundtrip-goal-legacy-001' }, data: { progress: 50 } });
+  await sync.retryBlockedSync();
+  assert.equal(await storage.db.outbox.count(), 1);
+  await sync.pullServerChanges();
+  assert.equal((await storage.db.goalRecords.get('roundtrip-goal-legacy-001'))?.progress, 75);
+  await sync.acceptRemoteConflict('sync-conflict:goals:roundtrip-goal-legacy-001', (await sync.readConflictSnapshot('sync-conflict:goals:roundtrip-goal-legacy-001'))!);
+  assert.equal((await storage.db.goalRecords.get('roundtrip-goal-legacy-001'))?.progress, 50);
+  assert.equal((await storage.db.goalRecords.get('roundtrip-goal-legacy-001'))?.syncScope, 'account');
+  await useGoalStore.getState().loadFromDB();
+  sync.pauseSync();
+  await useGoalStore.getState().updateProgress('roundtrip-goal-legacy-001', 100);
+  await prisma.goal.delete({ where: { id: 'roundtrip-goal-legacy-001' } });
+  await sync.retryBlockedSync();
+  assert.equal(await storage.db.outbox.count(), 1);
+  assert.equal(await prisma.goal.count({ where: { id: 'roundtrip-goal-legacy-001' } }), 0);
+  await sync.pullServerChanges();
+  await sync.acceptRemoteConflict('sync-conflict:goals:roundtrip-goal-legacy-001', (await sync.readConflictSnapshot('sync-conflict:goals:roundtrip-goal-legacy-001'))!);
+  assert.equal(await storage.db.goalRecords.get('roundtrip-goal-legacy-001'), undefined);
+  assert.equal(await storage.db.outbox.count(), 0);
+});
+
+test('real API + fake IndexedDB: cloud ID collision never overwrites a still-local goal', async () => {
+  const local = { id: 'roundtrip-goal-collision-001', title: 'Local-only original', description: '', level: 'short' as const, domain: '生活', priority: 'low' as const, progress: 0, targetDate: null, createdAt: 1, updatedAt: 1 };
+  await storage.db.goalRecords.put(local);
+  await prisma.goal.create({ data: { id: local.id, userId: 'synthetic-roundtrip-a', title: 'Cloud same ID', description: '', level: 'short', domain: '生活', priority: 'low' } });
+  await sync.pullServerChanges();
+  assert.deepEqual(await storage.db.goalRecords.get(local.id), local);
+  assert.ok(await storage.db.settings.get(`sync-conflict:goals:${local.id}`));
+  await sync.acceptRemoteConflict(`sync-conflict:goals:${local.id}`, (await sync.readConflictSnapshot(`sync-conflict:goals:${local.id}`))!);
+  assert.equal((await storage.db.goalRecords.get(local.id))?.title, 'Cloud same ID');
+});
+
+test('real API + fake IndexedDB: accepting a stale goal comparison never consumes a newer version or local edit', async () => {
+  const { useGoalStore } = await import('../src/stores/goalStore.ts');
+  await useGoalStore.getState().loadFromDB();
+  const goalId = 'roundtrip-goal-collision-001';
+  sync.pauseSync();
+  await useGoalStore.getState().updateProgress(goalId, 75);
+  await prisma.goal.update({ where: { id: goalId }, data: { progress: 25 } });
+  await sync.retryBlockedSync(); await sync.pullServerChanges();
+  const key = `sync-conflict:goals:${goalId}`;
+  const viewed = (await sync.readConflictSnapshot(key))!;
+  await prisma.goal.update({ where: { id: goalId }, data: { progress: 50 } });
+  await sync.pullServerChanges();
+  await assert.rejects(sync.acceptRemoteConflict(key, viewed), /刚刚变化/);
+  assert.equal((await storage.db.goalRecords.get(goalId))?.progress, 75);
+  assert.equal(await storage.db.outbox.count(), 1);
+  const newerView = (await sync.readConflictSnapshot(key))!;
+  sync.pauseSync();
+  await useGoalStore.getState().updateProgress(goalId, 100);
+  await assert.rejects(sync.acceptRemoteConflict(key, newerView), /刚刚变化/);
+  assert.equal((await storage.db.goalRecords.get(goalId))?.progress, 100);
+  assert.equal(await storage.db.outbox.count(), 2);
 });

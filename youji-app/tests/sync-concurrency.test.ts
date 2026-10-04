@@ -41,7 +41,7 @@ test('two runtime contexts: late older pull cannot replace newer conflict eviden
   while (pulls.length < 1) await tick();
   const newPage = tabB.pullServerChanges();
   while (pulls.length < 2) await tick();
-  const page = (seq: string) => Response.json({ protocol: 2, nextCursor: seq, hasMore: false, events: [{ seq, entity: 'todos', entityId: 'shared-record-001', operation: 'upsert', data: { id: 'shared-record-001', text: `version-${seq}`, done: false, priority: 'medium' } }] });
+  const page = (seq: string) => Response.json({ protocol: 2, features: ['goals-v1'], nextCursor: seq, hasMore: false, events: [{ seq, entity: 'todos', entityId: 'shared-record-001', operation: 'upsert', data: { id: 'shared-record-001', text: `version-${seq}`, done: false, priority: 'medium' } }] });
   pulls[1](page('20')); await newPage;
   pulls[0](page('10')); await oldPage;
   assert.equal((await storage.db.settings.get('syncV2Cursor'))?.value, '20');

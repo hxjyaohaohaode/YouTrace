@@ -10,7 +10,7 @@ YouTrace「有迹」是已有部署、已有数据、经历过失控重构的真
 
 ## 2026-10-04 后续恢复候选
 
-已在隔离合成数据上推进Sync v2、账号数据库隔离、未确认修改保全、会话撤销、可恢复确认稿和人性化纠偏。精确事实、测试替身与真实浏览器的区别、生产阻塞见 [RECOVERY_TEST_REPORT.md](RECOVERY_TEST_REPORT.md)；协议见 [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md)。原Phase0审计保留作为先红后绿基线，不把修复候选写成生产已上线。当前旧共享库只隔离/导出，不自动认领；目标仍本设备专用。
+已在隔离合成数据上推进Sync v2、账号数据库隔离、未确认修改保全、会话撤销、可恢复确认稿和人性化纠偏。精确事实、测试替身与真实浏览器的区别、生产阻塞见 [RECOVERY_TEST_REPORT.md](RECOVERY_TEST_REPORT.md)；协议见 [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md)。原Phase0审计保留作为先红后绿基线，不把修复候选写成生产已上线。旧共享库目前只隔离/导出，不自动认领。目标与完整提醒偏好继续按P0.7推进：目标新增版本化同步、旧目标逐项确认上传；账号旧goals物理表保留为隔离来源，新goalRecords承载当前目标；提醒偏好采用独立CAS与幂等回执。具体本地/CI状态以最新测试报告和覆盖清单为准。
 
 ## Git 与部署边界
 
@@ -95,6 +95,8 @@ Phase 1 的严重同步风险与 Phase 2/3 的最小数据基础存在依赖，�
 - [AUDIT_REPORT.md](AUDIT_REPORT.md)：本次事实复核、证据、风险与已知局限。
 - [ARCHITECTURE_CURRENT.md](ARCHITECTURE_CURRENT.md)：当前架构、领域/数据/同步/AI/部署图与功能对照。
 - [RECOVERY_PLAN.md](RECOVERY_PLAN.md)：依赖、修复顺序、下一阶段文件、验证和回滚。
+- [ACCOUNT_PREFERENCES_PROTOCOL.md](ACCOUNT_PREFERENCES_PROTOCOL.md)：完整账号偏好CAS、回执、冲突与设备边界。
+- [FEATURE_RECOVERY_COVERAGE.md](FEATURE_RECOVERY_COVERAGE.md)：未满足但可隔离推进的必要功能、逐页/组件验收边界与下一包。
 - 后续按阶段建立 ARCHITECTURE_TARGET、FEATURE_MATRIX、DATA_MODEL、DATA_FLOW、SYNC_PROTOCOL、AI_ARCHITECTURE、AI_PROVIDER_MATRIX、PROACTIVE_ENGINE、DEPLOYMENT、RUNBOOK、PRIVACY_SECURITY、TEST_REPORT、CHANGELOG，避免空文件假装落地。
 
 ## 每次会话交接

@@ -9,7 +9,7 @@
 - 经编辑确认的速记草稿：quickNoteIntegration、QuickNoteResult及capture原子/幂等/回滚测试
 - 多设备变更/删除、冲突保全：SYNC_PROTOCOL及sync-recovery、sync-roundtrip、sync-concurrency测试
 - 教练：可配置模型对话与明确标注的规则回退、规则洞察、经用户控制的应用内提醒；没有后台推送或任意工具执行承诺
-- 目标：本设备手动进度；不是跨产品成果验收，也未接入服务端同步
+- 目标：手动进度、字段编辑/计划日期、版本化账号同步、明确旧目标选中上传与旧窗口原稿恢复；不是跨产品成果验收。新增代码验收以当前精确SHA报告为准
 - 设置、导出、旧资料隔离、运行诊断：Settings、DataInfo、备份/清理/冲突恢复测试
 
 源码范围：youji-app/src、youji-app/server/src、server/prisma及必要构建配置。实际提交版本以Git SHA和对应CI报告为准；package版本0.0.0/1.0.0及旧设计文档版本不应当作正式交付版本。

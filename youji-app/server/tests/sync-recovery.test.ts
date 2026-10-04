@@ -24,7 +24,7 @@ function push(userId: string, payload: Record<string, unknown>, mutationId = id(
   return request(userId, '/sync/push', { protocol: 2, mutationId, ...payload })
 }
 async function pull(userId: string, cursor = '0', limit = 500): Promise<Page> {
-  const response = await request(userId, `/sync/pull?protocol=2&cursor=${cursor}&limit=${limit}`, undefined, 'GET')
+  const response = await request(userId, `/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=${limit}`, undefined, 'GET')
   assert.equal(response.status, 200, await response.clone().text())
   return response.json() as Promise<Page>
 }
@@ -99,6 +99,7 @@ after(async () => {
 })
 
 test('additive migration backfills existing rows and rejects the lossy v1 protocol', async () => {
+  assert.equal((await request('backfill-owner', '/sync/pull?protocol=2&cursor=0', undefined, 'GET')).status, 426, 'old goal-unaware clients get explicit upgrade rather than an unknown event')
   const events = await allChanges('backfill-owner')
   assert.equal(events.length, 7)
   assert.equal(new Set(events.map((event) => event.entity)).size, 7)
@@ -107,8 +108,8 @@ test('additive migration backfills existing rows and rejects the lossy v1 protoc
   assert.equal((await request('backfill-owner', '/sync/push', { todos: [] })).status, 503)
   assert.equal((await push('backfill-owner', { goals: [{ id: 'ignored-goal' }] })).status, 400)
   assert.equal((await push('backfill-owner', { todos: [{ id: 'invalid-version', text: 'Invalid', baseVersion: 'not-an-integer' }] })).status, 400)
-  assert.equal((await request('backfill-owner', '/sync/pull?protocol=2&cursor=garbage', undefined, 'GET')).status, 400)
-  assert.equal((await request('backfill-owner', '/sync/pull?protocol=2&cursor=9223372036854775808', undefined, 'GET')).status, 400)
+  assert.equal((await request('backfill-owner', '/sync/pull?protocol=2&features=goals-v1&cursor=garbage', undefined, 'GET')).status, 400)
+  assert.equal((await request('backfill-owner', '/sync/pull?protocol=2&features=goals-v1&cursor=9223372036854775808', undefined, 'GET')).status, 400)
 })
 
 test('100, 2000, 2001 and 10001 equal-timestamp rows paginate without loss, including writes between pages', async () => {
@@ -424,6 +425,83 @@ test('ledger migration rolls back an interrupted backfill without losing existin
   db.exec(migration)
   assert.equal((db.prepare('SELECT COUNT(*) AS count FROM SyncChange').get() as { count: number }).count, 1)
   assert.equal((db.prepare('PRAGMA foreign_key_check').all()).length, 0)
+  db.close()
+})
+
+test('goal versioned API preserves ownership, validates data and returns exact replay receipts', async () => {
+  const owner = await user('goal-owner'), other = await user('goal-other')
+  const goal = { id: id('goal-record'), title: 'Synthetic goal', description: 'Original detail', level: 'long', domain: '生活', priority: 'medium', progress: 25, targetDate: '2026-12-31', createdAt: 1000 }
+  const mutationId = id('goal-mutation')
+  const created = await push(owner, { goals: [goal] }, mutationId)
+  assert.equal(created.status, 200)
+  const receipt = await created.json() as Ack
+  assert.equal(receipt.synced.goals, 1)
+  assert.equal(receipt.versions[0].entity, 'goals')
+  const replay = await push(owner, { goals: [goal] }, mutationId)
+  assert.deepEqual(await replay.json(), receipt)
+  assert.equal(await prisma.syncChange.count({ where: { userId: owner, entity: 'goals' } }), 1)
+  assert.equal((await push(owner, { goals: [{ ...goal, title: 'Different content' }] }, mutationId)).status, 409)
+  assert.equal((await push(other, { goals: [goal] })).status, 403)
+  assert.equal((await pull(other)).events.length, 0)
+  assert.equal((await push(owner, { goals: [{ ...goal, id: id('invalid-goal'), progress: 101 }] })).status, 400)
+  assert.equal((await push(owner, { goals: [{ ...goal, id: id('invalid-goal'), title: '  ' }] })).status, 400)
+  assert.equal((await prisma.goal.findUniqueOrThrow({ where: { id: goal.id } })).createdAt.getTime(), 1000)
+  assert.equal((await pull(owner, '0', 1)).events[0].data?.description, goal.description)
+})
+
+test('goal manual progress is reversible, stale mutation conflicts atomically and deletion is permanent by ID', async () => {
+  const owner = await user('goal-change')
+  const goal = { id: id('goal-change'), title: 'Synthetic', description: '', level: 'short', domain: '学习', priority: 'low', progress: 0, targetDate: null }
+  let response = await push(owner, { goals: [goal] })
+  const first = await response.json() as Ack
+  response = await push(owner, { goals: [{ ...goal, progress: 100, baseVersion: first.versions[0].seq }] })
+  const completed = await response.json() as Ack
+  assert.equal(response.status, 200)
+  assert.equal((await push(owner, { goals: [{ ...goal, progress: 50, baseVersion: first.versions[0].seq }], todos: [{ id: id('rollback-goal-todo'), text: 'Must not survive' }] })).status, 409)
+  assert.equal(await prisma.todo.count({ where: { userId: owner } }), 0)
+  response = await push(owner, { goals: [{ ...goal, progress: 25, baseVersion: completed.versions[0].seq }] })
+  const reversed = await response.json() as Ack
+  assert.equal((await prisma.goal.findUniqueOrThrow({ where: { id: goal.id } })).progress, 25)
+  assert.equal((await push(owner, { deletions: { goalIds: [{ id: goal.id, baseVersion: reversed.versions[0].seq }] } })).status, 200)
+  assert.equal((await push(owner, { goals: [goal] })).status, 409)
+  const events = await allChanges(owner, 1)
+  assert.deepEqual(events.map((event) => event.operation), ['upsert', 'upsert', 'upsert', 'delete'])
+  assert.equal(await prisma.goal.count({ where: { userId: owner } }), 0)
+  assert.equal((await request(owner, '/user', undefined, 'DELETE')).status, 200)
+  assert.equal(await prisma.syncChange.count({ where: { userId: owner } }), 0)
+  assert.equal(await prisma.syncReceipt.count({ where: { userId: owner } }), 0)
+})
+
+test('goal triggers reject identity changes, capture every writer and account deletion removes active goals', async () => {
+  const owner = await user('goal-triggers'), other = await user('goal-other-trigger')
+  const goalId = id('direct-goal')
+  await prisma.goal.create({ data: { id: goalId, userId: owner, title: 'Direct writer', domain: '生活' } })
+  await assert.rejects(prisma.goal.update({ where: { id: goalId }, data: { userId: other } }))
+  await assert.rejects(prisma.goal.update({ where: { id: goalId }, data: { createdAt: new Date(0) } }))
+  await prisma.goal.update({ where: { id: goalId }, data: { description: 'Changed through direct writer' } })
+  assert.equal((await allChanges(owner)).length, 2)
+  assert.equal((await request(owner, '/user', undefined, 'DELETE')).status, 200)
+  assert.equal(await prisma.goal.count({ where: { userId: owner } }), 0)
+  assert.equal(await prisma.syncTombstone.count({ where: { userId: owner } }), 0)
+})
+
+test('additive goal migration interruption rolls back schema and preserves populated prior data', async () => {
+  const db = new DatabaseSync(':memory:', { enableDoubleQuotedStringLiterals: true })
+  const migrationsDir = resolve('prisma/migrations')
+  for (const name of (await readdir(migrationsDir)).sort()) {
+    if (/^2026/.test(name) && name < '20261004000002') db.exec(await readFile(resolve(migrationsDir, name, 'migration.sql'), 'utf8'))
+  }
+  db.exec(`INSERT INTO User (id,phone,nickname,updatedAt) VALUES ('goal-upgrade-owner','goal-upgrade-phone','Synthetic',0);
+    INSERT INTO Todo (id,userId,text,updatedAt) VALUES ('goal-upgrade-todo','goal-upgrade-owner','Preserve original source',0);`)
+  const migration = await readFile(resolve(migrationsDir, '20261004000002_goal_lifecycle', 'migration.sql'), 'utf8')
+  assert.throws(() => db.exec(migration.replace('\nCOMMIT;', '\nINSERT INTO DeliberatelyMissingTable VALUES (1);\nCOMMIT;')))
+  db.exec('ROLLBACK;')
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name='Goal'").get() as { n: number }).n, 0)
+  assert.equal((db.prepare('SELECT text FROM Todo WHERE id=?').get('goal-upgrade-todo') as { text: string }).text, 'Preserve original source')
+  db.exec(migration)
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM Goal').get() as { n: number }).n, 0, 'no private local goal is inferred')
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM SyncChange').get() as { n: number }).n, 1)
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0)
   db.close()
 })
 

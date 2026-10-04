@@ -165,7 +165,7 @@ export async function computeWeeklyStats(): Promise<WeeklyStats> {
     computeActivityDays(),
   ]);
 
-  const goals = await db.goals.toArray();
+  const goals = await db.goalRecords.toArray();
 
   return {
     expenseTotalFen: expenseStats.thisTotal,

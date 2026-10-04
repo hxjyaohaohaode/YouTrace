@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { liveQuery } from 'dexie';
 import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
+import { PreferenceSyncPanel } from '../components/settings/PreferenceSyncPanel';
 import { SyncConflictPanel } from '../components/settings/SyncConflictPanel';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Download, Trash2, Shield, Clock, Moon, Sun, Monitor, Sparkles, Bell, AlertTriangle, LogOut, Wallet, UserX, RefreshCw, Database } from 'lucide-react';
-import { useSettingsStore, type CoachStyle, type ThemeMode } from '../stores/settingsStore';
+import { useSettingsStore, stopPreferenceSync, type CoachStyle, type ThemeMode, type AppSettings } from '../stores/settingsStore';
 import { useExpenseStore } from '../stores/expenseStore';
 import { useAuthStore, lockLocalSession } from '../stores/authStore';
 import { exportAllData, clearAllData, exportLegacyData, hasLegacyDatabase, db } from '../db';
@@ -35,6 +36,7 @@ interface ToggleRowProps {
 }
 
 function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
+  const reduced = useReducedMotion();
   const toggleId = `toggle-${label}`;
   return (
     <div className="flex items-center justify-between">
@@ -53,7 +55,7 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
       >
         <motion.div
           animate={{ x: checked ? 22 : 3 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          transition={{ duration: reduced ? 0 : 0.16, ease: 'easeOut' }}
           className="absolute top-[3px] h-[20px] w-[20px] rounded-full bg-white shadow-sm"
         />
       </button>
@@ -79,7 +81,7 @@ function SyncPanel() {
     const subscription = liveQuery(async () => {
       const [pendingRows, lastPushRecord, counts] = await Promise.all([
         db.outbox.toArray(), db.settings.get('lastPushAt'),
-        Promise.all([db.expenses.count(), db.todos.count(), db.habits.count(), db.habitCheckins.count(), db.quickNotes.count(), db.diary.count(), db.schedules.count(), db.goals.count()]),
+        Promise.all([db.expenses.count(), db.todos.count(), db.habits.count(), db.habitCheckins.count(), db.quickNotes.count(), db.diary.count(), db.schedules.count(), db.goalRecords.count()]),
       ]);
       return {
         pending: pendingRows.length,
@@ -103,6 +105,7 @@ function SyncPanel() {
       const { loadAllStores } = await import('../hooks/useAppInit');
       await loadAllStores();
       await useSettingsStore.getState().loadSettings();
+      await useSettingsStore.getState().syncPreferences();
       const pending = await db.outbox.count();
       const pendingPreferences = await db.settings.where('key').startsWith('pendingSetting:').count();
       if (pending === 0 && pendingPreferences === 0) toast.success('支持同步的记录已核对');
@@ -158,7 +161,7 @@ function SyncPanel() {
           <div className="flex items-center gap-2 border-t border-[var(--border-light)] pt-3">
             <Database size={13} className="shrink-0 text-[var(--text-4)]" aria-hidden />
             <p className="text-xs text-[var(--text-3)]">
-              当前账号本设备共 {stats.localRecords} 条记录，包含打卡与目标。目标目前仅保存在本设备，请定期导出备份
+              当前账号本设备共 {stats.localRecords} 条记录，包含打卡与目标。旧目标需要在目标页明确选择同步，请定期导出备份
             </p>
           </div>
         </>
@@ -185,6 +188,11 @@ export default function Settings() {
   const budgetSaveGuard = useRef(false);
   const [budgetFeedback, setBudgetFeedback] = useState('');
   const [budgetError, setBudgetError] = useState(false);
+  const [preferenceError, setPreferenceError] = useState('');
+  const savePreference = <K extends keyof AppSettings,>(key: K, value: AppSettings[K]) => {
+    setPreferenceError('');
+    void settings.updateSetting(key, value).catch((cause: unknown) => setPreferenceError(cause instanceof Error ? cause.message : '偏好未保存，原设置保留，请重试'));
+  };
 
   const handleExport = async (legacy = false) => {
     try {
@@ -222,19 +230,21 @@ export default function Settings() {
   };
 
   const handleQuietTimeChange = (part: 'start' | 'end', value: string) => {
-    void settings.updateSetting('quietHours', { ...settings.quietHours, [part]: value });
+    savePreference('quietHours', { ...settings.quietHours, [part]: value });
   };
 
   const handleClear = async () => {
     try {
       const { pauseSync } = await import('../services/syncEngine');
       pauseSync();
+      stopPreferenceSync();
       await clearAllData();
       window.location.reload();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : '清除失败，请重试');
       const { resumeSync } = await import('../services/syncEngine');
       resumeSync();
+      await useSettingsStore.getState().loadSettings().catch(() => undefined);
       setShowClearConfirm(false);
     }
   };
@@ -274,6 +284,8 @@ export default function Settings() {
         <h1 className="mb-6 text-xl font-bold tracking-tight text-[var(--text-1)]">设置</h1>
 
         <div className="space-y-8">
+          <PreferenceSyncPanel />
+          {preferenceError && <p role="alert" className="text-sm text-[var(--danger)]">{preferenceError}</p>}
           <section className="space-y-3" aria-label="教练风格">
             <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
               <Sparkles size={14} className="text-[var(--primary)]" aria-hidden />
@@ -284,7 +296,7 @@ export default function Settings() {
                 <button
                   key={opt.key}
                   type="button"
-                  onClick={() => void settings.updateSetting('coachStyle', opt.key)}
+                  onClick={() => savePreference('coachStyle', opt.key)}
                   aria-checked={settings.coachStyle === opt.key}
                   role="radio"
                   className={`flex w-full items-center gap-3.5 rounded-[var(--radius-lg)] border p-4 text-left transition-all duration-200 ${
@@ -343,26 +355,27 @@ export default function Settings() {
                 label="教练推送"
                 sub="打开应用时显示洞察与提醒，不是系统后台推送"
                 checked={settings.coachPushEnabled}
-                onChange={(next) => void settings.updateSetting('coachPushEnabled', next)}
+                onChange={(next) => savePreference('coachPushEnabled', next)}
               />
               <ToggleRow
                 label="晚间复盘"
                 sub="打开应用时，在设定时段提示回顾"
                 checked={settings.eveningReviewEnabled}
-                onChange={(next) => void settings.updateSetting('eveningReviewEnabled', next)}
+                onChange={(next) => savePreference('eveningReviewEnabled', next)}
               />
 
-              <div className="flex items-center justify-between border-t border-[var(--border-light)] pt-2">
+              {settings.eveningReviewEnabled && <div><label htmlFor="evening-review-time" className="mb-1 block text-xs text-[var(--text-2)]">晚间复盘时间</label><input id="evening-review-time" type="time" value={settings.eveningReviewTime} onChange={(event) => savePreference('eveningReviewTime', event.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm" /></div>}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-light)] pt-2">
                 <div>
                   <p className="text-[13px] font-semibold text-[var(--text-1)]">推送频率</p>
-                  <p className="mt-0.5 text-xs font-medium text-[var(--text-3)]">每天最多推送次数</p>
+                  <p className="mt-0.5 text-xs font-medium text-[var(--text-3)]">每设备每天最多条数（0 为暂停）</p>
                 </div>
                 <div className="flex items-center gap-2" role="radiogroup" aria-label="每日推送上限">
-                  {[1, 2, 3].map((n) => (
+                  {[0, 1, 2, 3].map((n) => (
                     <button
                       key={n}
                       type="button"
-                      onClick={() => void settings.updateSetting('coachPushFrequency', n)}
+                      onClick={() => savePreference('coachPushFrequency', n)}
                       aria-checked={settings.coachPushFrequency === n}
                       role="radio"
                       aria-label={`每天最多${n}条`}
@@ -390,7 +403,7 @@ export default function Settings() {
                 label="免打扰时段"
                 sub="此期间不推送教练消息"
                 checked={settings.quietHours.enabled}
-                onChange={(next) => void settings.updateSetting('quietHours', { ...settings.quietHours, enabled: next })}
+                onChange={(next) => savePreference('quietHours', { ...settings.quietHours, enabled: next })}
               />
               {settings.quietHours.enabled && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="flex items-center gap-3">
@@ -420,7 +433,7 @@ export default function Settings() {
                   <button
                     key={opt.key}
                     type="button"
-                    onClick={() => void settings.updateSetting('theme', opt.key)}
+                    onClick={() => savePreference('theme', opt.key)}
                     role="radio"
                     aria-checked={settings.theme === opt.key}
                     className={`flex flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border py-4 text-[13px] font-semibold transition-all duration-200 ${
@@ -461,7 +474,7 @@ export default function Settings() {
                       注销账号（删除全部云端数据）
                     </Button>
                     <p className="mt-2 text-xs leading-relaxed text-[var(--text-3)]">
-                      将永久删除服务器上该手机号的全部记录：花销、待办、习惯、速记、日记、日程、教练对话与本设备本地缓存。
+                      将永久删除服务器上该手机号的全部记录：花销、待办、习惯、速记、日记、日程、目标、账号偏好、教练对话与本设备本地缓存。
                     </p>
                   </div>
                 </>
@@ -480,7 +493,7 @@ export default function Settings() {
               <div>
                 <p className="text-[13px] font-bold text-[var(--text-1)]">你的数据属于你</p>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--text-2)]">
-                  当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；目标、部分偏好和草稿仍是本地数据。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
+                  当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；新目标和提醒偏好支持账号同步；旧目标需逐项确认上传，草稿、外观和预算仍留本机。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
                 </p>
               </div>
               {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-xs text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}

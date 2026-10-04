@@ -1,73 +1,27 @@
 import { Hono } from 'hono'
-import { z } from 'zod'
 import { prisma } from '../utils/db.js'
 import type { AuthUser } from '../middleware/auth.js'
 import { clearSession } from '../utils/session.js'
+import { preferenceMutationSchema, readAccountPreferences, writeAccountPreferences, preferenceFailure } from '../services/settingsProtocol.js'
 
 export const userRoutes = new Hono()
 
-const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, '时间格式应为 HH:mm')
-
-const settingsSchema = z.object({
-  coachStyle: z.enum(['gentle', 'strict', 'data']).optional(),
-  quietStart: timeSchema.optional(),
-  quietEnd: timeSchema.optional(),
-  pushLimit: z.number().int().min(0).max(10).optional(),
-}).strict().refine(
-  (data) => Object.keys(data).length > 0,
-  { message: '至少提供一个设置项' },
-)
-
-function publicSettings(user: {
-  coachStyle: string
-  quietStart: string
-  quietEnd: string
-  pushLimit: number
-}) {
-  return {
-    coachStyle: user.coachStyle,
-    quietStart: user.quietStart,
-    quietEnd: user.quietEnd,
-    pushLimit: user.pushLimit,
-  }
-}
-
 userRoutes.get('/settings', async (c) => {
-  const user = c.get('user') as AuthUser
-  const record = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { coachStyle: true, quietStart: true, quietEnd: true, pushLimit: true },
-  })
-  if (!record) return c.json({ error: '用户不存在' }, 404)
-  return c.json({ settings: publicSettings(record) })
+  c.header('Cache-Control', 'no-store')
+  try { return c.json(await readAccountPreferences((c.get('user') as AuthUser).id)) }
+  catch (error) { const failure = preferenceFailure(error); return c.json(failure.body, failure.status) }
 })
 
 userRoutes.patch('/settings', async (c) => {
-  const user = c.get('user') as AuthUser
-  const body = await c.req.json()
-  const parsed = settingsSchema.safeParse(body)
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten().fieldErrors }, 400)
+  c.header('Cache-Control', 'no-store')
+  const body: unknown = await c.req.json()
+  if (!body || typeof body !== 'object' || !('protocol' in body) || body.protocol !== 1) {
+    return c.json({ error: '请更新应用后保存偏好，本设备原稿仍保留', code: 'SETTINGS_PROTOCOL_REQUIRED', minimumProtocol: 1, acknowledged: false }, 426)
   }
-
-  try {
-    const updated = await prisma.user.update({
-      where: { id: user.id },
-      data: parsed.data,
-      select: { coachStyle: true, quietStart: true, quietEnd: true, pushLimit: true },
-    })
-    return c.json({ settings: publicSettings(updated) })
-  } catch (error) {
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as { code?: string }).code === 'P2025'
-    ) {
-      return c.json({ error: '用户不存在' }, 404)
-    }
-    throw error
-  }
+  const parsed = preferenceMutationSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: '偏好格式不正确，原稿已保留', code: 'SETTINGS_INVALID', acknowledged: false }, 400)
+  try { return c.json(await writeAccountPreferences((c.get('user') as AuthUser).id, parsed.data)) }
+  catch (error) { const failure = preferenceFailure(error); return c.json(failure.body, failure.status) }
 })
 
 userRoutes.delete('/', async (c) => {
@@ -80,6 +34,7 @@ userRoutes.delete('/', async (c) => {
     await tx.chatSession.deleteMany({ where: { userId: user.id } })
     await tx.push.deleteMany({ where: { userId: user.id } })
     await tx.insight.deleteMany({ where: { userId: user.id } })
+    await tx.goal.deleteMany({ where: { userId: user.id } })
     await tx.diary.deleteMany({ where: { userId: user.id } })
     await tx.quickNote.deleteMany({ where: { userId: user.id } })
     await tx.expense.deleteMany({ where: { userId: user.id } })

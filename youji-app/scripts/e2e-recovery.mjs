@@ -51,7 +51,9 @@ async function login(page, phone, nickname) {
 async function route(page, path) { await page.bringToFront(); await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); }
 async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForSelector('[role=dialog] input'); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
 // The expanded business cases use real pointer and keyboard input. DOM evaluation
-// below only reads rendered controls/assertions; it never seeds stores or IndexedDB.
+// below reads rendered controls/assertions. A separately named migration case
+// creates only an explicit synthetic pre-upgrade IndexedDB source; current app
+// stores and authentication state are never seeded or bypassed.
 async function pointerClick(page, target) {
   await target.scrollIntoView();
   const interception = await target.evaluate((el) => {
@@ -118,7 +120,7 @@ async function scenario(name, run) {
   step(name);
   currentScenario = 'existing browser regression';
 }
-async function businessRegressions(page) {
+async function businessRegressions(page, errors) {
   await scenario('Expense: invalid amount blocked; expense/income cents survive reload and deletion', async () => {
     await route(page, '/expense');
     await clickControl(page, '[aria-label="添加花销"]');
@@ -207,7 +209,9 @@ async function businessRegressions(page) {
     await route(page, '/goal');
     await clickControl(page, '[aria-label="新建目标"]');
     await fillControl(page, '[role=dialog] input[placeholder="想完成什么？"]', 'Synthetic 学习目标');
-    await clickButton(page, '学习', '[aria-label="领域"]');
+    await clickControl(page, 'select[aria-label="领域"]');
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+    assert.equal(await page.$eval('select[aria-label="领域"]', (el) => el.value), '学习');
     await clickButton(page, '创建', '[role=dialog]'); await modalClosed(page);
     await clickControl(page, '[aria-label="将目标进度设为 100%"]');
     await expectText(page, '1/1 完成 · 平均进度 100%');
@@ -249,10 +253,59 @@ async function businessRegressions(page) {
     await expectText(page, '0/1 完成 · 平均进度 25%');
     await clickControl(page, '[aria-label="删除目标 Synthetic 学习目标"]');
     await clickButton(page, '保留目标', '[role=dialog]'); await modalClosed(page);
-    await expectText(page, 'Synthetic 学习目标');
+    await expectText(page, 'Synthetic 学习目标', true, 'main h2');
     await clickControl(page, '[aria-label="删除目标 Synthetic 学习目标"]');
     await clickButton(page, '确认删除', '[role=dialog]'); await modalClosed(page);
-    await reloadPage(page); await expectText(page, 'Synthetic 学习目标', false);
+    await reloadPage(page); await expectText(page, 'Synthetic 学习目标', false, 'main h2');
+  });
+
+  await scenario('Goal: two isolated devices retain offline conflict evidence and propagate deletion', async () => {
+    await route(page, '/goal');
+    await clickControl(page, '[aria-label="新建目标"]');
+    await fillControl(page, '[role=dialog] input[placeholder="想完成什么？"]', 'Synthetic 跨设备目标');
+    await clickButton(page, '创建', '[role=dialog]'); await modalClosed(page);
+    const initialGoalAck = page.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').goals?.some((goal) => goal.title === 'Synthetic 跨设备目标' && goal.progress === 25));
+    await clickControl(page, '[aria-label="将目标进度设为 25%"]');
+    assert.equal((await initialGoalAck).status(), 200);
+    await expectText(page, '已同步', true, 'main article span');
+    await clickControl(page, '[aria-label="编辑目标 Synthetic 跨设备目标"]');
+    await fillControl(page, '[role=dialog] input[placeholder="补充说明..."]', '跨设备完整描述');
+    const editedGoalAck = page.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').goals?.some((goal) => goal.description === '跨设备完整描述'));
+    await clickButton(page, '保存修改', '[role=dialog]'); await modalClosed(page);
+    await expectText(page, '已同步', true, 'main article span');
+    assert.equal((await editedGoalAck).status(), 200);
+    const otherContext = await browser.createBrowserContext();
+    const other = await otherContext.newPage();
+    other.on('pageerror', (error) => errors.push(error.name));
+    await login(other, '13900009901', 'Synthetic A');
+    await route(other, '/goal');
+    await expectText(other, 'Synthetic 跨设备目标', true, 'main h2');
+    await expectText(other, '跨设备完整描述');
+    await expectText(other, '0/1 完成 · 平均进度 25%');
+    await page.bringToFront(); await page.setOfflineMode(true);
+    await clickControl(page, '[aria-label="将目标进度设为 75%"]');
+    await expectText(page, '0/1 完成 · 平均进度 75%');
+    await expectText(page, '待同步', true, 'main article span');
+    await other.bringToFront();
+    const otherGoalAck = other.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').goals?.some((goal) => goal.progress === 50));
+    await clickControl(other, '[aria-label="将目标进度设为 50%"]');
+    assert.equal((await otherGoalAck).status(), 200);
+    await expectText(other, '已同步', true, 'main article span');
+    await page.bringToFront(); await page.setOfflineMode(false);
+    // The existing sync action retries and pulls a real 409 conflict; no fixture writes.
+    await route(page, '/settings');
+    await clickButton(page, '立即同步');
+    await clickButton(page, '比较目标版本');
+    await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('进度 75%') && document.querySelector('[role=dialog]')?.textContent.includes('进度 50%'));
+    await clickButton(page, '采用云端版本', '[role=dialog]'); await modalClosed(page);
+    await route(page, '/goal'); await expectText(page, '0/1 完成 · 平均进度 50%');
+    await other.bringToFront();
+    await clickControl(other, '[aria-label="删除目标 Synthetic 跨设备目标"]');
+    const deletionAck = other.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').deletions?.goalIds?.length > 0);
+    await clickButton(other, '确认删除', '[role=dialog]'); await modalClosed(other);
+    assert.equal((await deletionAck).status(), 200);
+    await reloadPage(page); await expectText(page, 'Synthetic 跨设备目标', false, 'main h2');
+    await otherContext.close();
   });
 
   await scenario('Coach: real SSE rule fallback discloses source and opens the actual todo workflow', async () => {
@@ -278,14 +331,18 @@ async function businessRegressions(page) {
     assert.equal(await page.$eval('[aria-label="通知"]', (el) => el.textContent.includes('预算')), false, 'budget feedback must stay inline rather than obscure the next setting');
     await clickButton(page, '深色', '[role=radiogroup][aria-label="主题"]');
     await expectAttribute(page, 'html', 'data-theme', 'dark');
+    if (await page.$eval('[role=switch][aria-label="教练推送"]', (el) => el.getAttribute('aria-checked')) === 'false') {
+      await clickControl(page, '[role=switch][aria-label="教练推送"]');
+      await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'true');
+    }
     await clickControl(page, '[role=switch][aria-label="教练推送"]');
     await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'false');
     const styleAck = page.waitForResponse((response) => response.url().endsWith('/api/user/settings')
-      && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').coachStyle === 'data');
+      && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').changes?.coachStyle === 'data');
     await clickButton(page, '数据型', '[role=radiogroup][aria-label="教练风格"]', true);
     assert.equal((await styleAck).status(), 200, 'coach style update must receive a real backend ACK');
     const frequencyAck = page.waitForResponse((response) => response.url().endsWith('/api/user/settings')
-      && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').pushLimit === 1);
+      && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').changes?.pushLimit === 1);
     await clickControl(page, '[aria-label="每天最多1条"]');
     assert.equal((await frequencyAck).status(), 200, 'push frequency must receive a real backend ACK');
     await reloadPage(page);
@@ -304,6 +361,113 @@ async function businessRegressions(page) {
     await reloadPage(page);
     await expectAttribute(page, '[role=radiogroup][aria-label="主题"] button:last-child', 'aria-checked', 'true');
     await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'true');
+  });
+
+  await scenario('Settings: two devices share reminder policy, preserve device budget, and compare offline conflicts', async () => {
+    await route(page, '/settings');
+    await clickControl(page, '[role=switch][aria-label="教练推送"]');
+    await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'false');
+    await clickControl(page, '[aria-label="每天最多0条"]');
+    await clickControl(page, '[role=switch][aria-label="晚间复盘"]');
+    await expectAttribute(page, '[role=switch][aria-label="晚间复盘"]', 'aria-checked', 'true');
+    await clickControl(page, '#evening-review-time'); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Tab');
+    const eveningTime = await page.$eval('#evening-review-time', (el) => el.value);
+    assert.notEqual(eveningTime, '21:00', 'native time editing changes a persisted preference');
+    const quietTimeAck = page.waitForResponse((response) => response.url().endsWith('/api/user/settings') && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').changes?.quietStart !== undefined);
+    await clickControl(page, '#quiet-start'); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Tab');
+    const quietStart = await page.$eval('#quiet-start', (el) => el.value);
+    assert.equal((await quietTimeAck).status(), 200);
+    await expectText(page, '账号偏好已同步', true, '[aria-label="账号偏好同步"] p');
+    const otherContext = await browser.createBrowserContext();
+    const other = await otherContext.newPage(); other.on('pageerror', (error) => errors.push(error.name));
+    await login(other, '13900009901', 'Synthetic A'); await route(other, '/settings');
+    await expectText(other, '账号偏好已同步', true, '[aria-label="账号偏好同步"] p');
+    await expectAttribute(other, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'false');
+    await expectAttribute(other, '[aria-label="每天最多0条"]', 'aria-checked', 'true');
+    await expectAttribute(other, '[role=switch][aria-label="晚间复盘"]', 'aria-checked', 'true');
+    assert.equal(await other.$eval('#evening-review-time', (el) => el.value), eveningTime);
+    assert.equal(await other.$eval('#quiet-start', (el) => el.value), quietStart);
+    assert.notEqual(await other.$eval('#budget-input', (el) => el.value), '4321', 'device-only budget must not silently follow the account');
+    await page.bringToFront(); await page.setOfflineMode(true);
+    await clickButton(page, '温柔型', '[role=radiogroup][aria-label="教练风格"]', true);
+    await page.waitForFunction(() => document.querySelector('[role=radiogroup][aria-label="教练风格"] [aria-checked="true"]')?.textContent.includes('温柔型'));
+    await other.bringToFront();
+    const otherStyleAck = other.waitForResponse((response) => response.url().endsWith('/api/user/settings') && response.request().method() === 'PATCH' && JSON.parse(response.request().postData() || '{}').changes?.coachStyle === 'strict');
+    await clickButton(other, '严格型', '[role=radiogroup][aria-label="教练风格"]', true);
+    assert.equal((await otherStyleAck).status(), 200);
+    await expectText(other, '账号偏好已同步', true, '[aria-label="账号偏好同步"] p');
+    await page.bringToFront(); await page.setOfflineMode(false);
+    await clickButton(page, '重新核对账号偏好');
+    await clickButton(page, '比较偏好版本');
+    await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('温柔型') && document.querySelector('[role=dialog]')?.textContent.includes('严格型'));
+    await clickButton(page, '使用云端偏好', '[role=dialog]'); await modalClosed(page);
+    await expectText(page, '账号偏好已同步', true, '[aria-label="账号偏好同步"] p');
+    assert.equal(await page.$eval('[role=radiogroup][aria-label="教练风格"] [aria-checked="true"]', (el) => el.textContent.includes('严格型')), true);
+    await expectAttribute(page, '[role=switch][aria-label="教练推送"]', 'aria-checked', 'false');
+    await otherContext.close();
+  });
+
+  await scenario('Goal migration: real old IndexedDB preview, explicit upload, and old-window copy preserve originals', async () => {
+    await page.bringToFront();
+    const ownerId = await page.evaluate(async () => (await (await fetch('/api/auth/me')).json()).user.id);
+    assert.match(ownerId, /^[a-zA-Z0-9_-]+$/);
+    const legacyContext = await browser.createBrowserContext();
+    const legacyPage = await legacyContext.newPage(); legacyPage.on('pageerror', (error) => errors.push(error.name));
+    await legacyPage.goto(front + '/data-info', { waitUntil: 'networkidle0' });
+    // Historical schema fixture is necessary to exercise the actual browser
+    // upgrade. It contains synthetic account-local source only, never real data.
+    await legacyPage.evaluate(async (owner) => {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open(`youtrace:user:${owner}`, 10);
+        request.onupgradeneeded = () => {
+          const goals = request.result.createObjectStore('goals', { keyPath: 'id' });
+          for (const key of ['level', 'domain', 'priority']) goals.createIndex(key, key);
+          request.result.createObjectStore('settings', { keyPath: 'key' });
+        };
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction('goals', 'readwrite');
+          transaction.objectStore('goals').put({ id: 'synthetic-browser-legacy-goal', title: 'Synthetic 旧窗口目标', description: '明确选择的旧目标描述', level: 'short', domain: '生活', priority: 'medium', progress: 25, targetDate: null, createdAt: 1000, updatedAt: 2000, privateMemo: 'SYNTHETIC_UNSELECTED_BROWSER_FIELD' });
+          transaction.oncomplete = () => { database.close(); resolve(); };
+          transaction.onerror = () => { database.close(); reject(transaction.error); };
+        };
+      });
+    }, ownerId);
+    await login(legacyPage, '13900009901', 'Synthetic A'); await route(legacyPage, '/goal');
+    await expectText(legacyPage, '仅本机', true, 'main article span');
+    await clickButton(legacyPage, '选择同步旧目标');
+    assert.equal(await legacyPage.$eval('[role=dialog] input[type=checkbox]', (el) => el.checked), false, 'no automatic legacy upload selection');
+    await clickControl(legacyPage, '[role=dialog] input[type=checkbox]');
+    const uploaded = legacyPage.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').goals?.some((goal) => goal.id === 'synthetic-browser-legacy-goal'));
+    await clickButton(legacyPage, '确认上传 1 个目标', '[role=dialog]'); await modalClosed(legacyPage);
+    const upload = await uploaded;
+    assert.equal(upload.status(), 200);
+    assert.equal(upload.request().postData().includes('SYNTHETIC_UNSELECTED_BROWSER_FIELD'), false, 'unpreviewed arbitrary legacy field never leaves the browser');
+    await expectText(legacyPage, '已同步', true, 'main article span');
+    await legacyPage.evaluate(async (owner) => {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open(`youtrace:user:${owner}`);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result, transaction = database.transaction('goals', 'readwrite'), source = transaction.objectStore('goals');
+          const read = source.get('synthetic-browser-legacy-goal');
+          read.onsuccess = () => source.put({ ...read.result, progress: 75 });
+          transaction.oncomplete = () => { database.close(); resolve(); };
+          transaction.onerror = () => { database.close(); reject(transaction.error); };
+        };
+      });
+    }, ownerId);
+    await reloadPage(legacyPage);
+    await expectText(legacyPage, '0/1 完成 · 平均进度 25%');
+    await clickButton(legacyPage, '比较旧窗口目标：Synthetic 旧窗口目标');
+    await legacyPage.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('75%') && document.querySelector('[role=dialog]')?.textContent.includes('25%'));
+    await clickButton(legacyPage, '生成本机副本', '[role=dialog]'); await modalClosed(legacyPage);
+    await expectText(legacyPage, '0/2 完成 · 平均进度 50%');
+    await expectText(legacyPage, '仅本机', true, 'main article span');
+    await route(page, '/goal');
+    await expectText(page, '0/1 完成 · 平均进度 25%');
+    await legacyContext.close();
   });
 }
 try {
@@ -332,7 +496,7 @@ try {
   await page.click('input[type=checkbox] + span');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Todo completion survives reload and sync');
-  await businessRegressions(page);
+  await businessRegressions(page, errors);
   await route(page, '/quick-note');
   await page.waitForSelector('textarea:not([disabled])');
   await page.click('textarea');

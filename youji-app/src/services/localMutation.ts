@@ -8,7 +8,7 @@ export async function commitLocalMutation(
   op: 'upsert' | 'delete',
   payload: unknown,
   write: () => Promise<unknown>,
-  tables: Table[] = [db.table(entity === 'diaries' ? 'diary' : entity)],
+  tables: Table[] = [db.table(entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity)],
   expected?: object | null,
 ): Promise<void> {
   const database = db;
@@ -16,7 +16,7 @@ export async function commitLocalMutation(
     if (expected !== undefined) {
       const row = payload as { id?: string; habitId?: string; date?: string };
       const id = op === 'delete' ? String(payload) : entity === 'habitCheckins' ? `${row.habitId}|${row.date}` : row.id;
-      const current = await database.table(entity === 'diaries' ? 'diary' : entity).get(id!);
+      const current = await database.table(entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity).get(id!);
       const unchanged = expected === null ? !current : current && Object.entries(expected).every(([key, value]) => JSON.stringify(value) === JSON.stringify(current[key]));
       if (!unchanged) {
         window.dispatchEvent(new CustomEvent('youtrace:data-updated'));

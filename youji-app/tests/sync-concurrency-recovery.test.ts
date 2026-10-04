@@ -41,7 +41,7 @@ test('durable reset epoch fences a pre-clear pull without relying on a tab-local
   await storage.clearAllData();
   const epoch = await storage.getSetting<string>(storage.LOCAL_DATA_EPOCH_KEY, '');
   assert.ok(epoch);
-  releaseResponse(Response.json({ protocol: 2, events: [todoEvent('6', 'later-page-row')], nextCursor: '6', hasMore: false }));
+  releaseResponse(Response.json({ protocol: 2, features: ['goals-v1'], events: [todoEvent('6', 'later-page-row')], nextCursor: '6', hasMore: false }));
   await delayedPull;
   assert.equal(await storage.db.todos.count(), 0, 'old page must not repopulate a just-cleared database');
   assert.equal(await storage.getSetting('syncV2Cursor', '0'), '0', 'old response must not skip the erased earlier page');
@@ -49,7 +49,7 @@ test('durable reset epoch fences a pre-clear pull without relying on a tab-local
 
   globalThis.fetch = async (path) => {
     assert.ok(String(path).includes('cursor=0'));
-    return Response.json({ protocol: 2, events: [todoEvent('5', 'prior-page-row'), todoEvent('6', 'later-page-row')], nextCursor: '6', hasMore: false });
+    return Response.json({ protocol: 2, features: ['goals-v1'], events: [todoEvent('5', 'prior-page-row'), todoEvent('6', 'later-page-row')], nextCursor: '6', hasMore: false });
   };
   await sync.pullServerChanges();
   assert.equal(await storage.db.todos.count(), 2);
@@ -77,7 +77,7 @@ test('remote parent deletion preserves a pending child until explicit resolution
       return Response.json({ acknowledged: false, mutationId: payload.mutationId, error: 'Synthetic missing parent', code: 'MISSING_PARENT', conflict: { entity: 'habitCheckins', entityId: childId } }, { status: 409 });
     }
     assert.ok(String(path).includes('cursor=11'));
-    return Response.json({ protocol: 2, events: [
+    return Response.json({ protocol: 2, features: ['goals-v1'], events: [
       { seq: '12', entity: 'habitCheckins', entityId: childId, operation: 'delete', data: null },
       { seq: '13', entity: 'habits', entityId: habitId, operation: 'delete', data: null },
     ], nextCursor: '13', hasMore: false });
@@ -92,7 +92,7 @@ test('remote parent deletion preserves a pending child until explicit resolution
   assert.equal(await storage.getSetting('syncV2Cursor', '0'), '13');
   assert.equal(await storage.getSetting(`sync-version:habitCheckins:${childId}`, '0'), '11', 'remote deletion must not silently rebase the pending child');
 
-  await sync.acceptRemoteConflict(parentConflict);
+  await sync.acceptRemoteConflict(parentConflict, (await sync.readConflictSnapshot(parentConflict))!);
   assert.equal(await storage.db.habits.get(habitId), undefined);
   assert.equal(await storage.db.habitCheckins.get(childId), undefined);
   assert.equal(await storage.db.outbox.count(), 0);
@@ -117,7 +117,7 @@ test('accepting a parent habit update preserves independent pending child checki
   await database.outbox.add({ entity: 'habitCheckins', op: 'upsert', payload: { habitId, date: '2026-10-04', done: true }, queuedAt: 1, baseVersion: '0' });
   const key = `sync-conflict:habits:${habitId}`;
   await database.settings.put({ key, value: { event: { seq: '999', entity: 'habits', entityId: habitId, operation: 'upsert', data: { id: habitId, name: 'remote name', icon: 'x', frequency: 'daily', sortOrder: 0, createdAt: 1 } }, receivedAt: 1 } });
-  await sync.acceptRemoteConflict(key);
+  await sync.acceptRemoteConflict(key, (await sync.readConflictSnapshot(key))!);
   assert.equal(await database.outbox.count(), 1);
   assert.equal((await database.habitCheckins.get(childId))?.done, true);
   assert.equal((await database.habits.get(habitId))?.name, 'remote name');

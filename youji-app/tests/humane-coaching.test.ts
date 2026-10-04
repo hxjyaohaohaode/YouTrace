@@ -20,7 +20,8 @@ process.env.NODE_ENV = 'test';
 process.env.LLM_API_KEY = '';
 process.env.DATABASE_URL = 'file::memory:';
 const storage = await import('../src/db/index.ts');
-const { useSettingsStore } = await import('../src/stores/settingsStore.ts');
+const { useSettingsStore, stopPreferenceSync, PREFERENCE_STATE_KEY } = await import('../src/stores/settingsStore.ts');
+const session = await import('../src/services/apiClient.ts');
 const { useDiaryStore } = await import('../src/stores/diaryStore.ts');
 const { useQuickNoteStore } = await import('../src/stores/quickNoteStore.ts');
 const { useExpenseStore, checkBudgetThreshold } = await import('../src/stores/expenseStore.ts');
@@ -41,31 +42,42 @@ const note = (id: string, date: string): QuickNoteRecord => ({ id, createdAt: ge
 const insight = (id: string, type: CoachInsightRecord['type']): CoachInsightRecord => ({ id, type, title: id, description: 'synthetic', dataSources: [], significance: 0.7, dismissed: false, createdAt: Date.now() });
 const emptyContext = { recentExpenses: { total: 0, count: 0, categories: {} }, habits: [], recentTodos: [], recentDiary: [], schedules: [] };
 
+async function setPreferences(updates: Partial<import('../src/stores/settingsStore').AppSettings>) {
+  useSettingsStore.setState(updates);
+  const values = useSettingsStore.getState();
+  const account = { coachStyle: values.coachStyle, coachPushEnabled: values.coachPushEnabled, coachPushFrequency: values.coachPushFrequency, quietHours: values.quietHours, eveningReviewEnabled: values.eveningReviewEnabled, eveningReviewTime: values.eveningReviewTime };
+  const previous = (await storage.db.settings.get(PREFERENCE_STATE_KEY))?.value;
+  await storage.db.settings.put({ key: PREFERENCE_STATE_KEY, value: { version: 1, epoch: 'initial', localRevision: (previous?.localRevision ?? 0) + 1, server: { protocol: 1, revision: '0', settings: account }, initial: account, active: null, queued: null } });
+}
+
 before(async () => { await storage.bindAccountDatabase('synthetic-humane-coaching'); });
 beforeEach(async () => {
   for (const table of storage.db.tables) await table.clear();
-  useSettingsStore.setState({ coachPushEnabled: true, coachPushFrequency: 2, quietHours: { enabled: false, start: '23:00', end: '07:00' }, eveningReviewEnabled: true });
+  session.setSessionActive('synthetic-humane-coaching');
+  globalThis.fetch = async () => Response.json({ protocol: 1, revision: '0', settings: { coachStyle: 'gentle', coachPushEnabled: false, pushLimit: 2, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', eveningReviewEnabled: false, eveningReviewTime: '21:00' } });
+  await useSettingsStore.getState().loadSettings(); await useSettingsStore.getState().syncPreferences();
+  await setPreferences({ coachPushEnabled: true, coachPushFrequency: 2, quietHours: { enabled: false, start: '23:00', end: '07:00' }, eveningReviewEnabled: true });
   useDiaryStore.setState({ items: [] });
   useQuickNoteStore.setState({ records: [] });
   useExpenseStore.setState({ items: [], monthBudget: 0 });
   useHabitStore.setState({ items: [] });
   useCoachStore.setState({ insights: [], pushes: [] });
 });
-after(async () => { pauseSync(); storage.db.close(); await prisma.$disconnect(); });
+after(async () => { stopPreferenceSync(); session.clearSession(); pauseSync(); storage.db.close(); await prisma.$disconnect(); });
 
 test('every reminder type respects disabled reminders, quiet hours, snooze and the total daily cap', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T15:15:00Z') }); // 23:15 Shanghai
   const types = ['anomaly', 'follow_up', 'positive', 'evening_review'] as const;
   const state = await control.getPushControlState();
   for (const type of types) assert.equal(await control.canPush(state, type), true, type);
-  useSettingsStore.setState({ coachPushEnabled: false });
+  await setPreferences({ coachPushEnabled: false });
   for (const type of types) assert.equal(await control.canPush(state, type), false, `${type} opt out`);
-  useSettingsStore.setState({ coachPushEnabled: true, quietHours: { enabled: true, start: '23:00', end: '07:00' } });
+  await setPreferences({ coachPushEnabled: true, quietHours: { enabled: true, start: '23:00', end: '07:00' } });
   for (const type of types) assert.equal(await control.canPush(state, type), false, `${type} quiet`);
-  useSettingsStore.setState({ quietHours: { enabled: false, start: '23:00', end: '07:00' } });
+  await setPreferences({ quietHours: { enabled: false, start: '23:00', end: '07:00' } });
   for (const type of types) assert.equal(await control.canPush({ ...state, silenceUntil: Date.now() + 1000 }, type), false, `${type} snooze`);
   for (const type of types) assert.equal(await control.canPush({ ...state, todayPushCount: state.maxDailyPushes }, type), false, `${type} max`);
-  useSettingsStore.setState({ coachPushFrequency: 0 });
+  await setPreferences({ coachPushFrequency: 0 });
   for (const type of types) assert.equal(await control.canPush(state, type), false, `${type} zero after settings change`);
 });
 
@@ -77,17 +89,17 @@ test('positive reminders share the budget and have a one-per-day limit; evening 
   assert.deepEqual((await engine.generatePushesFromInsights(batch)).map((p) => p.title), ['a1']);
   await control.recordPushSent();
   assert.equal((await engine.generatePushesFromInsights(batch)).length, 0);
-  useSettingsStore.setState({ eveningReviewEnabled: false });
+  await setPreferences({ eveningReviewEnabled: false });
   assert.equal(await control.canPush({ ...await control.getPushControlState(), todayPushCount: 0 }, 'evening_review'), false);
 });
 
 test('insight generation cannot bypass zero cap, quiet hours, snooze or disabled reminders', async () => {
   const batch = [insight('positive', 'positive'), insight('anomaly', 'anomaly')];
-  useSettingsStore.setState({ coachPushFrequency: 0 });
+  await setPreferences({ coachPushFrequency: 0 });
   assert.deepEqual(await engine.generatePushesFromInsights(batch), []);
-  useSettingsStore.setState({ coachPushFrequency: 2, coachPushEnabled: false });
+  await setPreferences({ coachPushFrequency: 2, coachPushEnabled: false });
   assert.deepEqual(await engine.generatePushesFromInsights(batch), []);
-  useSettingsStore.setState({ coachPushEnabled: true });
+  await setPreferences({ coachPushEnabled: true });
   await storage.setSetting('silenceUntil', Date.now() + 60000);
   assert.deepEqual(await engine.generatePushesFromInsights(batch), []);
 });
@@ -228,6 +240,7 @@ test('atomic delivery shares one cap across competing flows, prevents duplicate 
   assert.equal((await control.getPushControlState()).todayPushCount, 2);
 
   await storage.db.settings.clear();
+  await setPreferences({ coachPushEnabled: true, coachPushFrequency: 2, quietHours: { enabled: false, start: '23:00', end: '07:00' } });
   assert.equal(await control.deliverControlledPush('positive', 'same', async () => {}), true);
   assert.equal(await control.deliverControlledPush('positive', 'other', async () => {}), false);
   assert.equal((await control.getPushControlState()).todayPositiveCount, 1);
@@ -246,16 +259,16 @@ test('direct expense alerts respect disabled, quiet, snoozed and shared budget l
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T15:15:00Z') });
   useExpenseStore.setState({ monthBudget: 10000 });
   await storage.db.expenses.put({ id: 'budget-expense', name: 'synthetic', amount: 9000, category: 'food', date: getToday() });
-  useSettingsStore.setState({ coachPushEnabled: false });
+  await setPreferences({ coachPushEnabled: false });
   await checkBudgetThreshold();
   assert.equal(useCoachStore.getState().pushes.length, 0);
-  useSettingsStore.setState({ coachPushEnabled: true, coachPushFrequency: 0 });
+  await setPreferences({ coachPushEnabled: true, coachPushFrequency: 0 });
   await checkBudgetThreshold();
   assert.equal(useCoachStore.getState().pushes.length, 0);
-  useSettingsStore.setState({ coachPushFrequency: 2, quietHours: { enabled: true, start: '23:00', end: '07:00' } });
+  await setPreferences({ coachPushFrequency: 2, quietHours: { enabled: true, start: '23:00', end: '07:00' } });
   await checkBudgetThreshold();
   assert.equal(useCoachStore.getState().pushes.length, 0);
-  useSettingsStore.setState({ quietHours: { enabled: false, start: '23:00', end: '07:00' } });
+  await setPreferences({ quietHours: { enabled: false, start: '23:00', end: '07:00' } });
   await storage.setSetting('silenceUntil', Date.now() + 60000);
   await checkBudgetThreshold();
   assert.equal(useCoachStore.getState().pushes.length, 0);
@@ -269,4 +282,17 @@ test('direct expense alerts respect disabled, quiet, snoozed and shared budget l
   await storage.db.expenses.put({ id: 'budget-extra', name: 'synthetic', amount: 2000, category: 'food', date: getToday() });
   await checkBudgetThreshold();
   assert.equal(useCoachStore.getState().pushes.length, 0);
+});
+
+test('final evening review delivery rechecks the latest configured time', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T12:00:00Z') }); // 20:00 Shanghai
+  await setPreferences({ coachPushEnabled: true, eveningReviewEnabled: true, eveningReviewTime: '00:00', quietHours: { enabled: false, start: '23:00', end: '07:00' } });
+  let delivered = false;
+  assert.equal(await control.deliverControlledPush('evening_review', 'old-prepared-review', async () => { delivered = true; }), false);
+  assert.equal(delivered, false); assert.equal((await control.getPushControlState()).todayPushCount, 0);
+});
+
+test('independent concurrent ignore feedback increments atomically', async () => {
+  await Promise.all([control.recordPushIgnored(), control.recordPushIgnored()]);
+  assert.equal(await storage.getSetting('consecutiveIgnores', 0), 2);
 });

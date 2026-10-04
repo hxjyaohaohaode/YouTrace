@@ -6,6 +6,7 @@ import {
 } from '../services/apiClient';
 import { bindAccountDatabase } from '../db';
 import { pauseSync } from '../services/syncEngine';
+import { stopPreferenceSync } from './settingsStore';
 
 export interface AuthUser {
   id: string
@@ -105,6 +106,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 }));
 
 export function lockLocalSession(): void {
+  stopPreferenceSync();
   useAuthStore.setState({ user: null, isAuthenticated: false, authChecked: false });
   pauseSync();
   clearSession();
@@ -116,6 +118,7 @@ export function useUnauthedRedirect() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   useEffect(() => {
     const lock = () => {
+      stopPreferenceSync();
       pauseSync();
       clearSession();
       useAuthStore.setState({ user: null, isAuthenticated: false, authChecked: false });

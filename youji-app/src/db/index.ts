@@ -12,7 +12,8 @@ export type SyncEntity =
   | 'habits'
   | 'quickNotes'
   | 'diaries'
-  | 'habitCheckins';
+  | 'habitCheckins'
+  | 'goals';
 
 export interface ScheduleRecord {
   id: string;
@@ -67,6 +68,8 @@ export interface OutboxRecord {
 }
 
 export interface GoalRecord {
+  // Missing on pre-sync goals: never infer permission to upload them.
+  syncScope?: 'local' | 'account';
   id: string;
   title: string;
   description: string;
@@ -93,11 +96,15 @@ export function generateLocalId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+export const DATABASE_UPGRADE_BLOCKED_EVENT = 'youtrace:database-upgrade-blocked';
+let databaseUpgradeBlocked = false;
+export const isDatabaseUpgradeBlocked = () => databaseUpgradeBlocked;
+
 export const LOCAL_DATA_EPOCH_KEY = 'localDataEpoch';
 
 export const ENTITY_TABLES = [
   'schedules', 'expenses', 'todos', 'habits', 'habitCheckins', 'quickNotes',
-  'diary', 'settings', 'coachInsights', 'coachPushes', 'goals', 'outbox',
+  'diary', 'settings', 'coachInsights', 'coachPushes', 'goals', 'goalRecords', 'outbox',
 ] as const;
 
 // Account stores start with a fresh schema. The historical shared `youtrace`
@@ -113,7 +120,7 @@ export class YoujiDatabase extends Dexie {
   settings!: Table<SettingRecord, string>;
   coachInsights!: Table<CoachInsightRecord, string>;
   coachPushes!: Table<CoachPushRecord, string>;
-  goals!: Table<GoalRecord, string>;
+  goalRecords!: Table<GoalRecord, string>;
   outbox!: Table<OutboxRecord, number>;
   readonly ownerId: string | null;
 
@@ -123,6 +130,8 @@ export class YoujiDatabase extends Dexie {
     }
     super(ownerId ? `youtrace:user:${ownerId}` : 'youtrace:guest');
     this.ownerId = ownerId;
+    this.on('blocked', () => { databaseUpgradeBlocked = true; if (typeof window !== 'undefined') window.dispatchEvent(new Event(DATABASE_UPGRADE_BLOCKED_EVENT)); });
+    this.on('ready', () => { databaseUpgradeBlocked = false; if (typeof window !== 'undefined') window.dispatchEvent(new Event(DATABASE_UPGRADE_BLOCKED_EVENT)); });
     this.version(1).stores({
       schedules: 'id, date, type',
       expenses: 'id, date, category',
@@ -136,6 +145,15 @@ export class YoujiDatabase extends Dexie {
       coachPushes: 'id, type, read, createdAt',
       goals: 'id, level, domain, priority',
       outbox: '++seq, entity, queuedAt',
+    });
+    // Dexie may reopen/recreate an older declared schema. Preserve `goals` as a
+    // quarantined source; new writes use a different physical table. Old JS can
+    // only change the source, never a synchronized goal. Full-field copy and
+    // source snapshots are atomic; no ownership/upload permission is inferred.
+    this.version(2).stores({ goalRecords: 'id, level, domain, priority' }).upgrade(async (tx) => {
+      const originals = await tx.table('goals').toArray();
+      await tx.table('goalRecords').bulkPut(originals.map((row: GoalRecord) => ({ ...row, syncScope: 'local' })));
+      await tx.table('settings').bulkPut(originals.map((row: GoalRecord) => ({ key: `goal-source-snapshot:${row.id}`, value: row })));
     });
   }
 }
@@ -158,9 +176,9 @@ export async function bindAccountDatabase(ownerId: string | null): Promise<void>
 export async function exportAllData() {
   return db.transaction('r', db.tables, async () => {
     const tables: Record<string, unknown[]> = {};
-    for (const name of ENTITY_TABLES) tables[name] = await db.table(name).toArray();
+    for (const name of ENTITY_TABLES) tables[name === 'goalRecords' ? 'goals' : name === 'goals' ? 'legacyGoalSources' : name] = await db.table(name).toArray();
     return {
-      format: 'youtrace-local-backup', schemaVersion: 1,
+      format: 'youtrace-local-backup', schemaVersion: 2, storageVersion: db.verno,
       exportedAt: new Date().toISOString(), ownerId: db.ownerId,
       scope: db.ownerId ? 'account' : 'guest', tables,
     };
@@ -169,7 +187,7 @@ export async function exportAllData() {
 
 export async function clearAllData(options: { allowPending?: boolean } = {}): Promise<void> {
   await db.transaction('rw', db.tables, async () => {
-    if (!options.allowPending && await db.outbox.count() > 0) {
+    if (!options.allowPending && (await db.outbox.count() > 0 || await db.settings.where('key').startsWith('pendingSetting:').count() > 0)) {
       throw new Error('还有未同步的修改，先同步或导出备份后再处理');
     }
     for (const table of db.tables) await table.clear();

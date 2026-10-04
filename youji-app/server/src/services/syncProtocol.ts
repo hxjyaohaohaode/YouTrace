@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 
-export const SYNC_ENTITIES = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins'] as const
+export const SYNC_ENTITIES = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins', 'goals'] as const
 export type SyncEntity = typeof SYNC_ENTITIES[number]
 export type SyncTransaction = Prisma.TransactionClient
 export type SyncVersion = { entity: string; entityId: string; seq: string }

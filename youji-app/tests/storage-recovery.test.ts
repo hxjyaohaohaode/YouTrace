@@ -58,7 +58,7 @@ test('fake IndexedDB: unacknowledged work survives every HTTP rejection and sess
 });
 
 test('fake IndexedDB: export includes goal/draft/outbox and clear rejects pending work atomically', async () => {
-  await current.goals.put({ id: 'goal-001', title: 'synthetic', description: '', level: 'short', domain: '学习', priority: 'low', progress: 0, targetDate: null, createdAt: 1, updatedAt: 1 });
+  await current.goalRecords.put({ id: 'goal-001', title: 'synthetic', description: '', level: 'short', domain: '学习', priority: 'low', progress: 0, targetDate: null, createdAt: 1, updatedAt: 1 });
   await current.settings.put({ key: 'quicknote_draft', value: 'synthetic draft' });
   const backup = await exportAllData();
   assert.equal(backup.ownerId, 'synthetic-account-a');
@@ -66,7 +66,7 @@ test('fake IndexedDB: export includes goal/draft/outbox and clear rejects pendin
   assert.equal(backup.tables.outbox.length, 1);
   assert.ok(backup.tables.settings.some((row) => (row as { key: string }).key === 'quicknote_draft'));
   await assert.rejects(clearAllData(), /未同步/);
-  assert.equal(await current.goals.count(), 1);
+  assert.equal(await current.goalRecords.count(), 1);
   await current.outbox.clear();
   await clearAllData();
   for (const table of current.tables) assert.equal(await table.count(), table.name === 'settings' ? 1 : 0, table.name);
@@ -165,16 +165,18 @@ test('fake IndexedDB: delayed settings hydration cannot undo a newer choice or c
   let release: (response: Response) => void = () => {};
   const patches: unknown[] = [];
   globalThis.fetch = async (_path, options) => {
-    if (options?.method === 'PATCH') { patches.push(JSON.parse(String(options.body))); return Response.json({ settings: {} }); }
+    if (options?.method === 'PATCH') { const body = JSON.parse(String(options.body)); patches.push(body); return Response.json({ protocol: 1, revision: '1', acknowledged: true, mutationId: body.mutationId, settings: { coachStyle: 'gentle', pushLimit: 5, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', coachPushEnabled: false, eveningReviewEnabled: false, eveningReviewTime: '21:00' } }); }
     return new Promise<Response>((resolve) => { release = resolve; });
   };
   await useSettingsStore.getState().loadSettings();
   await useSettingsStore.getState().updateSetting('coachPushFrequency', 5);
-  release(Response.json({ settings: { coachStyle: 'gentle', pushLimit: 2, quietStart: '23:00', quietEnd: '07:00' } }));
+  release(Response.json({ protocol: 1, revision: '0', settings: { coachStyle: 'gentle', pushLimit: 2, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', coachPushEnabled: false, eveningReviewEnabled: false, eveningReviewTime: '21:00' } }));
   await new Promise((resolve) => setTimeout(resolve, 900));
   assert.equal(useSettingsStore.getState().coachPushFrequency, 5);
   assert.equal((await current.settings.get('coachPushFrequency'))?.value, 5);
-  assert.deepEqual(patches, [{ pushLimit: 5 }]);
+  assert.equal(patches.length, 1);
+  assert.deepEqual((patches[0] as { changes: unknown }).changes, { pushLimit: 5 });
+  assert.equal((patches[0] as { baseRevision: string }).baseRevision, '0');
   api.clearSession();
 });
 
@@ -190,4 +192,14 @@ test('fake IndexedDB: same capture ID with edited content cannot falsely replay 
   const autosaveId = await saveCaptureDraft({ ...original, input: 'version C' });
   assert.notEqual(autosaveId, original.id);
   assert.equal((await loadCaptureDraft(autosaveId))?.input, 'version C');
+});
+
+test('fake IndexedDB: clearing data cannot discard an unacknowledged account preference', async () => {
+  sync.pauseSync(); api.clearSession();
+  await current.outbox.clear();
+  await current.settings.put({ key: 'pendingSetting:accountPreferences', value: { count: 1 } });
+  await current.todos.put({ id: 'preference-clear-guard-001', text: 'Keep source', done: false, priority: 'medium' });
+  await assert.rejects(clearAllData(), /未同步/);
+  assert.ok(await current.todos.get('preference-clear-guard-001'));
+  assert.ok(await current.settings.get('pendingSetting:accountPreferences'));
 });

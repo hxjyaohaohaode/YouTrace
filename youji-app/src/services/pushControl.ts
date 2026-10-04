@@ -1,6 +1,6 @@
 import { db, getSetting, setSetting } from '../db';
 import { getBusinessClock, getToday } from '../utils/date';
-import { useSettingsStore } from '../stores/settingsStore';
+import { readPersistedReminderSettings } from '../stores/settingsStore';
 
 export interface PushControlState {
   todayPushCount: number;
@@ -22,7 +22,7 @@ async function readCounter(key: string, today: string): Promise<number> {
 }
 
 export async function getPushControlState(): Promise<PushControlState> {
-  const settings = useSettingsStore.getState();
+  const settings = await readPersistedReminderSettings();
   const today = getToday();
 
   const counters = await db.transaction('rw', db.settings, async () => {
@@ -64,7 +64,8 @@ export async function canPush(
   state: PushControlState,
   pushType: 'anomaly' | 'follow_up' | 'positive' | 'evening_review',
 ): Promise<boolean> {
-  if (!useSettingsStore.getState().coachPushEnabled) {
+  const settings = await readPersistedReminderSettings();
+  if (!settings.coachPushEnabled) {
     return false;
   }
 
@@ -75,7 +76,6 @@ export async function canPush(
 
   // Quiet hours and the total daily budget apply to every reminder type,
   // including encouragement and the optional evening review.
-  const settings = useSettingsStore.getState();
   if (isQuietHours(settings.quietHours)) return false;
   const currentLimit = Number.isFinite(settings.coachPushFrequency)
     ? Math.max(0, Math.floor(settings.coachPushFrequency)) : 0;
@@ -119,6 +119,7 @@ export async function deliverControlledPush(
   return db.transaction('rw', db.settings, db.coachPushes, async () => {
     const state = await getPushControlState();
     if (!await canPush(state, pushType)) return false;
+    if (pushType === 'evening_review' && !shouldShowEveningReview((await readPersistedReminderSettings()).eveningReviewTime)) return false;
     const key = `pushDelivery:${pushType}:${dedupeKey}`;
     if (await getSetting<string>(key, '') === state.todayDate) return false;
     if (await deliver() === false) return false;
@@ -130,8 +131,10 @@ export async function deliverControlledPush(
 }
 
 export async function recordPushIgnored(): Promise<void> {
-  const current = await getSetting<number>('consecutiveIgnores', 0);
-  await setSetting('consecutiveIgnores', current + 1);
+  await db.transaction('rw', db.settings, async () => {
+    const current = await getSetting<number>('consecutiveIgnores', 0);
+    await setSetting('consecutiveIgnores', current + 1);
+  });
 }
 
 export async function recordPushActed(): Promise<void> {
