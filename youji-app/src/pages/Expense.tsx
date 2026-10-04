@@ -27,7 +27,7 @@ function CoachInsightBanner() {
           <Sparkles size={18} className="text-[var(--primary)]" aria-hidden />
         </div>
         <div className="flex-1">
-          <p className="text-[13px] font-bold text-[var(--primary)]">{topInsight.title}</p>
+          <p className="mb-2 text-xs leading-5 text-[var(--text-2)]">历史提示 · {new Date(topInsight.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（Asia/Shanghai）<br />生成时的快照，不会随新记录更新；当前金额以记录列表和预算卡为准。</p><p className="text-[13px] font-bold text-[var(--primary)]">{topInsight.title}</p>
           <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-2)]">{topInsight.description}</p>
           {topInsight.actionSuggested && (
             <p className="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-[var(--primary)]">
@@ -159,7 +159,7 @@ export default function Expense() {
 
   return (
     <div className="w-full">
-      {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← 返回{source.label || '来源'}</Button>}
+      {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← {source.label || '返回来源'}</Button>}
       {recordId && !loaded && <p role="status">正在查找这条记录…</p>}
       {recordId && loaded && !target && <section role="status" className="mb-4 space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这条记录。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
       {target && dismissed === requestKey && <Button variant="soft" onClick={() => setEditing(target)}>重新打开选中的记录</Button>}
@@ -167,13 +167,13 @@ export default function Expense() {
         icon={Receipt}
         gradient="from-[#FF9A56] to-[#FF6B8A]"
         title="花销"
-        subtitle="智能消费管理，AI教练分析"
+        subtitle="记清每笔收支，随时核对和修改"
         actions={
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => { setDismissed(requestKey); setShowModal(true); }}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90"
             aria-label="添加花销"
           >
             <Plus size={18} aria-hidden />
@@ -184,9 +184,7 @@ export default function Expense() {
       <div className="grid w-full grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-12">
         <div className="w-full space-y-4 lg:col-span-5">
           <BudgetCard />
-          <StatsRow />
-          <CoachInsightBanner />
-          <SpendingPatternCard />
+<details className="rounded-2xl border border-[var(--border)] p-4"><summary className="cursor-pointer py-2 text-sm font-semibold">查看收支统计与历史提示</summary><div className="mt-4 space-y-4"><StatsRow /><CoachInsightBanner /><SpendingPatternCard /></div></details>
         </div>
 
         <div className="w-full lg:col-span-7">

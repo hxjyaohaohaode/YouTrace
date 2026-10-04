@@ -41,7 +41,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
       const values = { name: form.name.trim() || expenseCategoryIcons[form.category]?.label || '其他', amount, category: form.category, date: form.date, isIncome: form.isIncome };
       if (item && form.base && !deleted) await useExpenseStore.getState().updateItem(item.id, values, form.base, context);
       else await useExpenseStore.getState().addItem(values, deleted ? copyId.current : form.id, context);
-      toast.success(deleted ? '已另存为新记录' : '记账已保存到本机'); onClose();
+      toast.success(`已${deleted ? '另存' : '存'}本机：${form.isIncome ? '收入' : '支出'} ¥${(amount / 100).toFixed(2)} · ${values.name.slice(0, 24)}`); onClose();
     } catch (reason) { setError(reason instanceof Error ? reason.message : '未保存，输入已保留，请重试'); }
     finally { guard.current = false; setSaving(false); }
   };

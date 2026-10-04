@@ -13,7 +13,8 @@ export interface ExpenseItem {
   category: string;
   date: string;
   isIncome?: boolean;
-  note?: string;
+  note?: string | null;
+  relatedMood?: string | null;
   source?: string;
 }
 

@@ -5,7 +5,7 @@ import { getBusinessMonth, getDateDaysAgo, getNaturalWeekDates, getToday } from 
 import { MiniChart } from '../ui/MiniChart';
 
 function formatYuan(fen: number): string {
-  return (fen / 100).toFixed(0);
+  return (fen / 100).toFixed(2);
 }
 
 function buildDailyTrend(items: Array<{ date: string; amount: number; isIncome?: boolean }>, days: number): number[] {

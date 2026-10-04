@@ -204,3 +204,15 @@ test('real API + fake IndexedDB: original capture whitespace survives cloud repl
   assert.equal((await prisma.quickNote.findUniqueOrThrow({ where: { id: draft.id } })).content, original);
   assert.equal(await storage.db.settings.get(input.key), undefined);
 });
+
+test('real API + fake IndexedDB: historical nullable expense fields remain editable without unexpected payload fields', async () => {
+  const { useExpenseStore } = await import('../src/stores/expenseStore.ts');
+  const id = 'expense-nullable-compat';
+  await prisma.expense.create({ data: { id, userId: 'synthetic-roundtrip-a', name: 'Synthetic historical expense', amount: 1065, category: 'food', date: '2026-09-29', source: 'manual', note: null, relatedMood: null } });
+  await sync.pullServerChanges(); await useExpenseStore.getState().loadFromDB();
+  const original = useExpenseStore.getState().items.find(row => row.id === id)!; assert.equal((original as { note?: unknown }).note, null);
+  sync.pauseSync(); await useExpenseStore.getState().updateItem(id, { name: 'Synthetic corrected historical expense' }, original);
+  await sync.retryBlockedSync(); await sync.pullServerChanges();
+  assert.equal((await prisma.expense.findUniqueOrThrow({ where: { id } })).name, 'Synthetic corrected historical expense');
+  assert.equal(await prisma.expense.count({ where: { id } }), 1); assert.equal(await storage.db.outbox.count(), 0);
+});

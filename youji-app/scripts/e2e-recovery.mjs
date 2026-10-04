@@ -322,7 +322,7 @@ async function businessRegressions(page, errors) {
     await route(page, '/settings');
     await fillControl(page, '#budget-input', '-1');
     await clickButton(page, '保存', 'section[aria-label="预算"]');
-    await expectText(page, '请输入 0 到 10000000 之间的预算金额', true, '#budget-feedback');
+    await expectText(page, '请输入 0 到 10000000 之间的预算金额，最多两位小数', true, '#budget-feedback');
     await expectAttribute(page, '#budget-input', 'aria-invalid', 'true');
     await fillControl(page, '#budget-input', '4321');
     await clickButton(page, '保存', 'section[aria-label="预算"]');
@@ -511,7 +511,7 @@ try {
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true });
   await clickControl(page, '[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled') && input.value === 'Retained modal draft'; }); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true }); step('Modal typing keeps focus; Escape/back/reopen retains unsaved input');
-  await page.click('input[type=checkbox] + span');
+  await clickControl(page, 'input[aria-label="完成 Synthetic A private todo"]');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Todo completion survives reload and sync');
   await businessRegressions(page, errors);

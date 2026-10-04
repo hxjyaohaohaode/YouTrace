@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { CheckCircle, AlertTriangle, XCircle, Info, X } from 'lucide-react';
-import { dismissToast, getToastSnapshot, subscribeToToasts } from '../../services/toastBus';
+import { dismissToast, dismissTransientToasts, getToastSnapshot, subscribeToToasts } from '../../services/toastBus';
 
 export type ToastType = 'success' | 'warning' | 'error' | 'info';
 
@@ -63,9 +64,11 @@ function ToastCard({ item }: { item: ToastItem }) {
 }
 
 export function ToastHost() {
+  const location = useLocation();
   const [toasts, setToasts] = useState<ToastItem[]>(getToastSnapshot());
 
-  useEffect(() => subscribeToToasts(setToasts), []);
+  useLayoutEffect(() => subscribeToToasts(setToasts), []);
+  useLayoutEffect(() => { dismissTransientToasts(); }, [location.key]);
 
   return (
     <div

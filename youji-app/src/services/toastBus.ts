@@ -43,3 +43,9 @@ export function dismissToast(id: string) {
   items = items.filter((item) => item.id !== id);
   emit();
 }
+
+/** A previous page's success is not a status for the next page's unsaved draft. */
+export function dismissTransientToasts() {
+  const remaining = items.filter(item => item.type === 'error' || item.type === 'warning');
+  if (remaining.length !== items.length) { items = remaining; emit(); }
+}

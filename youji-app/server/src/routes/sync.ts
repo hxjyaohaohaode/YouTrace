@@ -32,9 +32,9 @@ const expenseSyncSchema = z.object({
   name: z.string().trim().min(1).max(100),
   date: isoDateSchema,
   source: z.string().trim().max(30).optional().default('manual'),
-  relatedMood: z.string().trim().max(30).optional(),
+  relatedMood: z.string().trim().max(30).nullable().optional(),
   isIncome: z.boolean().optional(),
-  note: z.string().trim().max(200).optional(),
+  note: z.string().trim().max(200).nullable().optional(),
 })
 
 const todoSyncSchema = z.object({

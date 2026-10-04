@@ -31,7 +31,7 @@ export default function Todo() {
 
   return (
     <div className="w-full">
-      {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← 返回{source.label || '来源'}</Button>}
+      {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← {source.label || '返回来源'}</Button>}
       {recordId && !loaded && <p role="status">正在查找这条记录…</p>}
       {recordId && loaded && !target && <section role="status" className="mb-4 space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这条记录。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
       {target && dismissed === requestKey && <Button variant="soft" onClick={() => setEditing(target)}>重新打开选中的记录</Button>}

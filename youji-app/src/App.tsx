@@ -58,8 +58,8 @@ export default function App() {
         <NavigateBridge />
         <RuntimeObserver />
         <ReadyRoutes ready={ready} failed={failed} />
+        <ToastHost />
       </BrowserRouter>
-      <ToastHost />
     </MotionConfig>
   </ErrorBoundary>;
 }

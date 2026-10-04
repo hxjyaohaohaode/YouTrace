@@ -1,6 +1,6 @@
 /** Runtime projection: local recovery metadata must never be spread onto wire. */
 const definitions = {
-  expenses: { id: 'string', name: 'string', amount: 'number', category: 'string', date: 'string', source: 'string', relatedMood: 'string', isIncome: 'boolean', note: 'string' },
+  expenses: { id: 'string', name: 'string', amount: 'number', category: 'string', date: 'string', source: 'string', relatedMood: 'string?', isIncome: 'boolean', note: 'string?' },
   todos: { id: 'string', text: 'string', dueDate: 'string?', priority: 'string', done: 'boolean', completedAt: 'number?' },
 } as const;
 export function recordSyncPayload(entity: 'expenses' | 'todos', value: unknown): Record<string, unknown> {

@@ -168,7 +168,7 @@ export function DiaryContent() {
 
   return (
     <div className="space-y-4">
-      {returnPath && <Button variant="ghost" onClick={() => { if (window.history.state?.idx > 0) navigate(-1); else navigate(returnPath); }}>← 返回{source?.label || '来源'}</Button>}
+      {returnPath && <Button variant="ghost" onClick={() => { if (window.history.state?.idx > 0) navigate(-1); else navigate(returnPath); }}>← {source?.label || '返回来源'}</Button>}
       {!loaded && <section role="status" className="space-y-2 rounded-xl border border-[var(--border)] p-4"><p>{loadError ? `日记暂未读出：${loadError}` : '正在查找日记；若等待较久，可重试读取'}</p><Button variant="soft" onClick={() => void useDiaryStore.getState().loadFromDB().catch(() => undefined)}>重试读取</Button></section>}
       {recordId && loaded && !target && <section role="status" className="space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这篇日记。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
       {target && dismissed === requestKey && <Button variant="soft" onClick={() => openEdit(target)}>重新打开 {target.date} 的日记</Button>}

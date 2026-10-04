@@ -105,7 +105,9 @@ async function dateInput(page, selector, iso) {
   // fabricated change events. If locale behavior differs, record tool blockage.
   await pointer(page, selector); for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
   const [year, month, day] = iso.split('-');
-  await page.keyboard.type(month); await page.keyboard.press('ArrowRight'); await page.keyboard.type(day); await page.keyboard.press('ArrowRight'); await page.keyboard.type(year); await page.keyboard.press('Tab');
+  // Chrome auto-advances after a two-digit month/day. Extra ArrowRight skips
+  // a segment and appends digits to the year (retained in the prior red trace).
+  await page.keyboard.type(month + day + year); await page.keyboard.press('Tab');
   const actual = await page.$eval(selector, el => el.value); actions.push({ kind: 'native-segmented-date', selector, expected: iso, actual }); assert.equal(actual, iso, 'Native date editing must reach the intended value');
 }
 async function checked(page, selector, value) { if (await page.$eval(selector, el => el.checked) !== value) await pointer(page, selector); assert.equal(await page.$eval(selector, el => el.checked), value); }
@@ -160,12 +162,17 @@ async function firstValue(page, narrow = false) {
     await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
     const changedLocal = await settledRows(page, api), changed = changedLocal.expenses.find(row => row.id === expense.id), changedRemote = (await api('/expenses')).expenses;
     await observe(page, `${label}-expense-correction-cloud-ack`, changedLocal.outbox.length === 0 && changedLocal.expenses.length === 1 && changedRemote.length === 1 && changedRemote[0].id === expense.id && changedRemote[0].amount === 1625 && changedRemote[0].name === 'Synthetic 已核对午饭', 'No extra record; exact server correction and ACK');
+    await observe(page, `${label}-expense-page-current-vs-history`, !(await state(page)).text.includes('当日/累计支出¥0') && !(await state(page)).text.includes('已记录支出 ¥0.00'), 'Stale coach snapshots must not be presented as current spending beside the actual edited amount');
     await observe(page, `${label}-expense-correction-exact-cents`, changed?.amount === 1625 && changed.name === 'Synthetic 已核对午饭', 'Same record updates to exact fen, without another expense');
+    await pointer(page, 'summary', '查看收支统计与历史提示');
+    await observe(page, `${label}-historical-insight-explicit-snapshot`, (await state(page)).text.includes('生成时的快照，不会随新记录更新'), 'Optional historical advice remains available with a timestamp and explicit non-current meaning');
+    await pointer(page, 'summary', '查看收支统计与历史提示');
     await back(page, '/expense'); await waitPath(page, '/quick-note/result');
   });
   await segment(page, `${label}-whole-class-and-optional-inference`, async () => {
     if (!new URL(page.url()).search.includes('receipt=')) { await back(page, new URL(page.url()).pathname); await waitPath(page, '/quick-note/result'); }
     await pointer(page, 'button', '再记一条'); await waitPath(page, '/quick-note');
+    await observe(page, `${label}-old-success-not-on-new-draft`, !(await page.$eval('[aria-label="通知"]', el => el.innerText)).includes('已存本机：支出'), 'A previous expense success notice must not claim or cover the next unsaved capture');
     assert.equal(await page.$eval('textarea[aria-label="速记内容"]', el => el.value), '', 'Committed raw input must not reappear as a new duplicate draft');
     const source = '12.34是页码，不是花销；同事说“今天很开心”；明天18:30交报销单';
     await fill(page, 'textarea[aria-label="速记内容"]', source); await pointer(page, 'button', '查看确认稿'); await waitPath(page, '/quick-note/result');
@@ -200,7 +207,8 @@ async function retrievePast(page) {
   const completionView = await page.$eval('button[aria-label="完成待办: Synthetic 已完成但明天到期"]', el => ({ sectionDate: el.closest('section')?.getAttribute('aria-label'), visibleText: el.innerText }));
   await observe(page, 'Y2-completion-uses-actual-action-time', localTodo?.completedAt === Date.parse(completed.completedAt) && completionView.sectionDate === businessDate() && completionView.sectionDate !== todo.dueDate && /刚刚|分钟前/.test(completionView.visibleText), 'Actual completion timestamp is synced separately from tomorrow deadline; saying just now is valid only for this actual completion');
   await pointer(page, 'button', '继续查看较早记录（还有 18 条）');
-  await observe(page, 'Y2-all-history-reachable', (await state(page)).text.includes('78/78'), 'All 70 expenses + 7 diaries + completion are reachable through continuation');
+  const historyExpanded = await page.waitForFunction(() => document.body.innerText.includes('78/78'), { timeout: 7000 }).then(() => true).catch(() => false);
+  await observe(page, 'Y2-all-history-reachable', historyExpanded, 'All 70 expenses + 7 diaries + completion are reachable through continuation');
   await segment(page, 'Y2-old-expense-correct-and-return', async () => {
     const target = expenses.find(row => row.amount === 1065), selector = 'button[aria-label="收支: -¥10.65 Synthetic 同名午饭"]';
     const handle = await visibleHandle(page, selector); await handle.scrollIntoView(); await handle.dispose(); await sleep(300); const before = await state(page); await capture(page, 'Y2-expense-origin-viewport');
@@ -213,6 +221,7 @@ async function retrievePast(page) {
     await observe(page, 'Y2-history-return-retains-page-position', Math.abs(returned.scroll.y - before.scroll.y) < 40 && returned.text.includes('Synthetic 已修正历史账单'), `Original ${before.scroll.y}px, return ${returned.scroll.y}px; continuation retained`);
   });
   await segment(page, 'Y2-old-diary-correct-and-return', async () => {
+    if (await page.$('[role=dialog]')) { await pointer(page, '[role=dialog] button', '取消（保留草稿）'); await page.waitForSelector('[role=dialog]', { hidden: true }); }
     if (new URL(page.url()).pathname !== '/timeline') { await nav(page, '时间线'); await waitPath(page, '/timeline'); }
     const target = diaries.find(row => row.date === businessDate(-3)); await pointer(page, `button[aria-label=${JSON.stringify(`日记: ${target.content.slice(0, 80)}`)}]`); await waitPath(page, '/diary');
     await observe(page, 'Y2-old-diary-real-date-unknown-mood', await page.$eval('#diary-content', el => el.value) === target.content && (await state(page)).text.includes(`${target.date} 的心情`) && !(await state(page)).text.includes('今天的心情'), 'Exact old object and its date shown; unknown mood is not five');
