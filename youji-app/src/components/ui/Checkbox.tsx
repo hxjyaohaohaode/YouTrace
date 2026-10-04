@@ -18,7 +18,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
     <label
       htmlFor={inputId}
       className={`
-        inline-flex min-h-11 min-w-11 select-none items-center justify-center gap-2.5
+        relative inline-flex min-h-11 min-w-11 select-none items-center justify-center gap-2.5
         ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}
         ${className}
       `}
@@ -31,13 +31,12 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         aria-label={ariaLabel ?? label}
-        className="peer sr-only"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
       />
-      <motion.span
+      <span
         aria-hidden
-        whileTap={!disabled ? { scale: 0.9 } : undefined}
         className={`
-          flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] transition-all duration-200
+          pointer-events-none flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] transition-all duration-200
           peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/40 peer-focus-visible:ring-offset-1
           ${checked
             ? 'border-transparent bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)]'
@@ -52,7 +51,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
         >
           <Check size={11} className="text-white" strokeWidth={3} />
         </motion.span>
-      </motion.span>
+      </span>
       {label && (
         <span className="cursor-pointer text-sm text-[var(--text-1)]">
           {label}

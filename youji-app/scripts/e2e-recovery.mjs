@@ -99,6 +99,14 @@ try {
   assert.deepEqual(errors, []); step('No uncaught page errors');
   await context.close();
 } catch (error) {
+  if (browser) {
+    const pages = await browser.pages();
+    for (const [index, page] of pages.entries()) {
+      await page.screenshot({ path: join(artifactDir, `failure-${index}.png`), fullPage: true }).catch(() => undefined);
+      const state = await page.evaluate(() => ({ path: location.pathname, heading: document.querySelector('h1,h2')?.textContent, text: document.body.innerText.slice(0, 5000), checkboxes: [...document.querySelectorAll('input[type=checkbox]')].map((input) => ({ checked: input.checked, disabled: input.disabled, label: input.getAttribute('aria-label') })) })).catch(() => null);
+      if (state) await writeFile(join(artifactDir, `failure-${index}.json`), JSON.stringify(state, null, 2));
+    }
+  }
   report.push({ name: 'browser regression', passed: false, error: error.message });
   console.error(error.stack); process.exitCode = 1;
 } finally {
