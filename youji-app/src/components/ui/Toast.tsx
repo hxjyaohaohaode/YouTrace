@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { CheckCircle, AlertTriangle, XCircle, Info, X } from 'lucide-react';
 import { dismissToast, getToastSnapshot, subscribeToToasts } from '../../services/toastBus';
 
@@ -28,6 +28,7 @@ const colorMap: Record<ToastType, { gradientFrom: string; border: string }> = {
 const AUTO_DISMISS_MS = 3800;
 
 function ToastCard({ item }: { item: ToastItem }) {
+  const reduced = useReducedMotion();
   useEffect(() => {
     const timer = setTimeout(() => dismissToast(item.id), AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
@@ -38,11 +39,12 @@ function ToastCard({ item }: { item: ToastItem }) {
 
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, x: 40, scale: 0.95 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 40, scale: 0.95 }}
-      className={`flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-[var(--radius-lg)] border ${colors.border} bg-[var(--surface)] p-4 shadow-[var(--shadow-lg)] backdrop-blur-sm`}
+      layout={!reduced}
+      initial={reduced ? { opacity: 1 } : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: reduced ? 0 : 6 }}
+      transition={{ duration: reduced ? 0 : 0.16 }}
+      className={`pointer-events-none flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-[var(--radius-lg)] border ${colors.border} bg-[var(--surface)] p-4 shadow-[var(--shadow-lg)] backdrop-blur-sm`}
     >
       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${colors.gradientFrom}`}>
         <Icon size={16} className="text-white" aria-hidden />
@@ -52,7 +54,7 @@ function ToastCard({ item }: { item: ToastItem }) {
         type="button"
         onClick={() => dismissToast(item.id)}
         aria-label="关闭提示"
-        className="pt-1 text-[var(--text-3)] hover:text-[var(--text-1)]"
+        className="pointer-events-auto -mr-2 -mt-2 flex size-11 shrink-0 items-center justify-center rounded-lg text-[var(--text-3)] hover:text-[var(--text-1)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
       >
         <X size={16} aria-hidden />
       </button>
@@ -67,7 +69,7 @@ export function ToastHost() {
 
   return (
     <div
-      className="fixed right-4 top-4 flex flex-col gap-2"
+      className="pointer-events-none fixed bottom-24 right-4 flex flex-col gap-2 sm:bottom-6"
       style={{ zIndex: 'var(--z-toast)' }}
       role="region"
       aria-label="通知"

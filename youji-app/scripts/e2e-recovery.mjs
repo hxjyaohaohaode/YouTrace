@@ -501,10 +501,15 @@ try {
   assert.ok(await page.$eval('main', (el) => Number.parseFloat(getComputedStyle(el).marginLeft) >= 260), 'desktop content must clear fixed sidebar');
   step('Tailwind spacing survives base reset and clears desktop navigation');
   await addTodo(page, 'Synthetic A private todo');
-  await page.click('[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled'); }); await page.type('[role=dialog] input', 'Retained modal draft');
+  // A success notification must not steal the user's next create click.
+  await page.waitForFunction(() => document.querySelector('[aria-label="通知"]')?.textContent.includes('待办已保存'));
+  const nextTarget = await page.waitForSelector('[aria-label="新建待办"]');
+  assert.equal(await nextTarget.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), true, 'success toast must not intercept next new-Todo action');
+  await page.screenshot({ path: join(artifactDir, 'todo-save-next-create-hit.png') }); await nextTarget.dispose();
+  await clickControl(page, '[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled'); }); await page.type('[role=dialog] input', 'Retained modal draft');
   const focused = await page.evaluate(() => document.activeElement?.tagName); assert.equal(focused, 'INPUT');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true });
-  await page.click('[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled') && input.value === 'Retained modal draft'; }); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
+  await clickControl(page, '[aria-label="新建待办"]'); await page.waitForFunction(() => { const input = document.querySelector('[role=dialog] input'); return input && !input.matches(':disabled') && input.value === 'Retained modal draft'; }); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true }); step('Modal typing keeps focus; Escape/back/reopen retains unsaved input');
   await page.click('input[type=checkbox] + span');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');

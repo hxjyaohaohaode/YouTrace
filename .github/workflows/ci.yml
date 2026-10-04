@@ -55,7 +55,7 @@ jobs:
 
   user_outcomes:
     name: First-package real user outcomes (independent review required)
-    needs: verify
+    # Independent evidence must still run when another browser regression fails.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
