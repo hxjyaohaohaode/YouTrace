@@ -1,11 +1,9 @@
 import type { InsightType, CoachInsightRecord, CoachPushRecord } from '../stores/coachStore';
 import { useExpenseStore } from '../stores/expenseStore';
 import { useHabitStore } from '../stores/habitStore';
-import { useQuickNoteStore } from '../stores/quickNoteStore';
 import { useCoachStore } from '../stores/coachStore';
 import { assessEmotionState } from './emotionEngine';
-import { universalInsights } from './insightLibrary';
-import { getPushControlState } from './pushControl';
+import { canPush, getPushControlState } from './pushControl';
 import { getToday } from '../utils/date';
 
 export interface InsightTemplate {
@@ -35,10 +33,10 @@ function detectExpenseAnomalies(): InsightTemplate[] {
   if (todayTotalFen > 8000) {
     insights.push({
       type: 'anomaly',
-      title: '今日花销偏高',
-      description: `今天已经花了${formatYuan(todayTotalFen)}，比平时的单日水平高出不少。是有什么特别的开销吗？`,
+      title: '今日花销记录',
+      description: `今天已经花了${formatYuan(todayTotalFen)}。这只是已记录的金额，是否符合预期由你判断。`,
       dataSources: ['expense'],
-      actionSuggested: '回顾一下今天的消费，看看哪些是非必要的',
+      actionSuggested: '如有需要，查看今天的消费明细',
       significance: 0.7,
     });
   }
@@ -49,10 +47,10 @@ function detectExpenseAnomalies(): InsightTemplate[] {
     const percent = Math.round((monthTotalFen / monthBudgetFen) * 100);
     insights.push({
       type: 'anomaly',
-      title: '预算使用过快',
-      description: `本月已花${formatYuan(monthTotalFen)}，占预算的${percent}%。按当前节奏，月底可能吃紧。`,
+      title: '本月预算使用情况',
+      description: `本月已花${formatYuan(monthTotalFen)}，占预算的${percent}%。是否需要调整，可以结合本月剩余安排决定。`,
       dataSources: ['expense'],
-      actionSuggested: '本周尝试减少2次非必要消费',
+      actionSuggested: '查看本月预算与支出明细',
       significance: 0.75,
     });
   }
@@ -73,7 +71,8 @@ function detectExpenseAnomalies(): InsightTemplate[] {
 
 function detectHabitAnomalies(): InsightTemplate[] {
   const insights: InsightTemplate[] = [];
-  const items = useHabitStore.getState().items;
+  // The daily reminder must not treat a once-weekly habit as overdue each day.
+  const items = useHabitStore.getState().items.filter((habit) => habit.frequency === 'daily');
 
   if (items.length === 0) return insights;
 
@@ -82,9 +81,9 @@ function detectHabitAnomalies(): InsightTemplate[] {
       insights.push({
         type: 'pattern',
         title: `${habit.name}可能要中断`,
-        description: `${habit.name}已经连续坚持了${habit.streak}天，但今天还没完成。坚持了这么久，别让连续记录断在这里。`,
+        description: `${habit.name}已经连续坚持了${habit.streak}天，但今天还没完成。今天的安排可以按实际精力调整，连续记录不是压力。`,
         dataSources: ['habit'],
-        actionSuggested: `现在完成一次${habit.name}，哪怕只做最小版本`,
+        actionSuggested: `如果适合今天的安排，可以做一次${habit.name}的最小版本`,
         significance: 0.7,
       });
     }
@@ -115,46 +114,6 @@ function detectHabitAnomalies(): InsightTemplate[] {
   return insights;
 }
 
-function detectGroundedObservations(): InsightTemplate[] {
-  const insights: InsightTemplate[] = [];
-  const expenseStore = useExpenseStore.getState();
-  const quickNoteStore = useQuickNoteStore.getState();
-
-  const recentNotes = quickNoteStore.records.slice(0, 10);
-  const lowMoodNotes = recentNotes.filter(
-    (r) => r.mood === 'low' || r.mood === 'sad'
-  );
-
-  const today = getToday();
-  const todayExpenses = expenseStore.items.filter((i) => i.date === today && !i.isIncome);
-  const todayTotalFen = todayExpenses.reduce((sum, i) => sum + i.amount, 0);
-
-  if (lowMoodNotes.length >= 2 && todayTotalFen > 5000) {
-    insights.push({
-      type: 'correlation',
-      title: '情绪与消费的观察',
-      description: `最近有${lowMoodNotes.length}条记录情绪偏低，同时今天花了${formatYuan(todayTotalFen)}。情绪波动的时候更容易冲动消费，要不要聊聊最近的状态？`,
-      dataSources: ['expense', 'mood'],
-      actionSuggested: '下次想买东西时，先等10分钟再决定',
-      significance: 0.75,
-    });
-  }
-
-  const habitStore = useHabitStore.getState();
-  const habitsDone = habitStore.items.filter((h) => h.done).length;
-  if (habitsDone > 0 && habitStore.items.length > 0 && lowMoodNotes.length === 0) {
-    insights.push({
-      type: 'correlation',
-      title: '习惯与状态的正向循环',
-      description: `今天完成了${habitsDone}个习惯，最近的记录里情绪也不错。保持这个节奏，好状态会继续滚雪球。`,
-      dataSources: ['habit', 'mood'],
-      significance: 0.65,
-    });
-  }
-
-  return insights;
-}
-
 export function runCoachEngine(): CoachInsightRecord[] {
   const existingInsights = useCoachStore.getState().insights;
   const existingTitles = new Set(existingInsights.map((i) => i.title));
@@ -167,30 +126,12 @@ export function runCoachEngine(): CoachInsightRecord[] {
   const allDetected: InsightTemplate[] = [
     ...detectExpenseAnomalies(),
     ...detectHabitAnomalies(),
-    ...detectGroundedObservations(),
   ];
 
   if (emotionState.shouldReduceAdvice) {
     const limited = allDetected.filter((i) => i.type === 'positive').slice(0, 1);
     allDetected.length = 0;
     allDetected.push(...limited);
-  }
-
-  if (allDetected.length < 2) {
-    const available = universalInsights.filter(
-      (g) => !existingTitles.has(g.title)
-    );
-    if (available.length > 0) {
-      const chosen = available[Math.floor(Math.random() * available.length)];
-      allDetected.push({
-        type: chosen.type,
-        title: chosen.title,
-        description: chosen.description,
-        dataSources: chosen.dataSources,
-        actionSuggested: chosen.actionSuggested,
-        significance: chosen.significance,
-      });
-    }
   }
 
   const newInsights: CoachInsightRecord[] = [];
@@ -221,22 +162,8 @@ export async function generatePushesFromInsights(
   if (insights.length === 0) return pushes;
 
   const control = await getPushControlState();
-  let budget = control.maxDailyPushes - control.todayPushCount;
-  if (budget <= 0) {
-    const positiveOnly = insights.filter((i) => i.type === 'positive' && !i.dismissed);
-    for (const insight of positiveOnly.slice(0, 1)) {
-      pushes.push({
-        insightId: insight.id,
-        type: 'positive',
-        title: insight.title,
-        body: insight.description,
-        actions: [{ label: '知道了', type: 'confirm' }],
-        read: false,
-        acted: false,
-      });
-    }
-    return pushes;
-  }
+  let budget = Math.max(0, control.maxDailyPushes - control.todayPushCount);
+  if (budget <= 0) return pushes;
 
   for (const insight of insights) {
     if (budget <= 0) break;
@@ -246,6 +173,8 @@ export async function generatePushesFromInsights(
     if (insight.type === 'positive') pushType = 'positive';
     else if (insight.type === 'correlation') pushType = 'follow_up';
     else if (insight.type === 'suggestion') pushType = 'follow_up';
+
+    if (!await canPush(control, pushType)) continue;
 
     pushes.push({
       insightId: insight.id,
@@ -263,9 +192,9 @@ export async function generatePushesFromInsights(
       acted: false,
     });
 
-    if (pushType !== 'positive') {
-      budget -= 1;
-    }
+    budget -= 1;
+    control.todayPushCount += 1;
+    if (pushType === 'positive') control.todayPositiveCount += 1;
   }
 
   return pushes;

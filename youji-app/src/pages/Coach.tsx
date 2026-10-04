@@ -9,7 +9,8 @@ import { ChatInput } from '../components/coach/ChatInput';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { assessEmotionState, detectCrisisKeywords, getCrisisResponse, getCompanionResponse } from '../services/emotionEngine';
+import { assessEmotionState, detectCrisisKeywords, getCrisisResponse } from '../services/emotionEngine';
+import { mainlandPsychologicalSupport } from '../../server/src/services/safetyResources';
 import { getColdStartStateSync, getWelcomeForPhase } from '../services/coldStartStrategy';
 
 const quickQuestions = [
@@ -53,13 +54,6 @@ export default function Coach() {
         return;
       }
 
-      const emotion = assessEmotionState();
-      if (emotion.shouldOnlyCompanion && emotion.state === 'crisis') {
-        addMessage({ role: 'user', content: text });
-        addMessage({ role: 'assistant', content: getCompanionResponse() });
-        return;
-      }
-
       await sendMessage(text);
     },
     [isTyping, addMessage, sendMessage]
@@ -100,12 +94,13 @@ export default function Coach() {
         <div className="flex items-center gap-2">
           {emotionState.shouldShowHotline && (
             <a
-              href="tel:4001619995"
+              href={mainlandPsychologicalSupport.tel}
               className="flex h-9 items-center gap-1 rounded-full bg-[var(--danger)]/8 px-3.5 text-xs font-semibold text-[var(--danger)]"
-              aria-label="拨打心理援助热线"
+              aria-label={`拨打${mainlandPsychologicalSupport.region}心理援助热线 ${mainlandPsychologicalSupport.phone}`}
+              title={`${mainlandPsychologicalSupport.availability}；来源：国家卫生健康委，核验于 ${mainlandPsychologicalSupport.verifiedAt}`}
             >
               <Phone size={12} aria-hidden />
-              热线
+              {mainlandPsychologicalSupport.phone}
             </a>
           )}
           <button

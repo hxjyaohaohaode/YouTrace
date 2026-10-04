@@ -1,4 +1,4 @@
-import { getSetting, setSetting } from '../db';
+import { db, getSetting, setSetting } from '../db';
 import { getBusinessClock, getToday } from '../utils/date';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -25,14 +25,21 @@ export async function getPushControlState(): Promise<PushControlState> {
   const settings = useSettingsStore.getState();
   const today = getToday();
 
-  const savedDate = await getSetting<string>('pushControlDate', '');
-  if (savedDate !== today) {
-    await setSetting('pushControlDate', today);
-    await setSetting('pushControlCount', 0);
-    await setSetting('todayPositiveCount', 0);
-  }
+  const counters = await db.transaction('rw', db.settings, async () => {
+    const savedDate = await getSetting<string>('pushControlDate', '');
+    if (savedDate !== today) {
+      await setSetting('pushControlDate', today);
+      await setSetting('pushControlCount', 0);
+      await setSetting('todayPositiveCount', 0);
+    }
+    return {
+      total: await readCounter('pushControlCount', today),
+      positive: await readCounter('todayPositiveCount', today),
+    };
+  });
 
-  const baseLimit = Math.max(0, Math.min(10, settings.coachPushFrequency));
+  const baseLimit = Number.isFinite(settings.coachPushFrequency)
+    ? Math.max(0, Math.min(10, Math.floor(settings.coachPushFrequency))) : 0;
   let maxDailyPushes = baseLimit;
   const consecutiveIgnores = await getSetting<number>('consecutiveIgnores', 0);
   if (consecutiveIgnores >= 7) {
@@ -42,8 +49,8 @@ export async function getPushControlState(): Promise<PushControlState> {
   }
 
   return {
-    todayPushCount: await readCounter('pushControlCount', today),
-    todayPositiveCount: await readCounter('todayPositiveCount', today),
+    todayPushCount: counters.total,
+    todayPositiveCount: counters.positive,
     todayDate: today,
     consecutiveIgnores,
     silenceUntil: await getSetting<number | null>('silenceUntil', null),
@@ -66,29 +73,60 @@ export async function canPush(
     return false;
   }
 
-  if (pushType === 'evening_review') {
-    return state.eveningReviewEnabled;
-  }
+  // Quiet hours and the total daily budget apply to every reminder type,
+  // including encouragement and the optional evening review.
+  const settings = useSettingsStore.getState();
+  if (isQuietHours(settings.quietHours)) return false;
+  const currentLimit = Number.isFinite(settings.coachPushFrequency)
+    ? Math.max(0, Math.floor(settings.coachPushFrequency)) : 0;
+  if (state.todayPushCount >= Math.min(state.maxDailyPushes, currentLimit)) return false;
+  if (pushType === 'evening_review' && (!state.eveningReviewEnabled || !settings.eveningReviewEnabled)) return false;
+  if (pushType === 'positive' && state.todayPositiveCount >= 1) return false;
+  return true;
+}
 
-  if (isQuietHours(useSettingsStore.getState().quietHours)) {
-    return false;
-  }
-
-  if (pushType === 'positive') {
-    return state.todayPositiveCount < 1;
-  }
-
-  return state.todayPushCount < state.maxDailyPushes;
+async function incrementCounter(key: 'pushControlCount' | 'todayPositiveCount'): Promise<void> {
+  await db.transaction('rw', db.settings, async () => {
+    const today = getToday();
+    if (await getSetting<string>('pushControlDate', '') !== today) {
+      await setSetting('pushControlDate', today);
+      await setSetting('pushControlCount', 0);
+      await setSetting('todayPositiveCount', 0);
+    }
+    const count = await getSetting<number>(key, 0);
+    await setSetting(key, count + 1);
+  });
 }
 
 export async function recordPushSent(): Promise<void> {
-  const count = await getSetting<number>('pushControlCount', 0);
-  await setSetting('pushControlCount', count + 1);
+  await incrementCounter('pushControlCount');
 }
 
 export async function recordPositiveSent(): Promise<void> {
-  const count = await getSetting<number>('todayPositiveCount', 0);
-  await setSetting('todayPositiveCount', count + 1);
+  await incrementCounter('todayPositiveCount');
+}
+
+/**
+ * Serialize the final eligibility check, local delivery, and counters in one
+ * per-account IndexedDB transaction. The callback must only perform local work.
+ * Returning false means an existing reminder was reused and consumes no slot.
+ */
+export async function deliverControlledPush(
+  pushType: Parameters<typeof canPush>[1],
+  dedupeKey: string,
+  deliver: () => Promise<boolean | void>,
+): Promise<boolean> {
+  return db.transaction('rw', db.settings, db.coachPushes, async () => {
+    const state = await getPushControlState();
+    if (!await canPush(state, pushType)) return false;
+    const key = `pushDelivery:${pushType}:${dedupeKey}`;
+    if (await getSetting<string>(key, '') === state.todayDate) return false;
+    if (await deliver() === false) return false;
+    await setSetting('pushControlCount', state.todayPushCount + 1);
+    if (pushType === 'positive') await setSetting('todayPositiveCount', state.todayPositiveCount + 1);
+    await setSetting(key, state.todayDate);
+    return true;
+  });
 }
 
 export async function recordPushIgnored(): Promise<void> {

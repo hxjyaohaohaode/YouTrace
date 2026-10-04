@@ -6,8 +6,8 @@ import { api, isLoggedIn } from '../services/apiClient';
 import { flush } from '../services/syncEngine';
 import { generateRealInsights } from '../services/lifeIntelligence';
 import { generatePushesFromInsights } from '../services/coachEngine';
-import { canPush, getEveningReviewPush, getPushControlState, isQuietHours, recordPushSent, shouldShowEveningReview } from '../services/pushControl';
-import { getToday } from '../utils/date';
+import { deliverControlledPush, getEveningReviewPush, isQuietHours, shouldShowEveningReview } from '../services/pushControl';
+import { getBusinessDayStartTimestamp, getToday } from '../utils/date';
 import { Greeting } from '../components/home/Greeting';
 import { BriefCard } from '../components/home/BriefCard';
 import { QuickActions } from '../components/home/QuickActions';
@@ -77,9 +77,7 @@ export default function Home() {
 
       const settings = useSettingsStore.getState();
       if (!settings.coachPushEnabled || isQuietHours(settings.quietHours)) return;
-      if (freshInsights.length === 0) return;
 
-      const pushState = await getPushControlState();
       const pushes = await generatePushesFromInsights(
         freshInsights.map((fi, i) => ({
           id: `real-${Date.now()}-${i}`,
@@ -96,13 +94,14 @@ export default function Home() {
 
       for (const push of pushes) {
         if (cancelled) return;
-        const allowed = await canPush(pushState, push.type as Parameters<typeof canPush>[1]);
-        if (!allowed) continue;
-        await addPush(push);
-        if (push.type !== 'positive') {
-          await recordPushSent();
-          pushState.todayPushCount += 1;
-        }
+        await deliverControlledPush(push.type, push.title, async () => {
+          if (cancelled) return false;
+          const duplicate = useCoachStore.getState().pushes.some((existing) =>
+            existing.type === push.type && existing.title === push.title && existing.createdAt >= getBusinessDayStartTimestamp()
+          );
+          if (duplicate) return false;
+          await addPush(push);
+        });
       }
 
       if (
@@ -111,12 +110,16 @@ export default function Home() {
         shouldShowEveningReview(settings.eveningReviewTime) &&
         eveningReviewShownDate !== getToday()
       ) {
-        const allowed = await canPush(pushState, 'evening_review');
-        if (allowed) {
-          await addPush({ ...getEveningReviewPush(), read: false, acted: false });
-          await recordPushSent();
-          eveningReviewShownDate = getToday();
-        }
+        const review = getEveningReviewPush();
+        const delivered = await deliverControlledPush('evening_review', review.title, async () => {
+          if (cancelled) return false;
+          const duplicate = useCoachStore.getState().pushes.some((existing) =>
+            existing.type === 'evening_review' && existing.createdAt >= getBusinessDayStartTimestamp()
+          );
+          if (duplicate) return false;
+          await addPush({ ...review, read: false, acted: false });
+        });
+        if (delivered) eveningReviewShownDate = getToday();
       }
     }
 

@@ -1,6 +1,7 @@
 import { useQuickNoteStore } from '../stores/quickNoteStore';
 import { useDiaryStore } from '../stores/diaryStore';
-import { formatBusinessDate } from '../utils/date';
+import { addDays, formatBusinessDate, getToday } from '../utils/date';
+import { getSafetySupportResponse, hasCurrentSelfHarmCue } from '../../server/src/services/safetyResources';
 
 export type EmotionState = 'normal' | 'low' | 'persistent_low' | 'crisis';
 
@@ -13,27 +14,21 @@ export interface EmotionAssessment {
   shouldShowHotline: boolean;
 }
 
-const crisisKeywords = [
-  '不想活', '活着没意思', '想死', '自杀', '跳楼', '割腕',
-  '活不下去', '不想存在', '消失', '结束生命', '了结',
-];
-
-export function detectCrisisKeywords(text: string): boolean {
-  return crisisKeywords.some((kw) => text.includes(kw));
-}
+// Kept as a compatibility export; this only evaluates the current message.
+export const detectCrisisKeywords = hasCurrentSelfHarmCue;
 
 const SEVEN_DAYS_MS = 7 * 86_400_000;
 
 function isWithinWindow(timestamp: number): boolean {
-  return Number.isFinite(timestamp) && Date.now() - timestamp < SEVEN_DAYS_MS && Date.now() - timestamp >= -SEVEN_DAYS_MS;
+  return Number.isFinite(timestamp) && Date.now() - timestamp < SEVEN_DAYS_MS && Date.now() - timestamp >= 0;
 }
 
-export function assessEmotionState(): EmotionAssessment {
+export function assessEmotionState(currentMessage = ''): EmotionAssessment {
   const diaryStore = useDiaryStore.getState();
   const quickNoteStore = useQuickNoteStore.getState();
 
   const recentDiaries = diaryStore.items.filter(
-    (d) => isWithinWindow(d.createdAt) || isWithinWindow(d.updatedAt)
+    (d) => d.date >= addDays(getToday(), -6) && d.date <= getToday()
   );
 
   const recentNotes = quickNoteStore.records.filter((r) => isWithinWindow(r.createdAt));
@@ -55,12 +50,9 @@ export function assessEmotionState(): EmotionAssessment {
 
   const lowDays = lowMoodDiaryDays.size;
 
-  const allRecentText = recentNotes
-    .map((r) => r.rawInput)
-    .concat(recentDiaries.map((d) => d.content))
-    .join(' ');
-
-  const hasCrisisKeywords = detectCrisisKeywords(allRecentText);
+  // Historical notes are context, never evidence of current imminent danger.
+  // In particular, editing an old diary must not lock unrelated chat messages.
+  const hasCrisisKeywords = detectCrisisKeywords(currentMessage);
 
   let state: EmotionState = 'normal';
   if (hasCrisisKeywords) {
@@ -81,25 +73,12 @@ export function assessEmotionState(): EmotionAssessment {
   };
 }
 
-export function getCrisisResponse(): string {
-  return `我很担心你。
-
-如果你现在很难受，有专业的人可以帮到你。
-
-全国24小时心理援助热线：400-161-9995
-北京心理危机研究与干预中心：010-82951332
-生命热线：400-821-1215
-
-你不需要很"严重"才能打这个电话。
-有时候就是需要一个专业的人听你说说话。
-
-我一直在，如果你想聊，随时找我。`;
-}
+export const getCrisisResponse = getSafetySupportResponse;
 
 export function getCompanionResponse(): string {
   const responses = [
-    '那就什么都不做。有时候就是会这样，没关系。今天没有什么必须做的事。如果想聊，我在。如果不想说话，也没关系。',
-    '听起来你今天过得很辛苦。不想说也没关系，但如果你需要聊聊，我一直在。',
+    '现在可以先缓一缓。如果有不能耽误的事，我们可以一起看看哪些需要保留、哪些可以延后；你也可以先说说感受。',
+    '听起来你今天过得很辛苦。不想说也没关系，但如果你需要聊聊，可以在这里慢慢说。',
     '今天可以对自己温柔一点。不用逼自己做什么，休息也是一种力量。',
   ];
   return responses[Math.floor(Math.random() * responses.length)];
