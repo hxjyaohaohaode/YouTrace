@@ -52,3 +52,44 @@ jobs:
           path: youji-app/test-artifacts/
           if-no-files-found: warn
           retention-days: 14
+
+  user_outcomes_baseline:
+    name: Independent user-outcome baseline (product gaps remain red)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: youji-app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify the audited application has not changed
+        working-directory: .
+        run: |
+          unexpected=$(git diff --name-only e0da837068b26eca3b95bfcb952c825b998a1dee HEAD | grep -vE '^(\.github/workflows/ci\.yml|youji-app/scripts/audit-user-outcomes\.mjs)$' || true)
+          test -z "$unexpected" || { printf '%s\n' "$unexpected"; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            youji-app/package-lock.json
+            youji-app/server/package-lock.json
+      - run: npm ci && npm --prefix server ci && npm --prefix server run db:generate
+      - run: npm run build && npm --prefix server run build
+      - name: Install recording and Chinese-font prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk ffmpeg
+      - name: Operate fresh Y1 and Y2 tasks through actual controls
+        run: node scripts/audit-user-outcomes.mjs
+        env:
+          AUDIT_BROWSER_PATH: /usr/bin/google-chrome
+      - name: Preserve successful and failed task evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtrace-user-outcome-baseline-${{ github.sha }}
+          path: youji-app/test-artifacts/user-outcomes/
+          if-no-files-found: error
+          retention-days: 14
