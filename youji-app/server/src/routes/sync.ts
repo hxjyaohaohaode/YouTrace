@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { assertWritable, decodeChangePayload, latestVersion, mutationHash, recordAbsentDeletion, SyncRejection, type SyncEntity, type SyncTransaction } from '../services/syncProtocol.js'
 import { z } from 'zod'
 import { prisma } from '../utils/db.js'
 import { generateId } from '../utils/id.js'
@@ -7,9 +8,11 @@ import { consumeRateLimit } from '../utils/rateLimit.js'
 
 export const syncRoutes = new Hono()
 
+const baseVersionSchema = z.string().regex(/^(0|[1-9][0-9]{0,18})$/).refine((value) => /^[0-9]+$/.test(value) && BigInt(value) <= 9223372036854775807n, '版本超出范围').optional()
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const scheduleSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   title: z.string().trim().min(1).max(100),
   date: isoDateSchema,
@@ -22,6 +25,7 @@ const scheduleSyncSchema = z.object({
 })
 
 const expenseSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   amount: z.number().int().positive().max(100_000_000_00),
   category: z.string().trim().min(1).max(50),
@@ -34,6 +38,7 @@ const expenseSyncSchema = z.object({
 })
 
 const todoSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   text: z.string().trim().min(1).max(200),
   dueDate: isoDateSchema.optional(),
@@ -42,6 +47,7 @@ const todoSyncSchema = z.object({
 })
 
 const habitSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   name: z.string().trim().min(1).max(100),
   icon: z.string().min(1).max(16),
@@ -50,6 +56,7 @@ const habitSyncSchema = z.object({
 })
 
 const quickNoteSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   content: z.string().trim().min(1).max(5000),
   timestamp: z.union([z.number(), z.string(), z.bigint()])
@@ -60,6 +67,7 @@ const quickNoteSyncSchema = z.object({
 })
 
 const diarySyncSchema = z.object({
+  baseVersion: baseVersionSchema,
   id: z.string().min(8).max(64),
   date: isoDateSchema,
   content: z.string().trim().min(1).max(10000),
@@ -70,6 +78,8 @@ const diarySyncSchema = z.object({
 })
 
 const checkinSyncSchema = z.object({
+  baseVersion: baseVersionSchema,
+  confirmed: z.boolean().optional().default(true),
   habitId: z.string().min(8).max(64),
   date: isoDateSchema,
   done: z.boolean().optional().default(true),
@@ -77,16 +87,20 @@ const checkinSyncSchema = z.object({
   aiReason: z.string().trim().max(500).optional(),
 })
 
+const deletionSchema = z.object({ id: z.string().min(8).max(100), baseVersion: baseVersionSchema }).strict()
 const deletionsSchema = z.object({
-  scheduleIds: z.array(z.string().max(64)).max(2000).optional(),
-  expenseIds: z.array(z.string().max(64)).max(2000).optional(),
-  todoIds: z.array(z.string().max(64)).max(2000).optional(),
-  habitIds: z.array(z.string().max(64)).max(2000).optional(),
-  quickNoteIds: z.array(z.string().max(64)).max(2000).optional(),
-  diaryIds: z.array(z.string().max(64)).max(2000).optional(),
-})
+  scheduleIds: z.array(deletionSchema).max(2000).optional(),
+  expenseIds: z.array(deletionSchema).max(2000).optional(),
+  todoIds: z.array(deletionSchema).max(2000).optional(),
+  habitIds: z.array(deletionSchema).max(2000).optional(),
+  quickNoteIds: z.array(deletionSchema).max(2000).optional(),
+  diaryIds: z.array(deletionSchema).max(2000).optional(),
+  habitCheckinIds: z.array(deletionSchema).max(2000).optional(),
+}).strict()
 
 const syncPayloadSchema = z.object({
+  protocol: z.literal(2),
+  mutationId: z.string().min(8).max(128),
   schedules: z.array(scheduleSyncSchema).max(500).optional(),
   expenses: z.array(expenseSyncSchema).max(1000).optional(),
   todos: z.array(todoSyncSchema).max(1000).optional(),
@@ -95,335 +109,253 @@ const syncPayloadSchema = z.object({
   diaries: z.array(diarySyncSchema).max(366).optional(),
   habitCheckins: z.array(checkinSyncSchema).max(1000).optional(),
   deletions: deletionsSchema.optional(),
+}).strict()
+
+
+const pullQuerySchema = z.object({
+  protocol: z.literal('2'),
+  cursor: z.string().regex(/^(0|[1-9][0-9]{0,18})$/).default('0').refine((value) => /^[0-9]+$/.test(value) && BigInt(value) <= 9223372036854775807n),
+  limit: z.coerce.number().int().min(1).max(2000).default(500),
 })
 
-class SyncOwnershipError extends Error {
-  constructor(resource: string) {
-    super(`${resource} ownership mismatch`)
-    this.name = 'SyncOwnershipError'
-  }
+async function requireSyncInfrastructure() {
+  // `prisma db push` does not install triggers. Fail closed rather than ACK a lost write.
+  const triggers = await prisma.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'sync_%'`
+  const tables = ['Schedule', 'Expense', 'Todo', 'Habit', 'QuickNote', 'Diary', 'HabitCheckin']
+  const found = new Set(triggers.map((trigger) => trigger.name))
+  return tables.every((table) => ['insert', 'update', 'delete', 'no_resurrection', 'identity_immutable'].every((suffix) => found.has(`sync_${table}_${suffix}`)))
 }
-
-function safeParseNotePayload(value: string) {
-  try {
-    return JSON.parse(value)
-  } catch {
-    return {}
-  }
-}
-
-const PULL_CAP = 2000
 
 syncRoutes.get('/pull', async (c) => {
+  if (c.req.query('protocol') !== '2') return c.json({ error: '请升级客户端后再同步，保留本地修改', code: 'SYNC_UPGRADE_REQUIRED', protocol: 2 }, 426)
+  const query = pullQuerySchema.safeParse(c.req.query())
+  if (!query.success) return c.json({ error: query.error.flatten(), code: 'INVALID_SYNC_CURSOR' }, 400)
   const user = c.get('user') as AuthUser
-  const rateLimit = consumeRateLimit(`sync:pull:${user.id}`, { limit: 60, windowMs: 60_000 })
+  const rateLimit = consumeRateLimit(`sync:pull:${user.id}`, { limit: 120, windowMs: 60_000 })
   if (!rateLimit.allowed) {
     c.header('Retry-After', String(rateLimit.retryAfterSeconds))
     return c.json({ error: '同步过于频繁，请稍后再试' }, 429)
   }
+  if (!await requireSyncInfrastructure()) return c.json({ error: '同步数据库尚未完成迁移，已暂停同步', code: 'SYNC_MIGRATION_REQUIRED' }, 503)
 
-  const sinceRaw = c.req.query('since')
-  let sinceDate = new Date(0)
-  if (sinceRaw) {
-    const parsedSince = new Date(sinceRaw)
-    if (Number.isNaN(parsedSince.getTime())) {
-      return c.json({ error: 'since 参数必须是有效的 ISO 时间' }, 400)
-    }
-    sinceDate = parsedSince
-  }
-
-  const cursorDate = new Date()
-  const updatedWindow = { gte: sinceDate, lt: cursorDate }
-  const updatedAfter = { userId: user.id, updatedAt: updatedWindow }
-
-  const [schedules, expenses, todos, habits, habitCheckins, quickNotes, diaries] = await Promise.all([
-    prisma.schedule.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-    prisma.expense.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-    prisma.todo.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-    prisma.habit.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-    prisma.habitCheckin.findMany({
-      where: { habit: { userId: user.id }, updatedAt: updatedWindow },
-      orderBy: { updatedAt: 'asc' },
-      take: PULL_CAP,
-    }),
-    prisma.quickNote.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-    prisma.diary.findMany({ where: updatedAfter, orderBy: { updatedAt: 'asc' }, take: PULL_CAP }),
-  ])
-
-  const hasMore =
-    schedules.length === PULL_CAP ||
-    expenses.length === PULL_CAP ||
-    todos.length === PULL_CAP ||
-    habits.length === PULL_CAP ||
-    habitCheckins.length === PULL_CAP ||
-    quickNotes.length === PULL_CAP ||
-    diaries.length === PULL_CAP
-
+  const { cursor, limit } = query.data
+  const rows = await prisma.$queryRaw<Array<{ seq: string; entity: string; entityId: string; operation: string; payload: string | null }>>`
+    SELECT CAST("seq" AS TEXT) AS "seq", "entity", "entityId", "operation", "payload"
+    FROM "SyncChange" WHERE "userId" = ${user.id} AND "seq" > CAST(${cursor} AS INTEGER)
+    ORDER BY "SyncChange"."seq" ASC LIMIT ${limit + 1}`
+  const page = rows.slice(0, limit)
   return c.json({
-    schedules,
-    expenses,
-    todos,
-    habits,
-    habitCheckins,
-    quickNotes: quickNotes.map((n) => ({
-      ...n,
-      timestamp: Number(n.timestamp),
-      parsed: safeParseNotePayload(n.parsed),
-    })),
-    diaries,
-    hasMore,
-    serverTime: cursorDate.toISOString(),
+    protocol: 2,
+    events: page.map((row) => ({ seq: row.seq.toString(), entity: row.entity, entityId: row.entityId, operation: row.operation, data: decodeChangePayload(row.entity, row.payload) })),
+    nextCursor: page.at(-1)?.seq.toString() ?? cursor,
+    hasMore: rows.length > limit,
   })
 })
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error as { code?: string }).code === 'P2002',
-  )
+type WriteAction = {
+  entity: SyncEntity; id: string; baseVersion?: string
+  read: () => Promise<{ userId: string } | null>
+  create: () => Promise<unknown>
+  update: () => Promise<unknown>
+}
+
+async function applyWrite(tx: SyncTransaction, userId: string, action: WriteAction) {
+  const existing = await action.read()
+  await assertWritable(tx, userId, action.entity, action.id, existing, action.baseVersion)
+  if (existing) await action.update()
+  else await action.create()
+}
+
+type DeleteAction = {
+  entity: SyncEntity; id: string; baseVersion?: string
+  read: () => Promise<{ userId: string } | null>
+  remove: () => Promise<unknown>
+}
+async function applyDeletion(tx: SyncTransaction, userId: string, action: DeleteAction) {
+  const existing = await action.read()
+  if (!existing) return recordAbsentDeletion(tx, userId, action.entity, action.id, action.baseVersion)
+  await assertWritable(tx, userId, action.entity, action.id, existing, action.baseVersion)
+  await action.remove()
 }
 
 syncRoutes.post('/push', async (c) => {
+  const body: unknown = await c.req.json()
+  if (!body || typeof body !== 'object' || !('protocol' in body) || body.protocol !== 2) {
+    // Old clients discard repeated 4xx failures. A retryable status preserves their outbox.
+    c.header('Retry-After', '60')
+    return c.json({ error: '请升级客户端后再同步，保留本地修改', code: 'SYNC_UPGRADE_REQUIRED', protocol: 2 }, 503)
+  }
+  const parsed = syncPayloadSchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: parsed.error.flatten(), code: 'INVALID_SYNC_MUTATION' }, 400)
   const user = c.get('user') as AuthUser
-  const rateLimit = consumeRateLimit(`sync:push:${user.id}`, { limit: 30, windowMs: 60_000 })
+  const rateLimit = consumeRateLimit(`sync:push:${user.id}`, { limit: 60, windowMs: 60_000 })
   if (!rateLimit.allowed) {
     c.header('Retry-After', String(rateLimit.retryAfterSeconds))
     return c.json({ error: '同步过于频繁，请稍后再试' }, 429)
   }
+  if (!await requireSyncInfrastructure()) return c.json({ error: '同步数据库尚未完成迁移，已暂停同步', code: 'SYNC_MIGRATION_REQUIRED' }, 503)
 
-  const body = await c.req.json()
-  const parsed = syncPayloadSchema.safeParse(body)
-
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.flatten() }, 400)
-  }
-
-  const results: Record<string, number> = {}
-
+  const data = parsed.data
+  const requestHash = mutationHash(data)
   try {
-    await prisma.$transaction(async (tx) => {
-      const data = parsed.data
-
-      if (data.schedules?.length) {
-        for (const item of data.schedules) {
-          const existing = await tx.schedule.findUnique({ where: { id: item.id } })
-          if (existing && existing.userId !== user.id) throw new SyncOwnershipError('schedule')
-
-          if (existing) {
-            const { id: _ignored, ...changes } = item
-            await tx.schedule.update({ where: { id: item.id }, data: changes })
-          } else {
-            try {
-              await tx.schedule.create({ data: { ...item, userId: user.id } })
-            } catch (error) {
-              if (!isUniqueConstraintError(error)) throw error
-              const { id: _dropped, ...recovery } = item
-              await tx.schedule.update({ where: { id: item.id }, data: recovery })
-            }
-          }
-        }
-        results.schedules = data.schedules.length
+    const response = await prisma.$transaction(async (tx) => {
+      const receiptKey = { userId_mutationId: { userId: user.id, mutationId: data.mutationId } }
+      const receipt = await tx.syncReceipt.findUnique({ where: receiptKey })
+      if (receipt) {
+        if (receipt.requestHash !== requestHash) throw new SyncRejection('MUTATION_ID_REUSED', '同步编号对应不同内容，已拒绝整批写入')
+        return JSON.parse(receipt.response) as { protocol: number; mutationId: string; acknowledged: boolean; synced: Record<string, number>; versions: Array<{ entity: string; entityId: string; seq: string }> }
+      }
+      const synced: Record<string, number> = {}
+      const touched = new Map<string, { entity: SyncEntity; entityId: string }>()
+      function touch(entity: SyncEntity, entityId: string) {
+        const key = `${entity}:${entityId}`
+        if (touched.has(key)) throw new SyncRejection('DUPLICATE_ENTITY', '同一批次不能重复修改同一记录', 409, { entity, entityId })
+        touched.set(key, { entity, entityId })
       }
 
-      if (data.expenses?.length) {
-        for (const item of data.expenses) {
-          const existing = await tx.expense.findUnique({ where: { id: item.id } })
-          if (existing && existing.userId !== user.id) throw new SyncOwnershipError('expense')
-
-          if (existing) {
-            const { id: _ignored, ...changes } = item
-            await tx.expense.update({ where: { id: item.id }, data: changes })
-          } else {
-            try {
-              await tx.expense.create({ data: { ...item, userId: user.id } })
-            } catch (error) {
-              if (!isUniqueConstraintError(error)) throw error
-              const { id: _dropped, ...recovery } = item
-              await tx.expense.update({ where: { id: item.id }, data: recovery })
-            }
-          }
-        }
-        results.expenses = data.expenses.length
-      }
-
-      if (data.todos?.length) {
-        for (const item of data.todos) {
-          const existing = await tx.todo.findUnique({ where: { id: item.id } })
-          if (existing && existing.userId !== user.id) throw new SyncOwnershipError('todo')
-
-          if (existing) {
-            const { id: _ignored, ...changes } = item
-            await tx.todo.update({ where: { id: item.id }, data: changes })
-          } else {
-            try {
-              await tx.todo.create({ data: { ...item, userId: user.id } })
-            } catch (error) {
-              if (!isUniqueConstraintError(error)) throw error
-              const { id: _dropped, ...recovery } = item
-              await tx.todo.update({ where: { id: item.id }, data: recovery })
-            }
-          }
-        }
-        results.todos = data.todos.length
-      }
-
-      if (data.habits?.length) {
-        for (const item of data.habits) {
-          const existing = await tx.habit.findUnique({ where: { id: item.id } })
-          if (existing && existing.userId !== user.id) throw new SyncOwnershipError('habit')
-
-          if (existing) {
-            const { id: _ignored, ...changes } = item
-            await tx.habit.update({ where: { id: item.id }, data: changes })
-          } else {
-            try {
-              await tx.habit.create({ data: { ...item, userId: user.id } })
-            } catch (error) {
-              if (!isUniqueConstraintError(error)) throw error
-              const { id: _dropped, ...recovery } = item
-              await tx.habit.update({ where: { id: item.id }, data: recovery })
-            }
-          }
-        }
-        results.habits = data.habits.length
-      }
-
-      if (data.quickNotes?.length) {
-        for (const item of data.quickNotes) {
-          const existing = await tx.quickNote.findUnique({ where: { id: item.id } })
-          if (existing && existing.userId !== user.id) throw new SyncOwnershipError('quickNote')
-
-          const noteData = {
-            content: item.content,
-            timestamp: BigInt(item.timestamp),
-            parsed: JSON.stringify(item.parsed ?? {}),
-            confirmed: item.confirmed,
-          }
-
-          if (existing) {
-            await tx.quickNote.update({ where: { id: item.id }, data: noteData })
-          } else {
-            try {
-              await tx.quickNote.create({ data: { id: item.id, userId: user.id, ...noteData } })
-            } catch (error) {
-              if (!isUniqueConstraintError(error)) throw error
-              await tx.quickNote.update({ where: { id: item.id }, data: noteData })
-            }
-          }
-        }
-        results.quickNotes = data.quickNotes.length
-      }
-
-      if (data.diaries?.length) {
-        for (const item of data.diaries) {
-          const existingById = await tx.diary.findUnique({ where: { id: item.id } })
-          if (existingById && existingById.userId !== user.id) throw new SyncOwnershipError('diary')
-
-          const { id: _ignored, ...changes } = item
-          try {
-            if (existingById) {
-              await tx.diary.update({ where: { id: item.id }, data: changes })
-            } else {
-              const clashByDate = await tx.diary.findUnique({
-                where: { userId_date: { userId: user.id, date: item.date } },
-              })
-              if (clashByDate) {
-                const { date: _dropped, ...mergeChanges } = changes
-                await tx.diary.update({ where: { id: clashByDate.id }, data: mergeChanges })
-              } else {
-                await tx.diary.create({ data: { ...item, userId: user.id } })
-              }
-            }
-          } catch (error) {
-            if (!isUniqueConstraintError(error)) throw error
-            const clashByDate = await tx.diary.findUnique({
-              where: { userId_date: { userId: user.id, date: item.date } },
-            })
-            if (clashByDate) {
-              const { date: _dropped, ...mergeChanges } = changes
-              await tx.diary.update({ where: { id: clashByDate.id }, data: mergeChanges })
-            }
-          }
-        }
-        results.diaries = data.diaries.length
-      }
-
-      if (data.habitCheckins?.length) {
-        const habitIds = [...new Set(data.habitCheckins.map((item) => item.habitId))]
-        const ownedHabits = await tx.habit.findMany({
-          where: { id: { in: habitIds }, userId: user.id },
-          select: { id: true },
+      for (const item of data.schedules ?? []) {
+        const { id, baseVersion, ...changes } = item
+        touch('schedules', id)
+        await applyWrite(tx, user.id, { entity: 'schedules', id, baseVersion,
+          read: () => tx.schedule.findUnique({ where: { id } }),
+          create: () => tx.schedule.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.schedule.update({ where: { id }, data: changes }),
         })
-        const ownedHabitIds = new Set(ownedHabits.map((h) => h.id))
-
-        let appliedCheckins = 0
-        for (const item of data.habitCheckins) {
-          if (!ownedHabitIds.has(item.habitId)) continue
-          const checkinData = {
-            done: item.done,
-            source: item.source,
-            ...(item.aiReason !== undefined ? { aiReason: item.aiReason } : {}),
-          }
-          await tx.habitCheckin.upsert({
-            where: { habitId_date: { habitId: item.habitId, date: item.date } },
-            update: checkinData,
-            create: {
-              id: generateId(),
-              habitId: item.habitId,
-              date: item.date,
-              ...checkinData,
-            },
-          })
-          appliedCheckins += 1
-        }
-        results.habitCheckins = appliedCheckins
+      }
+      for (const item of data.expenses ?? []) {
+        const { id, baseVersion, ...changes } = item
+        touch('expenses', id)
+        await applyWrite(tx, user.id, { entity: 'expenses', id, baseVersion,
+          read: () => tx.expense.findUnique({ where: { id } }),
+          create: () => tx.expense.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.expense.update({ where: { id }, data: changes }),
+        })
+      }
+      for (const item of data.todos ?? []) {
+        const { id, baseVersion, ...changes } = item
+        touch('todos', id)
+        await applyWrite(tx, user.id, { entity: 'todos', id, baseVersion,
+          read: () => tx.todo.findUnique({ where: { id } }),
+          create: () => tx.todo.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.todo.update({ where: { id }, data: changes }),
+        })
+      }
+      for (const item of data.habits ?? []) {
+        const { id, baseVersion, ...changes } = item
+        touch('habits', id)
+        await applyWrite(tx, user.id, { entity: 'habits', id, baseVersion,
+          read: () => tx.habit.findUnique({ where: { id } }),
+          create: () => tx.habit.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.habit.update({ where: { id }, data: changes }),
+        })
+      }
+      for (const item of data.quickNotes ?? []) {
+        const { id, baseVersion } = item
+        const changes = { content: item.content, timestamp: BigInt(item.timestamp), parsed: JSON.stringify(item.parsed), confirmed: item.confirmed }
+        touch('quickNotes', id)
+        await applyWrite(tx, user.id, { entity: 'quickNotes', id, baseVersion,
+          read: () => tx.quickNote.findUnique({ where: { id } }),
+          create: () => tx.quickNote.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.quickNote.update({ where: { id }, data: changes }),
+        })
+      }
+      for (const item of data.diaries ?? []) {
+        const { id, baseVersion, ...changes } = item
+        touch('diaries', id)
+        const conflict = await tx.diary.findUnique({ where: { userId_date: { userId: user.id, date: item.date } } })
+        if (conflict && conflict.id !== id) throw new SyncRejection('DIARY_DATE_CONFLICT', '该日期已有另一篇日记，两份原稿均保留，请处理冲突', 409, { entity: 'diaries', entityId: id, conflictingId: conflict.id })
+        await applyWrite(tx, user.id, { entity: 'diaries', id, baseVersion,
+          read: () => tx.diary.findUnique({ where: { id } }),
+          create: () => tx.diary.create({ data: { id, userId: user.id, ...changes } }),
+          update: () => tx.diary.update({ where: { id }, data: changes }),
+        })
+      }
+      for (const item of data.habitCheckins ?? []) {
+        const { baseVersion, habitId, date, ...changes } = item
+        const entityId = `${habitId}|${date}`
+        touch('habitCheckins', entityId)
+        const habit = await tx.habit.findUnique({ where: { id: habitId } })
+        if (!habit) throw new SyncRejection('MISSING_PARENT', '打卡的习惯尚不存在，已保留整批修改', 409, { entity: 'habitCheckins', entityId })
+        if (habit.userId !== user.id) throw new SyncRejection('OWNERSHIP_CONFLICT', '打卡习惯不属于当前账号', 403)
+        const existing = await tx.habitCheckin.findUnique({ where: { habitId_date: { habitId, date } } })
+        await assertWritable(tx, user.id, 'habitCheckins', entityId, existing ? habit : null, baseVersion)
+        if (existing) await tx.habitCheckin.update({ where: { id: existing.id }, data: changes })
+        else await tx.habitCheckin.create({ data: { id: generateId(), habitId, date, ...changes } })
+      }
+      for (const entity of ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins'] as const) {
+        if (data[entity]?.length) synced[entity] = data[entity].length
       }
 
       const deletions = data.deletions
-      if (deletions) {
-        if (deletions.scheduleIds?.length) {
-          const removed = await tx.schedule.deleteMany({ where: { id: { in: deletions.scheduleIds }, userId: user.id } })
-          results.deletedSchedules = removed.count
-        }
-        if (deletions.expenseIds?.length) {
-          const removed = await tx.expense.deleteMany({ where: { id: { in: deletions.expenseIds }, userId: user.id } })
-          results.deletedExpenses = removed.count
-        }
-        if (deletions.todoIds?.length) {
-          const removed = await tx.todo.deleteMany({ where: { id: { in: deletions.todoIds }, userId: user.id } })
-          results.deletedTodos = removed.count
-        }
-        if (deletions.quickNoteIds?.length) {
-          const removed = await tx.quickNote.deleteMany({ where: { id: { in: deletions.quickNoteIds }, userId: user.id } })
-          results.deletedQuickNotes = removed.count
-        }
-        if (deletions.diaryIds?.length) {
-          const removed = await tx.diary.deleteMany({ where: { id: { in: deletions.diaryIds }, userId: user.id } })
-          results.deletedDiaries = removed.count
-        }
-        if (deletions.habitIds?.length) {
-          const ownedHabits = await tx.habit.findMany({
-            where: { id: { in: deletions.habitIds }, userId: user.id },
-            select: { id: true },
-          })
-          const ownedIds = ownedHabits.map((h) => h.id)
-          if (ownedIds.length > 0) {
-            await tx.habitCheckin.deleteMany({ where: { habitId: { in: ownedIds } } })
-            const removed = await tx.habit.deleteMany({ where: { id: { in: ownedIds } } })
-            results.deletedHabits = removed.count
-          }
-        }
+      for (const item of deletions?.scheduleIds ?? []) {
+        touch('schedules', item.id)
+        await applyDeletion(tx, user.id, { entity: 'schedules', ...item,
+          read: () => tx.schedule.findUnique({ where: { id: item.id } }), remove: () => tx.schedule.delete({ where: { id: item.id } }),
+        })
       }
-    })
+      for (const item of deletions?.expenseIds ?? []) {
+        touch('expenses', item.id)
+        await applyDeletion(tx, user.id, { entity: 'expenses', ...item,
+          read: () => tx.expense.findUnique({ where: { id: item.id } }), remove: () => tx.expense.delete({ where: { id: item.id } }),
+        })
+      }
+      for (const item of deletions?.todoIds ?? []) {
+        touch('todos', item.id)
+        await applyDeletion(tx, user.id, { entity: 'todos', ...item,
+          read: () => tx.todo.findUnique({ where: { id: item.id } }), remove: () => tx.todo.delete({ where: { id: item.id } }),
+        })
+      }
+      for (const item of deletions?.quickNoteIds ?? []) {
+        touch('quickNotes', item.id)
+        await applyDeletion(tx, user.id, { entity: 'quickNotes', ...item,
+          read: () => tx.quickNote.findUnique({ where: { id: item.id } }), remove: () => tx.quickNote.delete({ where: { id: item.id } }),
+        })
+      }
+      for (const item of deletions?.diaryIds ?? []) {
+        touch('diaries', item.id)
+        await applyDeletion(tx, user.id, { entity: 'diaries', ...item,
+          read: () => tx.diary.findUnique({ where: { id: item.id } }), remove: () => tx.diary.delete({ where: { id: item.id } }),
+        })
+      }
+      for (const item of deletions?.habitCheckinIds ?? []) {
+        touch('habitCheckins', item.id)
+        const split = item.id.lastIndexOf('|')
+        if (split < 8 || !isoDateSchema.safeParse(item.id.slice(split + 1)).success) throw new SyncRejection('INVALID_CHECKIN_ID', '打卡标识无效')
+        const habitId = item.id.slice(0, split), date = item.id.slice(split + 1)
+        const habit = await tx.habit.findUnique({ where: { id: habitId } })
+        if (habit && habit.userId !== user.id) throw new SyncRejection('OWNERSHIP_CONFLICT', '打卡习惯不属于当前账号', 403)
+        const existing = await tx.habitCheckin.findUnique({ where: { habitId_date: { habitId, date } } })
+        await applyDeletion(tx, user.id, { entity: 'habitCheckins', ...item,
+          read: async () => existing && habit ? habit : null,
+          remove: () => tx.habitCheckin.delete({ where: { habitId_date: { habitId, date } } }),
+        })
+      }
+      for (const item of deletions?.habitIds ?? []) {
+        touch('habits', item.id)
+        await applyDeletion(tx, user.id, { entity: 'habits', ...item,
+          read: () => tx.habit.findUnique({ where: { id: item.id } }),
+          remove: async () => {
+            await tx.habitCheckin.deleteMany({ where: { habitId: item.id } })
+            await tx.habit.delete({ where: { id: item.id } })
+          },
+        })
+      }
+      for (const [key, ack] of [['scheduleIds', 'deletedSchedules'], ['expenseIds', 'deletedExpenses'], ['todoIds', 'deletedTodos'], ['habitIds', 'deletedHabits'], ['quickNoteIds', 'deletedQuickNotes'], ['diaryIds', 'deletedDiaries'], ['habitCheckinIds', 'deletedHabitCheckins']] as const) {
+        if (deletions?.[key]?.length) synced[ack] = deletions[key].length
+      }
+      const versions = []
+      for (const { entity, entityId } of touched.values()) versions.push({ entity, entityId, seq: await latestVersion(tx, user.id, entity, entityId) })
+      const ack = { protocol: 2, mutationId: data.mutationId, acknowledged: true, synced, versions }
+      await tx.syncReceipt.create({ data: { userId: user.id, mutationId: data.mutationId, requestHash, response: JSON.stringify(ack) } })
+      return ack
+    }, { timeout: 30_000, maxWait: 5_000 })
+    return c.json(response)
   } catch (error) {
-    if (error instanceof SyncOwnershipError) {
-      return c.json({ error: '同步数据存在所有权冲突，已拒绝写入' }, 403)
+    if (error instanceof SyncRejection) return c.json({ error: error.message, code: error.code, conflict: error.details, acknowledged: false, mutationId: data.mutationId }, error.status)
+    if (error && typeof error === 'object' && 'code' in error && ['P1008', 'P2002', 'P2028', 'P2034'].includes(String(error.code))) {
+      c.header('Retry-After', '1')
+      return c.json({ error: '并发写入未获确认，请使用相同同步编号重试', code: 'SYNC_RETRY_REQUIRED', acknowledged: false, mutationId: data.mutationId }, 503)
     }
-
     throw error
   }
-
-  return c.json({ synced: results, timestamp: new Date().toISOString() })
 })

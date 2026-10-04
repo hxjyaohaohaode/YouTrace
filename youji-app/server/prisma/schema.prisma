@@ -31,6 +31,9 @@ model User {
   chatSessions ChatSession[]
   insights     Insight[]
   pushes       Push[]
+  syncChanges  SyncChange[]
+  syncTombstones SyncTombstone[]
+  syncReceipts SyncReceipt[]
 }
 
 model Schedule {
@@ -234,5 +237,47 @@ model RegistrationTicket {
   createdAt  DateTime  @default(now())
 
   @@index([phone, expiresAt])
+  @@index([expiresAt])
+}
+
+// SQLite triggers write this append-only feed in the business transaction.
+// SQL uses INTEGER AUTOINCREMENT; read seq via CAST AS TEXT (see syncProtocol).
+model SyncChange {
+  seq       BigInt @id @default(autoincrement())
+  userId    String
+  entity    String
+  entityId  String
+  operation String
+  payload   String?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, seq])
+  @@index([userId, entity, entityId, seq])
+}
+
+model SyncTombstone {
+  userId   String
+  entity   String
+  entityId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entity, entityId])
+}
+
+model SyncReceipt {
+  userId     String
+  mutationId String
+  requestHash String
+  response   String
+  createdAt  DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, mutationId])
+}
+
+model RevokedSession {
+  id String @id
+  expiresAt DateTime
+
   @@index([expiresAt])
 }
