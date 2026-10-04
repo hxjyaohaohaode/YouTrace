@@ -2,15 +2,17 @@
 
 建立日期：2026-09-22。起点：`recovery/vnext-20260827` / `4ec3012e0981dda55a37a39fcb56875decd9fe6d`。依据 [AUDIT_REPORT.md](AUDIT_REPORT.md) 的实际失败结果，而非按功能数量推进。
 
+分支政策更新（2026-10-04）：用户授权将当前审计成果推到 GitHub `main`、删除其他分支，之后仅保留 `main`。以下修复门禁与风险不变，历史审计仍按原基线阅读；GitHub 主线更新不等于生产部署或 P0 修复完成。
+
 ## 1. 本轮交付边界
 
 Phase0：Git冻结核对、当前/legacy只读审计、结构与数据流图、事实复核/风险/测试报告、长期上下文、恢复计划及可复现诊断。没有更改业务实现、数据库provider或生产服务。Phase0的16项诊断失败是待修复基线，不是“预期失败所以产品合格”。
 
-后续按本计划逐段启动，不把长期任务清单当作一次性重构授权。仅允许 recovery 上小而清晰的提交；生产、main合并/push、外部资源创建/费用和真实数据迁移要另获授权。保留两份用户已有未跟踪文档。
+后续按本计划逐段启动，不把长期任务清单当作一次性重构授权。在唯一的 `main` 上小而清晰地提交；本次 GitHub 推送/分支删除已获授权，但生产部署、外部资源创建/费用和真实数据迁移仍要另获授权。非发布推送使用 `[skip render]` 或已核验的关闭自动部署配置。保留两份用户已有未跟踪文档。
 
 ## 2. 开始任何P0修改前的保护动作
 
-1. 阅读 AI_RECOVERY_CONTEXT、最新报告，执行 branch/status/log；记录当前HEAD、用户修改、DB schema与迁移历史。禁止 checkout main 开发。
+1. 阅读 AI_RECOVERY_CONTEXT、最新报告，执行 branch/status/log；记录当前HEAD、用户修改、DB schema与迁移历史。按最新单分支政策在 `main` 上小步工作，不重新创建长期 recovery/legacy 分支。
 2. 把“运行中生产 SQLite 可能还在临时盘”视为外部紧急保全问题。**不要先改Origin/Blueprint并触发部署，也不要用重启来测试持久性。**先核对Dashboard自动部署、plan、DB类型/路径与磁盘，再取得一致备份并在隔离目标验证restore。
 3. 本地真实IndexedDB/SQLite同样不能删除重建。先制作带schema/version、计数/校验、来源时间的备份；含隐私的备份只在授权安全位置，不提交Git、不贴聊天。
 4. 所有代码和测试先用合成fixture。历史迁移既有checksum与已执行状态须先确认，禁止随意修改已部署migration制造漂移。
@@ -136,7 +138,7 @@ Phase0浏览器smoke绕过OTP并使用进程内传输，后续必须补真实HTT
 | Origin、真实Cookie、SMS | 实际域名/面板配置、专用测试账号与SMS配置 | 允许来源成功、未知来源拒绝、真实会话跨域端到端 |
 | Object Storage/Web Push/worker | 预算、存储ACL、VAPID/worker配置 | 私有文件生命周期、订阅失效兜底、关app仍执行任务 |
 | AI providers/STT/vision | API keys、数据出境/隐私政策与预算决策 | 独立staging合成输入、provider故障注入、不输出key |
-| recovery远端CI与发布 | 授权push recovery/开PR；最后另行批准main/production | CI链接+staging报告+release/rollback签核 |
+| main远端CI与生产发布 | 本次 GitHub 推送已授权；后续按单main政策验证CI，生产另行批准 | CI链接+staging报告+release/rollback签核；非发布推送跳过Render自动部署 |
 
 不要求用户粘贴API key/数据库内容到聊天。DNS/OAuth若未来需要再列具体步骤，不作为本次Phase0已做事项。
 
@@ -144,7 +146,7 @@ Phase0浏览器smoke绕过OTP并使用进程内传输，后续必须补真实HTT
 
 ### 当前Phase0
 
-只有新增文档/诊断脚本和AGENTS；没有业务/DB变更。若需撤销，恢复分支用 `git revert <该阶段commit>` 生成可追踪反向提交即可；不reset main、不删两份用户原有文档、不触碰真实数据。尚未执行回滚演练，不能记成“生产rollback PASS”。
+只有新增文档/诊断脚本和AGENTS；没有业务/DB变更。若需撤销，在获授权后用 `git revert <该阶段commit>` 生成可追踪反向提交；不破坏性reset main、不删两份用户原有文档、不触碰真实数据。分支删除可从已验证的离线bundle恢复对应提交；尚未执行生产数据回滚演练，不能记成“生产rollback PASS”。
 
 ### 后续本地隔离与schema迁移
 

@@ -6,17 +6,20 @@
 
 YouTrace「有迹」是已有部署、已有数据、经历过失控重构的真实项目。目标是 Personal Life Intelligence / Personal Life OS，连接日程、任务、消费、习惯与打卡、日记、目标、速记、时间线、教练、洞察和用户偏好。不得另建 v3 / Demo 替代现有工程，不得整体覆盖仓库。
 
-当前会话只授权完成 **Phase 0：审计、基线验证、恢复规划及文档**。后续业务修复按恢复计划逐个最小阶段实施。不得将长期路线视作本轮生产发布授权。
+2026-09-22 已完成 **Phase 0：审计、基线验证、恢复规划及文档**，提交为 `57db49489668a3b11ca64042bf7210b3958b27e9`，业务 P0 尚未修复。2026-10-04 用户追加授权：推送 GitHub、以当前审计成果统一主线并删除其他分支，后续只保留 `main`。此授权仅改变 Git 分支管理，不代表数据修复完成或批准生产部署。后续业务修复仍按恢复计划逐个最小阶段实施。
 
 ## Git 与部署边界
 
 - 仓库：<https://github.com/hxjyaohaohaode/YouTrace>。
-- 用户指定的正式基线：`main`，`4ec3012e0981dda55a37a39fcb56875decd9fe6d`。这是基线记录，未来必须重新验证，不得假定永远不变。
-- 当前恢复分支：`recovery/vnext-20260827`。开始时执行 `git status`、`git branch -vv`、`git log --oneline -10` 并确认所在分支；异常时先保全用户改动。
-- 可在恢复分支创建独立、清晰的小提交。未经用户明确授权，不修改/重置/合并/rebase/push `main`，不 force push，不部署生产。
-- `legacy-v1-fastify` 只作功能、设计与实现思路参考；本地可通过 `origin/legacy-v1-fastify` 查看。仅用 `git show`、`git diff`、`git log`、`git ls-tree` 等只读方式，不直接 merge，不删除该分支，不假定与 v2 历史连续。
+- Phase 0 审计时的正式基线：`main`，`4ec3012e0981dda55a37a39fcb56875decd9fe6d`。这是历史基线，不是实时 HEAD；GitHub main 与运行中的生产版本必须分别核验。
+- 最新分支政策（2026-10-04）：本地及 GitHub 只保留 `main`，原 `recovery/vnext-20260827` 的审计成果纳入主线。开始时执行 `git status`、`git branch -vv`、`git log --oneline -10` 并确认所在分支；异常时先保全用户改动。
+- 在 `main` 上创建独立、清晰的小提交。本次授权允许分支收敛及必要的受保护强推/删除；后续 force push、破坏性重置或其他分支删除需再次明确授权。发布生产始终另需授权，不把 GitHub 推送默认为生产发布。
+- 历史 `legacy-v1-fastify`（`ac64c7f21b7bc7cca12894f5dcbeb8beff129838`）只作功能、设计与实现思路参考。用户本次允许删除其远端分支，但先保留并恢复验证完整离线 Git bundle；此后从离线备份用 `git show`、`git diff`、`git log`、`git ls-tree` 等只读方式查看，不直接 merge，不假定与 v2 历史连续。
 - 后端：<https://youji-api.onrender.com>；前端：<https://youtrace-ezu4.onrender.com>。GitHub 与 Render 自动部署有关联。仓库配置、Dashboard、运行中服务必须分别核对。
+- 未获生产发布授权的推送使用 Render 官方支持的 `[skip render]` 标记，或先核验平台已关闭自动部署；标记不关闭 GitHub CI，也不能代替生产数据备份。仅一次标记不会永久关闭后续自动部署。[官方部署说明](https://render.com/docs/deploys#skipping-an-auto-deploy)，核验日期 2026-10-04。
 - 保留用户已有的未提交/未跟踪文件，禁止夹带无关文件进入提交。
+
+2026-09-22 的 AUDIT_REPORT、ARCHITECTURE_CURRENT 中分支和部署状态是当时快照，不能覆盖上述后续用户授权。分支收敛前的 Git bundle 包含旧 main、recovery 和 legacy 历史，不包含生产数据库备份；不要混淆代码可恢复与用户数据可恢复。
 
 ## 决策顺序与不可破坏的原则
 
