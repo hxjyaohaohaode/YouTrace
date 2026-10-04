@@ -8,9 +8,12 @@ import { join, resolve } from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
+const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
+assert.ok(['records', 'coach'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
@@ -37,7 +40,7 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   }
   return files;
 }
-const metadata = { kind: 'first-package-scripted-outcomes-await-independent-review', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the single receipt-reread task', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'All remaining Y3–Y9 scenarios', 'Manual human-operated review'] };
+const metadata = { kind: taskSet === 'coach' ? 'coach-user-outcome-red-baseline' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'rule observation/accept/reject/source correction'] : ['capture/correction/history/navigation/receipt-read outage'], applicationBaseline: '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the single receipt-reread task', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -93,7 +96,7 @@ async function localRows(page, owner) {
     const request = indexedDB.open(`youtrace:user:${owner}`);
     request.onupgradeneeded = () => { request.transaction.abort(); reject(new Error('Expected account DB must already exist')); };
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
+    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
       for (const name of names) { const read = transaction.objectStore(name).getAll(); read.onsuccess = () => { rows[name] = read.result; }; }
       transaction.oncomplete = () => { database.close(); resolve(rows); }; transaction.onerror = () => { database.close(); reject(transaction.error); };
     };
@@ -519,6 +522,10 @@ try {
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  if (taskSet === 'coach') {
+    await runCoachOutcomes({ isolated, login, pointer, fill, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join });
+    for (const name of ['Y3-sparse-history-360', 'Y3-observation-action-1280']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else {
   await isolated('Y1-first-value-1280', { width: 1280, height: 900 }, firstValue);
   await isolated('Y2-retrieve-past-1280', { width: 1280, height: 900 }, retrievePast);
   await isolated('Y1N-first-value-360', { width: 360, height: 800 }, page => firstValue(page, true));
@@ -527,6 +534,7 @@ try {
   await isolated('YR-receipt-reread-1280', { width: 1280, height: 900 }, receiptReadFailureAfterUpdate);
   for (const name of ['YN-mobile-discovery-360', 'YR-receipt-reread-1280', 'Y1-first-value-1280', 'Y2-retrieve-past-1280', 'Y1N-first-value-360', 'YF-storage-recovery-1280']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   assert.ok((await stat(join(artifacts, 'YR-peer-edit-1280.webm'))).size > 0, 'Missing peer video; both pages share the continuous YR browser trace');
+  }
 } catch (error) { infrastructure.push({ fatal: error.message }); process.exitCode = 2; }
 finally {
   if (browser) await browser.close();
@@ -536,7 +544,7 @@ finally {
   metadata.sourceEnd = await sourceSnapshot();
   if (metadata.sourceStart.trackedContentSha256 !== metadata.sourceEnd.trackedContentSha256 || metadata.sourceStart.dirty || metadata.sourceEnd.dirty) infrastructure.push({ sourceChangedOrDirty: true });
   await writeFile(join(artifacts, 'outcome-report.json'), JSON.stringify({ metadata, results, actions, traffic, infrastructure }, null, 2));
-  await writeFile(join(artifacts, 'README.txt'), 'First-package scripted evidence, pending independent product review. Read outcome-report.json; observed-fail means a product gap, blocked means the step did not complete. Videos and Chrome performance traces cover successful and failed operations. All data are synthetic. Initial login URL and explicit historical API setup are identified separately; business navigation uses rendered controls. No live model, SMS or production data.\n');
+  await writeFile(join(artifacts, 'README.txt'), 'Scripted user-outcome evidence, pending independent product review. Read outcome-report.json; observed-fail means a product gap, blocked means the step did not complete. Videos and Chrome performance traces cover successful and failed operations. All data are synthetic. Initial login URL and explicit historical API setup are identified separately; business navigation uses rendered controls. No live model, SMS or production data.\n');
   await rm(scratch, { recursive: true, force: true });
 }
 if (infrastructure.some(item => typeof item === 'object')) process.exitCode = 2;

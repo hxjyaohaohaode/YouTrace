@@ -54,7 +54,11 @@ jobs:
           retention-days: 14
 
   user_outcomes:
-    name: First-package real user outcomes (independent review required)
+    name: Real user outcomes (${{ matrix.task_set }}, independent review required)
+    strategy:
+      fail-fast: false
+      matrix:
+        task_set: [records, coach]
     # Independent evidence must still run when another browser regression fails.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -79,11 +83,12 @@ jobs:
       - run: npm run build && npm --prefix server run build
       - name: Install recording and Chinese-font prerequisites
         run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk ffmpeg
-      - name: Operate complete capture, correction, history, narrow-screen and storage-failure tasks
+      - name: Operate bounded native user-task evidence (${{ matrix.task_set }})
         # Leave job time for preserving raw evidence if the browser harness hangs.
         timeout-minutes: 8
         run: node scripts/audit-user-outcomes.mjs
         env:
+          AUDIT_TASK_SET: ${{ matrix.task_set }}
           AUDIT_BROWSER_PATH: /usr/bin/google-chrome
       - name: Package all successful and failed evidence without dropping bytes
         if: always()
@@ -92,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-summary-${{ github.sha }}
+          name: youtrace-outcome-summary-${{ matrix.task_set }}-${{ github.sha }}
           path: |
             youji-app/test-artifacts/user-outcomes/outcome-report.json
             youji-app/test-artifacts/user-outcomes/progress-checkpoint.json
@@ -105,7 +110,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-00') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-00-${{ github.sha }}
+          name: youtrace-outcome-part-00-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-00
           compression-level: 0
           if-no-files-found: error
@@ -114,7 +119,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-01') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-01-${{ github.sha }}
+          name: youtrace-outcome-part-01-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-01
           compression-level: 0
           if-no-files-found: error
@@ -123,7 +128,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-02') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-02-${{ github.sha }}
+          name: youtrace-outcome-part-02-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-02
           compression-level: 0
           if-no-files-found: error
@@ -132,7 +137,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-03') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-03-${{ github.sha }}
+          name: youtrace-outcome-part-03-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-03
           compression-level: 0
           if-no-files-found: error
@@ -141,7 +146,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-04') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-04-${{ github.sha }}
+          name: youtrace-outcome-part-04-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-04
           compression-level: 0
           if-no-files-found: error
@@ -150,7 +155,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-05') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-05-${{ github.sha }}
+          name: youtrace-outcome-part-05-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-05
           compression-level: 0
           if-no-files-found: error
@@ -159,7 +164,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-06') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-06-${{ github.sha }}
+          name: youtrace-outcome-part-06-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-06
           compression-level: 0
           if-no-files-found: error
@@ -168,7 +173,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-07') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-07-${{ github.sha }}
+          name: youtrace-outcome-part-07-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-07
           compression-level: 0
           if-no-files-found: error
@@ -177,7 +182,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-08') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-08-${{ github.sha }}
+          name: youtrace-outcome-part-08-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-08
           compression-level: 0
           if-no-files-found: error
@@ -186,7 +191,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-09') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-09-${{ github.sha }}
+          name: youtrace-outcome-part-09-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-09
           compression-level: 0
           if-no-files-found: error
@@ -195,7 +200,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-10') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-10-${{ github.sha }}
+          name: youtrace-outcome-part-10-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-10
           compression-level: 0
           if-no-files-found: error
@@ -204,7 +209,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-11') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-11-${{ github.sha }}
+          name: youtrace-outcome-part-11-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-11
           compression-level: 0
           if-no-files-found: error
@@ -213,7 +218,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-12') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-12-${{ github.sha }}
+          name: youtrace-outcome-part-12-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-12
           compression-level: 0
           if-no-files-found: error
@@ -222,7 +227,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-13') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-13-${{ github.sha }}
+          name: youtrace-outcome-part-13-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-13
           compression-level: 0
           if-no-files-found: error
@@ -231,7 +236,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-14') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-14-${{ github.sha }}
+          name: youtrace-outcome-part-14-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-14
           compression-level: 0
           if-no-files-found: error
@@ -240,7 +245,7 @@ jobs:
         if: always() && hashFiles('youji-app/test-artifacts/outcome-package/evidence.part-15') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: youtrace-outcome-part-15-${{ github.sha }}
+          name: youtrace-outcome-part-15-${{ matrix.task_set }}-${{ github.sha }}
           path: youji-app/test-artifacts/outcome-package/evidence.part-15
           compression-level: 0
           if-no-files-found: error
