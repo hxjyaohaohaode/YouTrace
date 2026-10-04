@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Wallet, BookOpen, Smile, Tag, Trash2, Plus, Check, ListTodo } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
 import { type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
-import { getSetting, setSetting } from '../db';
-import { applyCaptureDraft, type CaptureDraft } from '../services/quickNoteIntegration';
+import { applyCaptureDraft, CaptureChangedError, captureSessionKey, loadCaptureDraft, saveCaptureDraft, type CaptureDraft } from '../services/quickNoteIntegration';
 import { toast } from '../services/toastBus';
 import { MOOD_LEVELS, getMoodMeta, EXPENSE_CATEGORY_KEYS, expenseCategoryIcons, normalizeExpenseCategory } from '../utils/icons';
 
@@ -21,8 +20,10 @@ const typeColors = {
 const MAX_EXPENSE_AMOUNT_FEN = 100_000_000_00;
 
 export default function QuickNoteResult() {
+  const location = useLocation();
+  const requestedId = (location.state as { draftId?: string } | null)?.draftId ?? sessionStorage.getItem(captureSessionKey());
   const [draft, setDraft] = useState<CaptureDraft | null | undefined>(undefined);
-  useEffect(() => { let active = true; void getSetting<CaptureDraft | null>('quicknote_review', null).then((value) => { if (active) setDraft(value); }); return () => { active = false; }; }, []);
+  useEffect(() => { let active = true; void loadCaptureDraft(requestedId).then((value) => { if (active) setDraft(value); }); return () => { active = false; }; }, [requestedId]);
   if (draft === undefined) return <p role="status" className="p-6">正在恢复确认稿…</p>;
   return <CaptureReview key={draft?.id ?? 'empty'} draft={draft} />;
 }
@@ -46,8 +47,10 @@ function CaptureReview({ draft }: { draft: CaptureDraft | null }) {
   const savingGuard = useRef(false);
   useEffect(() => {
     if (!draft || saving || saved.current) return;
-    void setSetting('quicknote_review', { id: draft.id, input: safeInput, expenses, habits, todos, diary, mood, moodScore }).catch(() => toast.warning('确认稿暂未存入本地，请勿关闭页面'));
-  }, [draft, safeInput, expenses, habits, todos, diary, mood, moodScore, saving]);
+    void saveCaptureDraft({ id: draft.id, input: safeInput, inputKey: draft.inputKey, expenses, habits, todos, diary, mood, moodScore }).then((id) => {
+      if (id !== draft.id && !saved.current) { saved.current = true; sessionStorage.setItem(captureSessionKey(), id); navigate('/quick-note/result', { replace: true, state: { draftId: id } }); toast.info('原稿已在另一页保存，新修改已另存为确认稿'); }
+    }).catch(() => toast.warning('确认稿暂未存入本地，请勿关闭页面'));
+  }, [draft, safeInput, expenses, habits, todos, diary, mood, moodScore, saving, navigate]);
 
 
   if (!safeInput) {
@@ -148,12 +151,13 @@ function CaptureReview({ draft }: { draft: CaptureDraft | null }) {
     setSaving(true);
     try {
       if (!draft) throw new Error('确认稿已失效');
-      const result = await applyCaptureDraft({ id: draft.id, input: safeInput, expenses, habits, todos, diary, mood, moodScore });
+      const result = await applyCaptureDraft({ id: draft.id, input: safeInput, inputKey: draft.inputKey, expenses, habits, todos, diary, mood, moodScore });
       const parts = [result.expenseCount > 0 && `${result.expenseCount}笔账单`, result.todoCount > 0 && `${result.todoCount}个待办`, (result.diaryCreated || result.diaryUpdated) && '日记', result.habitCount > 0 && `${result.habitCount}次打卡`].filter(Boolean);
       toast.success(parts.length ? `已保存：${parts.join('、')}` : '速记已保存');
       saved.current = true;
       navigate('/');
     } catch (cause) {
+      if (cause instanceof CaptureChangedError) { saved.current = true; sessionStorage.setItem(captureSessionKey(), cause.draftId); navigate('/quick-note/result', { replace: true, state: { draftId: cause.draftId } }); }
       toast.error(cause instanceof Error ? cause.message : '保存失败，确认稿已保留');
     } finally {
       savingGuard.current = false;

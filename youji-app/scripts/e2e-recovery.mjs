@@ -37,8 +37,9 @@ async function login(page, phone, nickname) {
   const verified = await (await verifiedResponse).json();
   if (verified.needRegister) { await page.waitForSelector('#login-nickname'); await page.type('#login-nickname', nickname); await clickText(page, '开始使用'); }
   await page.waitForFunction(() => location.pathname !== '/login', { timeout: 20000 });
+  await page.waitForSelector('h1,h2', { timeout: 20000 });
   if (new URL(page.url()).pathname === '/onboarding') await clickText(page, '跳过');
-  await page.waitForFunction(() => location.pathname === '/', { timeout: 20000 });
+  await page.waitForFunction(() => location.pathname === '/' && Boolean(document.querySelector('main')), { timeout: 20000 });
 }
 async function route(page, path) { await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); }
 async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForSelector('[role=dialog] input'); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
@@ -62,7 +63,7 @@ try {
   const focused = await page.evaluate(() => document.activeElement?.tagName); assert.equal(focused, 'INPUT');
   await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true });
   await page.click('[aria-label="新建待办"]'); assert.equal(await page.$eval('[role=dialog] input', (el) => el.value), 'Retained modal draft');
-  await page.keyboard.press('Escape'); step('Modal typing keeps focus; Escape/back/reopen retains unsaved input');
+  await page.keyboard.press('Escape'); await page.waitForSelector('[role=dialog]', { hidden: true }); step('Modal typing keeps focus; Escape/back/reopen retains unsaved input');
   await page.click('input[type=checkbox] + span');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Todo completion survives reload and sync');
@@ -92,6 +93,9 @@ try {
   assert.equal(await page.evaluate(() => document.body.textContent.includes('Synthetic A private todo')), true); step('A recovers its data after A/B/A switch');
   const secondTab = await context.newPage(); await route(secondTab, '/todo');
   await route(page, '/settings'); await clickText(page, '退出登录'); await page.waitForSelector('#login-phone'); await secondTab.waitForSelector('#login-phone'); step('Cross-tab sign-out locks old account view');
+  await login(page, '13900009903', 'Synthetic C'); await route(secondTab, '/todo');
+  await route(page, '/settings'); await clickText(page, '注销账号（删除全部云端数据）'); await clickText(page, '永久注销');
+  await page.waitForSelector('#login-phone'); await secondTab.waitForSelector('#login-phone'); step('Cross-tab account deletion locks stale private views');
   assert.deepEqual(errors, []); step('No uncaught page errors');
   await context.close();
 } catch (error) {

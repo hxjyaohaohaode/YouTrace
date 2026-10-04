@@ -257,6 +257,7 @@ export default function Login() {
           </AnimatePresence>
         </div>
 
+        {new URLSearchParams(location.search).get('cleanup') === 'needed' && <p role="alert" className="mt-4 text-sm text-[var(--danger)]">云端账号已注销，本设备清理尚未完成。请关闭其他标签页后清理此网站的本地数据。</p>}
         <p className="mt-4 text-center text-xs text-[var(--text-3)]">
           使用前请阅读<Link to="/data-info" className="ml-1 text-[var(--primary)] underline">数据处理说明</Link>
         </p>

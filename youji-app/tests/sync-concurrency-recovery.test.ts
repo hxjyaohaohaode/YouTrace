@@ -104,3 +104,21 @@ test('remote parent deletion preserves a pending child until explicit resolution
   assert.equal(recovery.mutations[0].entity, 'habitCheckins');
   assert.deepEqual(recovery.mutations[0].payload, child, 'explicit resolution retains the exact unsent child draft');
 });
+
+test('accepting a parent habit update preserves independent pending child checkins', async () => {
+  const storage = await import('../src/db/index.ts');
+  const sync = await import('../src/services/syncEngine.ts');
+  const database = storage.db;
+  await database.outbox.clear();
+  await database.settings.delete('syncV2Batch');
+  const habitId = 'parent-upsert-001', childId = `${habitId}|2026-10-04`;
+  await database.habits.put({ id: habitId, name: 'local name', icon: 'x', frequency: 'daily', sortOrder: 0, createdAt: 1 });
+  await database.habitCheckins.put({ id: childId, habitId, date: '2026-10-04', done: true, source: 'manual', confirmed: true, updatedAt: 1 });
+  await database.outbox.add({ entity: 'habitCheckins', op: 'upsert', payload: { habitId, date: '2026-10-04', done: true }, queuedAt: 1, baseVersion: '0' });
+  const key = `sync-conflict:habits:${habitId}`;
+  await database.settings.put({ key, value: { event: { seq: '999', entity: 'habits', entityId: habitId, operation: 'upsert', data: { id: habitId, name: 'remote name', icon: 'x', frequency: 'daily', sortOrder: 0, createdAt: 1 } }, receivedAt: 1 } });
+  await sync.acceptRemoteConflict(key);
+  assert.equal(await database.outbox.count(), 1);
+  assert.equal((await database.habitCheckins.get(childId))?.done, true);
+  assert.equal((await database.habits.get(habitId))?.name, 'remote name');
+});

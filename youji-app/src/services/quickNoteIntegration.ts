@@ -7,6 +7,7 @@ import { normalizeExpenseCategory } from '../utils/icons';
 export interface CaptureDraft {
   id: string;
   input: string;
+  inputKey?: string;
   expenses: ParsedExpense[];
   habits: ParsedHabit[];
   todos: ParsedTodo[];
@@ -14,6 +15,53 @@ export interface CaptureDraft {
   mood: MoodLevel | null;
   moodScore: number;
 }
+export async function forkCaptureInput(): Promise<{ key: string; text: string }> {
+  const sessionKey = `youtrace:input:${db.ownerId ?? 'guest'}`;
+  const previousKey = sessionStorage.getItem(sessionKey);
+  const previous = previousKey ? await db.settings.get(previousKey) : await db.settings.get('quicknote_draft');
+  const text = typeof previous?.value === 'string' ? previous.value : '';
+  const key = `capture-input:${generateLocalId()}`;
+  if (text) await db.settings.put({ key, value: text });
+  // Fork on each mounted composer: a duplicated tab must not keep the same
+  // recovery slot. The source is retained rather than silently claimed/deleted.
+  sessionStorage.setItem(sessionKey, key);
+  return { key, text };
+}
+
+export const captureSessionKey = () => `youtrace:active-review:${db.ownerId ?? 'guest'}`;
+
+function captureFingerprint(draft: CaptureDraft): string {
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value !== null && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, val]) => [key, canonical(val)])) : value;
+  return JSON.stringify(canonical({ input: draft.input, expenses: draft.expenses, habits: draft.habits, todos: draft.todos, diary: draft.diary, mood: draft.mood, moodScore: draft.moodScore }));
+}
+interface CaptureReceipt { fingerprint: string; result: ApplyResult }
+export class CaptureChangedError extends Error {
+  readonly draftId: string;
+  constructor(draftId: string) { super('原确认稿已在另一页保存。你的新修改已另存为草稿，请核对后再次确认'); this.draftId = draftId; }
+}
+export async function saveCaptureDraft(draft: CaptureDraft, makeCurrent = false): Promise<string> {
+  return db.transaction('rw', db.settings, async () => {
+    const receipt = (await db.settings.get(`capture-applied:${draft.id}`))?.value as CaptureReceipt | undefined;
+    if (receipt?.fingerprint === captureFingerprint(draft)) return draft.id;
+    if (receipt) draft = { ...draft, id: generateLocalId() };
+    await db.settings.put({ key: `capture-review:${draft.id}`, value: draft });
+    const current = await db.settings.get('quicknote_review');
+    if (makeCurrent || (current?.value as CaptureDraft | undefined)?.id === draft.id) {
+      await db.settings.put({ key: 'quicknote_review', value: draft });
+    }
+    return draft.id;
+  });
+}
+
+export async function loadCaptureDraft(id?: string | null): Promise<CaptureDraft | null> {
+  if (id) {
+    const own = await db.settings.get(`capture-review:${id}`);
+    if (own) return own.value as CaptureDraft;
+  }
+  const current = (await db.settings.get('quicknote_review'))?.value as CaptureDraft | undefined;
+  return current && (!id || current.id === id) ? current : null;
+}
+
 export interface ApplyResult { expenseCount: number; habitCount: number; diaryCreated: boolean; diaryUpdated: boolean; todoCount: number }
 
 function dueDate(text: string) {
@@ -36,7 +84,12 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
   if (diaryText.length > 10000) throw new Error('日记内容不能超过 10000 字');
   const result = await db.transaction('rw', db.tables, async () => {
     const completed = await db.settings.get(`capture-applied:${draft.id}`);
-    if (completed) return completed.value as ApplyResult;
+    if (completed) {
+      const receipt = completed.value as CaptureReceipt;
+      if (receipt.fingerprint === captureFingerprint(draft)) return receipt.result;
+      const forkedDraftId = await saveCaptureDraft(draft);
+      return { forkedDraftId };
+    }
     const result: ApplyResult = { expenseCount: 0, habitCount: 0, diaryCreated: false, diaryUpdated: false, todoCount: 0 };
     const queue = async (entity: Parameters<typeof enqueueSync>[0], payload: unknown) => { if (db.ownerId) await enqueueSync(entity, 'upsert', payload); };
     const note = { id: draft.id, rawInput: draft.input, createdAt: now, expenses: draft.expenses, diary: draft.diary, mood: draft.mood, moodScore: draft.moodScore, habits: draft.habits, todos: draft.todos };
@@ -70,11 +123,20 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
       await queue('diaries', { id: row.id, date: row.date, content: row.content, ...(row.mood ? { mood: row.mood } : {}), moodScore: row.moodScore, source: row.source });
       result.diaryCreated = !old; result.diaryUpdated = Boolean(old);
     }
-    await db.settings.put({ key: `capture-applied:${draft.id}`, value: result });
-    await db.settings.delete('quicknote_draft');
-    await db.settings.delete('quicknote_review');
+    await db.settings.put({ key: `capture-applied:${draft.id}`, value: { fingerprint: captureFingerprint(draft), result } satisfies CaptureReceipt });
+    await db.settings.delete(`capture-review:${draft.id}`);
+    if (draft.inputKey?.startsWith('capture-input:')) {
+      const raw = (await db.settings.get(draft.inputKey))?.value;
+      if (typeof raw === 'string' && raw.trim() === draft.input) await db.settings.delete(draft.inputKey);
+    }
+    const currentReview = (await db.settings.get('quicknote_review'))?.value as CaptureDraft | undefined;
+    if (currentReview?.id === draft.id) {
+      await db.settings.delete('quicknote_review');
+      if ((await db.settings.get('quicknote_draft'))?.value === draft.input) await db.settings.delete('quicknote_draft');
+    }
     return result;
   });
+  if ('forkedDraftId' in result) throw new CaptureChangedError(result.forkedDraftId);
   // Hydration happens only after the whole commit, never during a rollback.
   const { loadAllStores } = await import('../hooks/useAppInit');
   await loadAllStores();

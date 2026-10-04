@@ -125,3 +125,69 @@ test('fake IndexedDB: capture confirmation is atomic, idempotent and appends dia
   assert.equal(await current.quickNotes.get('capture-rollback-001'), undefined);
   assert.deepEqual([await current.expenses.count(), await current.todos.count(), await current.outbox.count()], counts);
 });
+
+test('fake IndexedDB: confirming old capture cannot erase or overwrite another tab new draft', async () => {
+  const { applyCaptureDraft, saveCaptureDraft, loadCaptureDraft } = await import('../src/services/quickNoteIntegration.ts');
+  const a = { id: 'capture-tab-a-001', input: 'tab A source', expenses: [], habits: [], todos: [], diary: null, mood: null, moodScore: 5 };
+  const b = { ...a, id: 'capture-tab-b-001', input: 'tab B newer source' };
+  await saveCaptureDraft(a, true);
+  await saveCaptureDraft(b, true);
+  await current.settings.put({ key: 'quicknote_draft', value: b.input });
+  await saveCaptureDraft({ ...a, input: 'tab A edited source' });
+  assert.equal((await loadCaptureDraft())?.id, b.id);
+  assert.equal((await loadCaptureDraft(a.id))?.input, 'tab A edited source');
+  await applyCaptureDraft(a);
+  assert.equal((await loadCaptureDraft())?.id, b.id);
+  assert.equal((await loadCaptureDraft(b.id))?.input, b.input);
+  assert.equal((await current.settings.get('quicknote_draft'))?.value, b.input);
+  await saveCaptureDraft(a);
+  assert.equal(await loadCaptureDraft(a.id), null, 'late autosave cannot resurrect confirmed draft');
+});
+
+test('fake IndexedDB: raw composer recovery forks per mount and confirmation clears only its own input', async () => {
+  const { forkCaptureInput, saveCaptureDraft, applyCaptureDraft } = await import('../src/services/quickNoteIntegration.ts');
+  const a = await forkCaptureInput();
+  await current.settings.put({ key: a.key, value: 'composer A' });
+  const b = await forkCaptureInput();
+  assert.notEqual(a.key, b.key);
+  assert.equal(b.text, 'composer A');
+  await current.settings.put({ key: b.key, value: 'composer B' });
+  const draft = { id: 'capture-raw-a-001', input: 'composer A', inputKey: a.key, expenses: [], habits: [], todos: [], diary: null, mood: null, moodScore: 5 };
+  await saveCaptureDraft(draft, true);
+  await applyCaptureDraft(draft);
+  assert.equal(await current.settings.get(a.key), undefined);
+  assert.equal((await current.settings.get(b.key))?.value, 'composer B');
+});
+
+test('fake IndexedDB: delayed settings hydration cannot undo a newer choice or change its queued PATCH', async () => {
+  const { useSettingsStore } = await import('../src/stores/settingsStore.ts');
+  api.setSessionActive('synthetic-account-a');
+  let release: (response: Response) => void = () => {};
+  const patches: unknown[] = [];
+  globalThis.fetch = async (_path, options) => {
+    if (options?.method === 'PATCH') { patches.push(JSON.parse(String(options.body))); return Response.json({ settings: {} }); }
+    return new Promise<Response>((resolve) => { release = resolve; });
+  };
+  await useSettingsStore.getState().loadSettings();
+  await useSettingsStore.getState().updateSetting('coachPushFrequency', 5);
+  release(Response.json({ settings: { coachStyle: 'gentle', pushLimit: 2, quietStart: '23:00', quietEnd: '07:00' } }));
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  assert.equal(useSettingsStore.getState().coachPushFrequency, 5);
+  assert.equal((await current.settings.get('coachPushFrequency'))?.value, 5);
+  assert.deepEqual(patches, [{ pushLimit: 5 }]);
+  api.clearSession();
+});
+
+test('fake IndexedDB: same capture ID with edited content cannot falsely replay success', async () => {
+  const { applyCaptureDraft, saveCaptureDraft, loadCaptureDraft, CaptureChangedError } = await import('../src/services/quickNoteIntegration.ts');
+  const original = { id: 'same-id-different-content', input: 'version A', expenses: [], habits: [], todos: [], diary: null, mood: null, moodScore: 5 };
+  await applyCaptureDraft(original);
+  let forked = '';
+  try { await applyCaptureDraft({ ...original, input: 'version B' }); assert.fail('edited content needs review'); }
+  catch (error) { assert.ok(error instanceof CaptureChangedError); forked = error.draftId; }
+  assert.equal((await current.quickNotes.get(original.id))?.rawInput, 'version A');
+  assert.equal((await loadCaptureDraft(forked))?.input, 'version B');
+  const autosaveId = await saveCaptureDraft({ ...original, input: 'version C' });
+  assert.notEqual(autosaveId, original.id);
+  assert.equal((await loadCaptureDraft(autosaveId))?.input, 'version C');
+});

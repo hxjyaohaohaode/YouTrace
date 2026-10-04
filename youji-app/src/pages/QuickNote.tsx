@@ -3,12 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Mic, Keyboard, Square, AlertCircle, Wallet, CheckSquare, BookOpen, Smile, Tag, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { captureSessionKey, saveCaptureDraft, forkCaptureInput } from '../services/quickNoteIntegration';
 import { parseQuickNote } from '../services/parser';
-import { generateLocalId, getSetting, setSetting } from '../db';
+import { generateLocalId, setSetting } from '../db';
 import { getMoodMeta, expenseCategoryIcons } from '../utils/icons';
 
 const MAX_NOTE_LENGTH = 5000;
-const DRAFT_KEY = 'quicknote_draft';
 
 interface SpeechRecognitionResultLike {
   isFinal: boolean;
@@ -45,6 +45,8 @@ export default function QuickNote() {
   const [text, setText] = useState('');
   const [draftRestored, setDraftRestored] = useState(false);
   const submitting = useRef(false);
+  const [inputKey, setInputKey] = useState<string | null>(null);
+  const inputKeyRef = useRef<string | null>(null);
   const touched = useRef(false);
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isRecording, setIsRecording] = useState(false);
@@ -57,7 +59,7 @@ export default function QuickNote() {
 
   useEffect(() => {
     let active = true;
-    void getSetting<string>(DRAFT_KEY, '').then((draft) => { if (active && draft && !touched.current) { setText(draft.slice(0, MAX_NOTE_LENGTH)); setDraftRestored(true); } });
+    void forkCaptureInput().then(({ key, text: draft }) => { if (!active) return; inputKeyRef.current = key; setInputKey(key); if (draft && !touched.current) { setText(draft.slice(0, MAX_NOTE_LENGTH)); setDraftRestored(true); } }).catch(() => setSpeechError('草稿存储暂不可用，请检查设备空间后刷新'));
     return () => { active = false; recognitionRef.current?.stop(); };
   }, []);
 
@@ -98,7 +100,7 @@ export default function QuickNote() {
   const updateText = (next: string) => {
     touched.current = true;
     setText(next);
-    void setSetting(DRAFT_KEY, next).catch(() => undefined);
+    if (inputKeyRef.current) void setSetting(inputKeyRef.current, next).catch(() => setSpeechError('草稿暂未写入，请勿关闭页面'));
   };
 
   const autoResize = (el: HTMLTextAreaElement | null) => {
@@ -135,7 +137,7 @@ export default function QuickNote() {
       if (finalChunk) {
         setText((current) => {
           const merged = `${current}${current && !current.endsWith(' ') ? '' : ''}${finalChunk}`.slice(0, MAX_NOTE_LENGTH);
-          void setSetting(DRAFT_KEY, merged.trim()).catch(() => undefined);
+          if (inputKeyRef.current) void setSetting(inputKeyRef.current, merged.trim()).catch(() => setSpeechError('草稿暂未写入，请勿关闭页面'));
           return merged.trim();
         });
       }
@@ -152,12 +154,14 @@ export default function QuickNote() {
 
   const handleSubmit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || submitting.current) return;
+    if (!trimmed || submitting.current || !inputKey) return;
     submitting.current = true;
     recognitionRef.current?.stop();
     try {
-      await setSetting('quicknote_review', { id: generateLocalId(), input: trimmed, ...parseQuickNote(trimmed) });
-      navigate('/quick-note/result');
+      const draft = { id: generateLocalId(), input: trimmed, inputKey, ...parseQuickNote(trimmed) };
+      await saveCaptureDraft(draft, true);
+      sessionStorage.setItem(captureSessionKey(), draft.id);
+      navigate('/quick-note/result', { state: { draftId: draft.id } });
     } catch { setSpeechError('确认稿保存失败，输入仍在，请检查设备存储后重试'); }
     finally { submitting.current = false; }
   };
@@ -249,6 +253,7 @@ export default function QuickNote() {
             <textarea
               ref={textAreaRef}
               value={text}
+            disabled={!inputKey}
               onChange={(e) => {
                 updateText(e.target.value.slice(0, MAX_NOTE_LENGTH));
                 autoResize(e.target);
@@ -320,6 +325,7 @@ export default function QuickNote() {
             <textarea
               ref={voiceAreaRef}
               value={text}
+            disabled={!inputKey}
               onChange={(e) => updateText(e.target.value.slice(0, MAX_NOTE_LENGTH))}
               placeholder="识别结果会显示在这里，你也可以继续手动修改..."
               maxLength={MAX_NOTE_LENGTH}
@@ -335,7 +341,7 @@ export default function QuickNote() {
         {draftRestored && <p className="mb-2 text-center text-xs text-[var(--text-3)]">已恢复当前账号的本地草稿</p>}
         <Button
           onClick={handleSubmit}
-          disabled={!text.trim()}
+          disabled={!text.trim() || !inputKey}
           className="h-12 w-full text-[15px]"
         >
           查看确认稿

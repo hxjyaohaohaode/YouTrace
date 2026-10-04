@@ -70,13 +70,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user }),
   logout: async () => {
     const ownerId = useAuthStore.getState().user?.id;
-    // Hide all account views before aborting work. Do not erase local records,
-    // pending mutations or their per-account cursor on sign-out.
-    set({ user: null, isAuthenticated: false, authChecked: false });
-    pauseSync();
-    clearSession();
-    localStorage.setItem(SIGNED_OUT_KEY, 'true');
-    announceSessionChange();
+    lockLocalSession();
     try { if (ownerId) await api.logout(ownerId); } catch { /* local sign-out remains effective */ }
     window.location.replace('/login');
   },
@@ -109,6 +103,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     return loadingIdentity;
   },
 }));
+
+export function lockLocalSession(): void {
+  useAuthStore.setState({ user: null, isAuthenticated: false, authChecked: false });
+  pauseSync();
+  clearSession();
+  localStorage.setItem(SIGNED_OUT_KEY, 'true');
+  announceSessionChange();
+}
 
 export function useUnauthedRedirect() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);

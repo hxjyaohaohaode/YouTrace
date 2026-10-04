@@ -235,7 +235,7 @@ async function pullPages(): Promise<void> {
     });
     if (paused || epoch !== generation || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return;
     cursor = page.nextCursor;
-    if (!page.hasMore) return;
+    if (!page.hasMore) { window.dispatchEvent(new CustomEvent('youtrace:data-updated')); return; }
   }
 }
 
@@ -261,7 +261,7 @@ export async function acceptRemoteConflict(key: string): Promise<void> {
     const recordId = `${conflict.event.entity}:${conflict.event.entityId}`;
     const currentVersion = await getSetting<string>(versionKey(recordId), '0');
     if (BigInt(currentVersion) >= BigInt(conflict.event.seq)) { await db.settings.delete(key); return; }
-    const ops = (await db.outbox.toArray()).filter((row) => recordKey(row) === recordId || (conflict.event.entity === 'habits' && recordKey(row).startsWith(`habitCheckins:${conflict.event.entityId}|`)));
+    const ops = (await db.outbox.toArray()).filter((row) => recordKey(row) === recordId || (conflict.event.entity === 'habits' && conflict.event.operation === 'delete' && recordKey(row).startsWith(`habitCheckins:${conflict.event.entityId}|`)));
     const local = await db.table(tableName(conflict.event.entity)).get(conflict.event.entityId);
     // A recovery copy survives resolution and is included in the local export.
     await db.settings.put({ key: `sync-recovery:${generateLocalId()}`, value: { local, mutations: ops, remote: conflict, resolvedAt: Date.now() } });

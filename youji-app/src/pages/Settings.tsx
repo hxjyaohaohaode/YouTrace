@@ -6,9 +6,9 @@ import { motion } from 'framer-motion';
 import { Download, Trash2, Shield, Clock, Moon, Sun, Monitor, Sparkles, Bell, AlertTriangle, LogOut, Wallet, UserX, RefreshCw, Database } from 'lucide-react';
 import { useSettingsStore, type CoachStyle, type ThemeMode } from '../stores/settingsStore';
 import { useExpenseStore } from '../stores/expenseStore';
-import { useAuthStore } from '../stores/authStore';
+import { useAuthStore, lockLocalSession } from '../stores/authStore';
 import { exportAllData, clearAllData, exportLegacyData, hasLegacyDatabase, db } from '../db';
-import { api, isLoggedIn, clearSession } from '../services/apiClient';
+import { api, isLoggedIn } from '../services/apiClient';
 
 import { toast } from '../services/toastBus';
 import { Modal } from '../components/ui/Modal';
@@ -64,6 +64,7 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
 interface SyncStats {
   pending: number;
   blocked: number;
+  pendingPreferences: number;
   lastPush: string | null;
   localRecords: number;
 }
@@ -82,6 +83,7 @@ function SyncPanel() {
       ]);
       return {
         pending: pendingRows.length,
+        pendingPreferences: await db.settings.where('key').startsWith('pendingSetting:').count(),
         blocked: pendingRows.filter((row) => row.status === 'blocked').length,
         lastPush: typeof lastPushRecord?.value === 'string' ? lastPushRecord.value : null,
         localRecords: counts.reduce((sum, n) => sum + n, 0),
@@ -100,8 +102,11 @@ function SyncPanel() {
       await pullServerChanges();
       const { loadAllStores } = await import('../hooks/useAppInit');
       await loadAllStores();
+      await useSettingsStore.getState().loadSettings();
       const pending = await db.outbox.count();
-      if (pending === 0) toast.success('支持同步的记录已核对');
+      const pendingPreferences = await db.settings.where('key').startsWith('pendingSetting:').count();
+      if (pending === 0 && pendingPreferences === 0) toast.success('支持同步的记录已核对');
+      else if (pending === 0) toast.info(`记录已核对，${pendingPreferences} 项偏好正在等待确认`);
       else toast.warning(`还有 ${pending} 条修改待确认，原稿仍安全保存在本设备`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '同步暂未完成，修改已保留');
@@ -149,6 +154,7 @@ function SyncPanel() {
             </button>
           </div>
 
+          {stats.pendingPreferences > 0 && <p className="text-xs text-[var(--warning)]">{stats.pendingPreferences} 项偏好尚未获云端确认，本设备设置仍有效。立即同步可重试。</p>}
           <div className="flex items-center gap-2 border-t border-[var(--border-light)] pt-3">
             <Database size={13} className="shrink-0 text-[var(--text-4)]" aria-hidden />
             <p className="text-xs text-[var(--text-3)]">
@@ -226,16 +232,19 @@ export default function Settings() {
   const handleDeleteAccount = async () => {
     if (deletingAccount) return;
     setDeletingAccount(true);
+    let cloudDeleted = false;
     try {
       await api.delete('/user', 15_000);
+      cloudDeleted = true;
+      lockLocalSession();
       const { pauseSync } = await import('../services/syncEngine');
       pauseSync();
       await clearAllData({ allowPending: true });
-      clearSession();
       toast.success('账号与所有云端数据已删除');
       window.location.assign('/login');
     } catch {
-      toast.error('删除失败，请检查网络后重试');
+      if (cloudDeleted) window.location.assign('/login?cleanup=needed');
+      else toast.error('删除失败，请检查网络后重试');
     } finally {
       setDeletingAccount(false);
       setShowDeleteAccountConfirm(false);
