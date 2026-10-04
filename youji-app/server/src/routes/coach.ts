@@ -11,6 +11,7 @@ import {
   getYesterday,
   getWeekStart,
   getMonthStart,
+  formatBusinessDate,
 } from '../utils/date.js'
 
 export const coachRoutes = new Hono()
@@ -33,6 +34,7 @@ const pushUpdateSchema = z.object({
 )
 
 coachRoutes.get('/brief', async (c) => {
+  const generatedAt = new Date().toISOString()
   const user = c.get('user') as AuthUser
   const today = getToday()
   const yesterday = getYesterday()
@@ -52,9 +54,9 @@ coachRoutes.get('/brief', async (c) => {
   const dbUser = await prisma.user.findUnique({ where: { id: user.id } })
 
   const [yesterdayExpenses, priorWindowExpenses] = await Promise.all([
-    prisma.expense.findMany({ where: { userId: user.id, date: yesterday, isIncome: false } }),
+    prisma.expense.findMany({ where: { userId: user.id, date: yesterday, isIncome: false, category: { not: 'income' } } }),
     prisma.expense.findMany({
-      where: { userId: user.id, date: { gte: weekStart, lt: yesterday }, isIncome: false },
+      where: { userId: user.id, date: { gte: weekStart, lt: yesterday }, isIncome: false, category: { not: 'income' } },
     }),
   ])
   const yesterdayTotal = yesterdayExpenses.reduce((sum, e) => sum + e.amount, 0)
@@ -95,6 +97,8 @@ coachRoutes.get('/brief', async (c) => {
       nickname: dbUser?.nickname || '你',
       greeting,
       date,
+      generatedAt,
+      reviewDate: yesterday,
       yesterdayReview: {
         spent: Math.round(yesterdayTotal / 100),
         spentDiff: spendDiff,
@@ -112,8 +116,9 @@ coachRoutes.get('/brief', async (c) => {
         return {
           id: item.id,
           type: item.type,
-          title: item.title,
+          title: datedInsightTitle(item),
           description: item.description,
+          createdAt: item.createdAt.toISOString(),
           actionSuggested: item.actionSuggested,
           dataSources: Array.isArray(sources) ? (sources as string[]) : [],
         };
@@ -166,6 +171,13 @@ coachRoutes.get('/insights', async (c) => {
   return c.json({ insights: insights.map(serializeInsight) })
 })
 
+function datedInsightTitle(insight: { title: string; createdAt: Date }): string {
+  // Old rule snapshots used a relative title even when read months later.
+  return insight.title === '今日教练简报'
+    ? `记录简报 · ${formatBusinessDate(insight.createdAt)}`
+    : insight.title
+}
+
 function serializeInsight(insight: {
   id: string
   type: string
@@ -188,7 +200,7 @@ function serializeInsight(insight: {
   return {
     id: insight.id,
     type: insight.type,
-    title: insight.title,
+    title: datedInsightTitle(insight),
     description: insight.description,
     dataSources: Array.isArray(dataSources) ? dataSources : [],
     actionSuggested: insight.actionSuggested ?? undefined,
@@ -319,14 +331,15 @@ coachRoutes.post('/generate-brief', async (c) => {
 
   const today = getToday()
   const monthStart = getMonthStart()
+  const generatedAt = new Date()
 
   const [todayExpenses, monthExpenses, habits] = await Promise.all([
     prisma.expense.findMany({
-      where: { userId: user.id, date: today },
+      where: { userId: user.id, date: today, isIncome: false, category: { not: 'income' } },
       select: { amount: true },
     }),
     prisma.expense.findMany({
-      where: { userId: user.id, date: { gte: monthStart } },
+      where: { userId: user.id, date: { gte: monthStart, lte: today }, isIncome: false, category: { not: 'income' } },
       select: { amount: true },
     }),
     prisma.habit.findMany({
@@ -346,9 +359,10 @@ coachRoutes.post('/generate-brief', async (c) => {
       id: generateId(),
       userId: user.id,
       type: 'suggestion',
-      title: '今日教练简报',
-      description: `今日消费 ¥${(todayTotal / 100).toFixed(0)}，本月累计 ¥${(monthTotal / 100).toFixed(0)}，习惯完成 ${doneCount}/${habits.length}`,
+      title: `记录简报 · ${today}`,
+      description: `${today} 已记录支出 ¥${(todayTotal / 100).toFixed(2)}，${monthStart} 至 ${today} 累计支出 ¥${(monthTotal / 100).toFixed(2)}；当日习惯打卡 ${doneCount}/${habits.length}。基于生成时已同步的记录。`,
       dataSources: JSON.stringify(['expense', 'habit']),
+      createdAt: generatedAt,
     },
   })
 

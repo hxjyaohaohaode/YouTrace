@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import Dexie from 'dexie';
 import { api, streamChat, isLoggedIn } from '../services/apiClient';
 import { useTodoStore } from './todoStore';
 import { useHabitStore } from './habitStore';
-import { db } from '../db';
+import { db, getSetting, LOCAL_DATA_EPOCH_KEY } from '../db';
 import { recordPushActed, recordPushIgnored } from '../services/pushControl';
 import { addDays, getBusinessClock, getBusinessDayStartTimestamp, getToday, getYesterday } from '../utils/date';
 
@@ -53,6 +54,7 @@ export interface CoachInsightRecord {
   dismissed: boolean;
   significance: number;
   createdAt: number;
+  origin?: 'local' | 'cloud';
 }
 
 export interface CoachPushRecord {
@@ -65,6 +67,7 @@ export interface CoachPushRecord {
   read: boolean;
   acted: boolean;
   createdAt: number;
+  origin?: 'local' | 'cloud';
 }
 
 export interface PushAction {
@@ -76,13 +79,16 @@ export interface DailyBrief {
   nickname?: string;
   greeting: string;
   date: string;
+  generatedAt?: number;
+  reviewDate?: string;
+  source?: 'server' | 'local';
   yesterdayReview: {
     spent: number;
     spentDiff: string | null;
     habits: { done: number; total: number };
     moodScore: number | null;
   };
-  weeklyInsights: Array<Pick<CoachInsightRecord, 'id' | 'type' | 'title' | 'description' | 'actionSuggested' | 'dataSources'>>;
+  weeklyInsights: Array<Pick<CoachInsightRecord, 'id' | 'type' | 'title' | 'description' | 'actionSuggested' | 'dataSources'> & { createdAt?: number }>;
   todayActions: string[];
   todaySchedule: {
     id: string;
@@ -113,6 +119,7 @@ interface BriefInsightApiRecord {
   description: string;
   actionSuggested?: string;
   dataSources?: string[];
+  createdAt?: string;
 }
 
 interface CoachPushApiRecord {
@@ -131,6 +138,8 @@ interface CoachBriefApiRecord {
   nickname?: string;
   greeting: string;
   date: string;
+  generatedAt?: string;
+  reviewDate?: string;
   yesterdayReview: {
     spent: number;
     spentDiff: string | null;
@@ -194,6 +203,7 @@ function parseActions(value: unknown): PushAction[] {
 
 function normalizeInsight(record: CoachInsightApiRecord): CoachInsightRecord {
   return {
+    origin: 'cloud',
     id: record.id,
     type: normalizeInsightType(record.type),
     title: record.title,
@@ -208,7 +218,115 @@ function normalizeInsight(record: CoachInsightApiRecord): CoachInsightRecord {
   };
 }
 
+function normalizePush(record: CoachPushApiRecord): CoachPushRecord {
+  return {
+    origin: 'cloud', id: record.id, insightId: record.insightId,
+    type: normalizePushType(record.type), title: record.title, body: record.body,
+    actions: parseActions(record.actions), read: record.read, acted: record.acted,
+    createdAt: Date.parse(record.createdAt) || Date.now(),
+  };
+}
+
+function mergeCloudInsight(record: CoachInsightRecord, existing: CoachInsightRecord | undefined): CoachInsightRecord {
+  // Feedback endpoints only set flags. A delayed read or generation response
+  // cannot reverse another tab's acknowledged choice.
+  return {
+    ...record,
+    dismissed: record.dismissed || Boolean(existing?.dismissed),
+    actionTaken: record.actionTaken || Boolean(existing?.actionTaken),
+    actionResult: !record.actionTaken && existing?.actionTaken ? existing.actionResult : record.actionResult,
+  };
+}
+
+let coachDataRevision = 0;
+let coachLoadVersion = 0;
+const coachChanges = new Map<string, Promise<void>>();
+
+/** Reads must not replay an older server snapshot over freshly acknowledged feedback. */
+function serializeCoachChange(key: string, change: () => Promise<void>): Promise<void> {
+  coachDataRevision += 1;
+  const previous = coachChanges.get(key) ?? Promise.resolve();
+  const pending = previous.catch(() => undefined).then(change).finally(() => {
+    coachDataRevision += 1;
+    if (coachChanges.get(key) === pending) coachChanges.delete(key);
+  });
+  coachChanges.set(key, pending);
+  return pending;
+}
+
+/** Delivery may be inside the reminder-budget transaction: publish only on its commit. */
+function afterCoachCommit(publish: () => void): void {
+  let transaction = Dexie.currentTransaction;
+  while (transaction?.parent) transaction = transaction.parent;
+  if (transaction) transaction.on('complete', publish);
+  else publish();
+}
+
+function updateInsightFeedback(id: string, updates: Partial<CoachInsightRecord>, action: 'dismiss' | 'act', result?: string): Promise<void> {
+  return serializeCoachChange(`insight:${id}`, async () => {
+    const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
+    const record = await db.coachInsights.get(id);
+    if (!record) throw new Error('洞察不存在，请刷新后重试');
+    if (action === 'dismiss' ? record.dismissed : record.actionTaken && (result === undefined || record.actionResult === result)) return;
+    if (record.origin === 'cloud') await api.post(`/coach/insights/${id}/${action}`, action === 'act' ? { action: result } : undefined);
+    await db.transaction('rw', db.coachInsights, db.settings, async () => {
+      if (await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) throw new Error('本机数据已清理，请刷新后重试');
+      const current = await db.coachInsights.get(id) ?? record;
+      await db.coachInsights.put({ ...current, ...updates });
+      afterCoachCommit(() => useCoachStore.setState((state) => ({ insights: state.insights.map((item) => item.id === id ? { ...item, ...updates } : item) })));
+    });
+  });
+}
+
+function updatePushFeedback(id: string, action: 'read' | 'act' | 'dismiss'): Promise<void> {
+  return serializeCoachChange(`push:${id}`, async () => {
+    const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
+    const removeVisible = () => useCoachStore.setState((state) => ({ pushes: state.pushes.filter((item) => item.id !== id) }));
+    if (await db.settings.get(`coachPushDismissed:${id}`)) { removeVisible(); return; }
+    const record = await db.coachPushes.get(id);
+    if (!record) {
+      removeVisible();
+      if (action === 'dismiss') return;
+      throw new Error('提醒不存在，请刷新后重试');
+    }
+    if ((action === 'read' && record.read) || (action === 'act' && record.acted && record.read)) return;
+    const updates = action === 'act' ? { read: true, acted: true } : { read: true };
+    if (record.origin === 'cloud') {
+      if (action === 'dismiss') {
+        try { await api.delete(`/coach/pushes/${id}`); }
+        catch (error) {
+          // A lost successful DELETE response is retried as 404. The requested
+          // end state already holds; auth/account errors must still propagate.
+          if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 404) throw error;
+        }
+      }
+      else await api.patch(`/coach/pushes/${id}`, updates);
+    }
+    await db.transaction('rw', db.coachPushes, db.settings, async () => {
+      if (await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) throw new Error('本机数据已清理，请刷新后重试');
+      const current = await db.coachPushes.get(id);
+      if (!current || await db.settings.get(`coachPushDismissed:${id}`)) {
+        // A later dismissal wins over a read/act response from another tab.
+        afterCoachCommit(removeVisible);
+        return;
+      }
+      if (action === 'dismiss') {
+        await db.coachPushes.delete(id);
+        if (record.origin === 'cloud') await db.settings.put({ key: `coachPushDismissed:${id}`, value: true });
+        await recordPushIgnored();
+      } else {
+        await db.coachPushes.put({ ...current, ...updates });
+        if (action === 'act') await recordPushActed();
+      }
+      afterCoachCommit(() => useCoachStore.setState((state) => ({ pushes: action === 'dismiss'
+        ? state.pushes.filter((item) => item.id !== id)
+        : state.pushes.map((item) => item.id === id ? { ...item, ...updates } : item) })));
+    });
+  });
+}
+
 async function buildLocalDailyBrief(): Promise<DailyBrief> {
+  const generatedAt = Date.now();
   const now = getBusinessClock();
   const today = getToday();
   const yesterday = getYesterday();
@@ -272,13 +390,14 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 3);
 
-  const dynamicInsights: Array<Pick<CoachInsightRecord, 'id' | 'type' | 'title' | 'description' | 'actionSuggested' | 'dataSources'>> = [];
+  const dynamicInsights: DailyBrief['weeklyInsights'] = [];
   if (moodTrendText) {
     dynamicInsights.push({
       id: 'mood-trend', type: 'pattern', title: moodTrendText,
       description: `基于最近${moodScores.length}条日记的情绪分析`,
       actionSuggested: undefined,
       dataSources: ['mood'],
+      createdAt: generatedAt,
     });
   }
 
@@ -286,6 +405,9 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
     nickname: undefined,
     greeting,
     date,
+    generatedAt,
+    reviewDate: yesterday,
+    source: 'local',
     yesterdayReview: {
       spent,
       spentDiff: null,
@@ -299,6 +421,7 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
       description: item.description,
       actionSuggested: item.actionSuggested,
       dataSources: item.dataSources,
+      createdAt: item.createdAt,
     }))],
     todayActions: activeInsights
       .map((item) => item.actionSuggested)
@@ -314,7 +437,33 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
   };
 }
 
+const pendingSmartActions = new Set<string>();
 let messageSeq = 0;
+let chatRequestVersion = 0;
+let chatController: AbortController | null = null;
+let briefRequestVersion = 0;
+let serverBriefGeneratedKey = '';
+let serverBriefGeneratedRecord: CoachInsightApiRecord | null = null;
+let serverBriefRequest: { key: string; promise: Promise<CoachInsightApiRecord> } | null = null;
+
+interface BriefRequestOptions {
+  isCurrent?: () => boolean;
+}
+
+async function ensureServerInsight(): Promise<CoachInsightApiRecord | null> {
+  const key = `${db.ownerId}:${getToday()}`;
+  // A newer mount may resume after the response arrived for a cancelled mount.
+  // Retain that result so it can still publish/cache the already-created record.
+  if (serverBriefGeneratedKey === key) return serverBriefGeneratedRecord;
+  if (!serverBriefRequest || serverBriefRequest.key !== key) {
+    const promise = api.post<{ insight: CoachInsightApiRecord }>('/coach/generate-brief')
+      .then(({ insight }) => { serverBriefGeneratedKey = key; serverBriefGeneratedRecord = insight; return insight; });
+    serverBriefRequest = { key, promise };
+  }
+  const request = serverBriefRequest;
+  try { return await request.promise; }
+  finally { if (serverBriefRequest === request) serverBriefRequest = null; }
+}
 
 function nextMessageId(prefix: string): string {
   messageSeq += 1;
@@ -350,7 +499,7 @@ interface CoachState {
   getUnreadPushCount: () => number;
 
   setDailyBrief: (brief: DailyBrief) => void;
-  generateDailyBrief: () => Promise<DailyBrief>;
+  generateDailyBrief: (options?: BriefRequestOptions) => Promise<DailyBrief | null>;
 }
 
 export const useCoachStore = create<CoachState>((set, get) => ({
@@ -394,6 +543,9 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     const message = get().messages.find((m) => m.id === messageId);
     const action = message?.actions?.find((a) => a.id === actionId);
     if (!action || action.executed || action.type !== 'smart' || !action.payload) return;
+    const executionKey = `${messageId}:${actionId}`;
+    if (pendingSmartActions.has(executionKey)) return;
+    pendingSmartActions.add(executionKey);
 
     const p = action.payload;
 
@@ -405,11 +557,13 @@ export const useCoachStore = create<CoachState>((set, get) => ({
       }
 
       if (p.actionType === 'add_todo') {
-        await useTodoStore.getState().addItem({ text: (p.text ?? '').slice(0, 200), priority: 'medium' });
+        const text = (p.text ?? '').trim().slice(0, 200);
+        if (!text) throw new Error('Missing todo text');
+        await useTodoStore.getState().addItem({ text, priority: 'medium' });
         toast.success(`已记入待办：${(p.text ?? '').slice(0, 20)}`);
       } else if (p.actionType === 'log_expense') {
         const amount = p.amountFen ?? 0;
-        if (!(amount > 0 && amount <= 100_000_000_00)) {
+        if (!(Number.isSafeInteger(amount) && amount > 0 && amount <= 100_000_000_00)) {
           toast.error('金额无效，未记录');
           return;
         }
@@ -423,14 +577,13 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         toast.success(`已记账：${p.name ?? ''} ¥${(amount / 100).toFixed(0)}`);
       } else if (p.actionType === 'check_habit') {
         const habitName = (p.name ?? '').trim();
-        const habit = useHabitStore.getState().items.find(
-          (h) => h.name === habitName || h.name.includes(habitName) || habitName.includes(h.name)
-        );
-        if (!habit) {
-          toast.error('没有找到匹配的习惯');
+        const matches = habitName ? useHabitStore.getState().items.filter((h) => h.name === habitName) : [];
+        if (matches.length !== 1) {
+          toast.error('无法唯一确认习惯，请到习惯页面选择后打卡');
           markFailed();
           return;
         }
+        const habit = matches[0];
         const todayStr = getToday();
         const record = await db.habitCheckins.get(`${habit.id}|${todayStr}`);
         if (record?.done) {
@@ -446,6 +599,8 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     } catch {
       toast.error('执行失败，请重试');
       markFailed();
+    } finally {
+      pendingSmartActions.delete(executionKey);
     }
 
     function markExecuted() {
@@ -468,9 +623,19 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     }
   },
 
-  clearHistory: () => set({ messages: [], sessionId: null }),
+  clearHistory: () => {
+    chatRequestVersion += 1;
+    chatController?.abort();
+    chatController = null;
+    set({ messages: [], sessionId: null, isTyping: false });
+  },
 
   sendMessage: async (content: string) => {
+    if (get().isTyping || !content.trim()) return;
+    const version = ++chatRequestVersion;
+    const controller = new AbortController();
+    chatController = controller;
+    const current = () => version === chatRequestVersion && !controller.signal.aborted;
     set((state) => ({
       messages: [
         ...state.messages,
@@ -502,6 +667,7 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         content,
         get().sessionId || undefined,
         (chunk) => {
+          if (!current()) return;
           set((state) => ({
             messages: state.messages.map((m) =>
               m.id === aiMsgId ? { ...m, content: m.content + chunk } : m
@@ -509,6 +675,7 @@ export const useCoachStore = create<CoachState>((set, get) => ({
           }));
         },
         (payloads) => {
+          if (!current()) return;
           const actions: CoachAction[] = payloads.slice(0, 3).map((p, i) => ({
             id: `${aiMsgId}-act-${i}`,
             type: 'smart' as const,
@@ -534,12 +701,14 @@ export const useCoachStore = create<CoachState>((set, get) => ({
             }));
           }
         },
+        controller.signal,
       );
 
-      set((state) => ({
+      if (current()) set((state) => ({
         sessionId: result.sessionId || state.sessionId,
       }));
     } catch {
+      if (!current()) return;
       const partial = get().messages.find((m) => m.id === aiMsgId);
       const recoveryText = partial?.content
         ? ''
@@ -555,183 +724,100 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         toast.warning('回复生成中断，内容可能不完整');
       }
     } finally {
-      set({ isTyping: false });
+      if (current()) set({ isTyping: false });
+      if (chatController === controller) chatController = null;
     }
   },
 
   loadFromDB: async () => {
-    if (isLoggedIn()) {
+    const version = ++coachLoadVersion;
+    const revision = coachDataRevision;
+    const signedIn = isLoggedIn();
+    const owner = db.ownerId;
+    const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
+    let remote: { insights: CoachInsightRecord[]; pushes: CoachPushRecord[] } | null = null;
+    if (signedIn) {
       try {
         const [insightsData, pushesData] = await Promise.all([
           api.get<{ insights: CoachInsightApiRecord[] }>('/coach/insights?limit=50'),
           api.get<{ pushes: CoachPushApiRecord[] }>('/coach/pushes'),
         ]);
-        set({
-          insights: insightsData.insights.map(normalizeInsight),
-          pushes: pushesData.pushes.map((p) => ({
-            id: p.id,
-            insightId: p.insightId,
-            type: normalizePushType(p.type),
-            title: p.title,
-            body: p.body,
-            actions: parseActions(p.actions),
-            read: p.read,
-            acted: p.acted,
-            createdAt: Date.parse(p.createdAt) || Date.now(),
-          })),
-          loaded: true,
-        });
-        return;
+        remote = { insights: insightsData.insights.map(normalizeInsight), pushes: pushesData.pushes.map(normalizePush) };
       } catch {
-        // fall through to local data on network failure
+        // Keep all previously cached and locally generated evidence when offline.
       }
     }
-
-    const [insights, pushes] = await Promise.all([
-      db.coachInsights.toArray(),
-      db.coachPushes.toArray(),
-    ]);
-    insights.sort((a, b) => b.createdAt - a.createdAt);
-    pushes.sort((a, b) => b.createdAt - a.createdAt);
-    set({ insights, pushes, loaded: true });
+    if (version !== coachLoadVersion || owner !== db.ownerId || signedIn !== isLoggedIn()) return;
+    await db.transaction('rw', db.coachInsights, db.coachPushes, db.settings, async () => {
+      if (await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return;
+      if (remote && version === coachLoadVersion && revision === coachDataRevision) {
+        // Both endpoints are limited pages. Absence is not a deletion event.
+        for (const record of remote.insights) {
+          const existing = await db.coachInsights.get(record.id);
+          if (!existing || existing.origin === 'cloud') await db.coachInsights.put(mergeCloudInsight(record, existing));
+        }
+        for (const record of remote.pushes) {
+          const existing = await db.coachPushes.get(record.id);
+          if (await db.settings.get(`coachPushDismissed:${record.id}`)) continue;
+          if (!existing || existing.origin === 'cloud') await db.coachPushes.put({
+            ...record, read: record.read || Boolean(existing?.read), acted: record.acted || Boolean(existing?.acted),
+          });
+        }
+      }
+      const [insights, pushes] = await Promise.all([db.coachInsights.toArray(), db.coachPushes.toArray()]);
+      insights.sort((a, b) => b.createdAt - a.createdAt);
+      pushes.sort((a, b) => b.createdAt - a.createdAt);
+      afterCoachCommit(() => {
+        if (version === coachLoadVersion && owner === db.ownerId && signedIn === isLoggedIn()) set({ insights, pushes, loaded: true });
+      });
+    });
   },
 
   addInsight: async (insight) => {
     const record: CoachInsightRecord = {
-      ...insight,
+      ...insight, origin: 'local',
       id: `ins-${Date.now()}-${Math.floor(Math.random() * 1e9).toString(36)}`,
       createdAt: Date.now(),
     };
-
-    set((state) => ({ insights: [record, ...state.insights] }));
-
-    if (!isLoggedIn()) {
-      await db.coachInsights.put(record);
-    }
+    coachDataRevision += 1;
+    await db.coachInsights.put(record);
+    afterCoachCommit(() => {
+      coachDataRevision += 1;
+      set((state) => ({ insights: [record, ...state.insights.filter((item) => item.id !== record.id)] }));
+    });
     return record;
   },
 
-  dismissInsight: async (id) => {
-    set((state) => ({
-      insights: state.insights.map((i) =>
-        i.id === id ? { ...i, dismissed: true } : i
-      ),
-    }));
+  dismissInsight: (id) => updateInsightFeedback(id, { dismissed: true }, 'dismiss'),
 
-    if (isLoggedIn()) {
-      try {
-        await api.post(`/coach/insights/${id}/dismiss`);
-      } catch {
-        toast.error('忽略洞察失败，请稍后重试');
-      }
-    } else {
-      await db.coachInsights.update(id, { dismissed: true });
-    }
-  },
-
-  actOnInsight: async (id, result) => {
-    const updates: Partial<CoachInsightRecord> = { actionTaken: true };
-    if (result) updates.actionResult = result;
-
-    set((state) => ({
-      insights: state.insights.map((i) =>
-        i.id === id ? { ...i, ...updates } : i
-      ),
-    }));
-
-    if (isLoggedIn()) {
-      try {
-        await api.post(`/coach/insights/${id}/act`, { action: result });
-      } catch {
-        toast.error('记录行动失败，请稍后重试');
-      }
-    } else {
-      await db.coachInsights.update(id, updates);
-    }
-  },
+  actOnInsight: (id, result) => updateInsightFeedback(id, { actionTaken: true, ...(result !== undefined ? { actionResult: result } : {}) }, 'act', result),
 
   addPush: async (push) => {
-    const todayStart = getBusinessDayStartTimestamp();
-    const existingPush = get().pushes.find(
-      (item) =>
-        item.type === push.type &&
-        item.title === push.title &&
-        item.createdAt >= todayStart
-    );
-
-    if (existingPush) {
-      return existingPush;
-    }
-
-    const record: CoachPushRecord = {
-      ...push,
-      id: `push-${Date.now()}-${Math.floor(Math.random() * 1e9).toString(36)}`,
-      createdAt: Date.now(),
-    };
-
-    set((state) => ({ pushes: [record, ...state.pushes] }));
-
-    if (!isLoggedIn()) {
+    coachDataRevision += 1;
+    return db.transaction('rw', db.coachPushes, async () => {
+      const todayStart = getBusinessDayStartTimestamp();
+      const existing = await db.coachPushes.where('type').equals(push.type)
+        .filter((item) => item.title === push.title && item.createdAt >= todayStart).first();
+      if (existing) return existing;
+      const record: CoachPushRecord = {
+        ...push, origin: 'local',
+        id: `push-${Date.now()}-${Math.floor(Math.random() * 1e9).toString(36)}`,
+        createdAt: Date.now(),
+      };
       await db.coachPushes.put(record);
-    }
-    return record;
+      afterCoachCommit(() => {
+        coachDataRevision += 1;
+        set((state) => ({ pushes: [record, ...state.pushes.filter((item) => item.id !== record.id)] }));
+      });
+      return record;
+    });
   },
 
-  markPushRead: async (id) => {
-    set((state) => ({
-      pushes: state.pushes.map((p) =>
-        p.id === id ? { ...p, read: true } : p
-      ),
-    }));
+  markPushRead: (id) => updatePushFeedback(id, 'read'),
 
-    if (isLoggedIn()) {
-      try {
-        await api.patch(`/coach/pushes/${id}`, { read: true });
-      } catch {
-        toast.error('标记已读失败，请稍后重试');
-      }
-    } else {
-      await db.coachPushes.update(id, { read: true });
-    }
-  },
+  markPushActed: (id) => updatePushFeedback(id, 'act'),
 
-  markPushActed: async (id) => {
-    await recordPushActed();
-
-    set((state) => ({
-      pushes: state.pushes.map((p) =>
-        p.id === id ? { ...p, acted: true, read: true } : p
-      ),
-    }));
-
-    if (isLoggedIn()) {
-      try {
-        await api.patch(`/coach/pushes/${id}`, { acted: true, read: true });
-      } catch {
-        toast.error('同步操作状态失败，请稍后重试');
-      }
-    } else {
-      await db.coachPushes.update(id, { acted: true, read: true });
-    }
-  },
-
-  dismissPush: async (id) => {
-    await recordPushIgnored();
-
-    set((state) => ({
-      pushes: state.pushes.filter((p) => p.id !== id),
-    }));
-
-    if (isLoggedIn()) {
-      try {
-        await api.delete(`/coach/pushes/${id}`);
-      } catch {
-        toast.error('关闭推送失败，请稍后重试');
-      }
-    } else {
-      await db.coachPushes.delete(id);
-    }
-  },
+  dismissPush: (id) => updatePushFeedback(id, 'dismiss'),
 
   getUnreadPushCount: () => {
     return get().pushes.filter((p) => !p.read).length;
@@ -739,14 +825,47 @@ export const useCoachStore = create<CoachState>((set, get) => ({
 
   setDailyBrief: (brief) => set({ dailyBrief: brief }),
 
-  generateDailyBrief: async () => {
-    if (isLoggedIn()) {
+  generateDailyBrief: async (options = {}) => {
+    const version = ++briefRequestVersion;
+    const signedIn = isLoggedIn();
+    const owner = db.ownerId;
+    const current = () => version === briefRequestVersion && owner === db.ownerId && signedIn === isLoggedIn() && (options.isCurrent?.() ?? true);
+    if (!current()) return null;
+    const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
+    if (!current()) return null;
+    if (signedIn) {
+      try {
+        const insight = await ensureServerInsight();
+        if (!current()) return null;
+        if (insight) {
+          const record = normalizeInsight(insight);
+          coachDataRevision += 1;
+          const cached = await db.transaction('rw', db.coachInsights, db.settings, async () => {
+            if (!current() || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return null;
+            const existing = await db.coachInsights.get(record.id);
+            const merged = existing && existing.origin !== 'cloud' ? existing : mergeCloudInsight(record, existing);
+            await db.coachInsights.put(merged);
+            return merged;
+          });
+          if (!cached) return null;
+          if (!current()) return null;
+          set((state) => ({ insights: [cached, ...state.insights.filter((item) => item.id !== cached.id)].sort((a, b) => b.createdAt - a.createdAt) }));
+        }
+      } catch {
+        // A failed rule snapshot must not prevent reading existing evidence.
+        if (!current()) return null;
+      }
       try {
         const data = await api.get<{ brief: CoachBriefApiRecord }>('/coach/brief');
+        if (!current() || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return null;
+        if (!current()) return null;
         const brief: DailyBrief = {
           nickname: data.brief.nickname,
           greeting: data.brief.greeting,
           date: data.brief.date,
+          generatedAt: data.brief.generatedAt ? Date.parse(data.brief.generatedAt) : undefined,
+          reviewDate: data.brief.reviewDate,
+          source: 'server',
           yesterdayReview: data.brief.yesterdayReview,
           weeklyInsights: data.brief.weeklyInsights.map((item) => ({
             id: item.id,
@@ -755,6 +874,7 @@ export const useCoachStore = create<CoachState>((set, get) => ({
             description: item.description,
             actionSuggested: item.actionSuggested,
             dataSources: Array.isArray(item.dataSources) ? item.dataSources : [],
+            createdAt: item.createdAt ? Date.parse(item.createdAt) : undefined,
           })),
           todayActions: data.brief.todayActions,
           todaySchedule: data.brief.todaySchedule,
@@ -762,11 +882,14 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         set({ dailyBrief: brief });
         return brief;
       } catch {
+        if (!current()) return null;
         toast.warning('简报加载失败，展示本地数据');
       }
     }
 
     const brief = await buildLocalDailyBrief();
+    if (!current() || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return null;
+    if (!current()) return null;
     set({ dailyBrief: brief });
     return brief;
   },

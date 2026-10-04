@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, BarChart3, TrendingUp, Target, Bell, X, ArrowRight, ArrowUpRight } from 'lucide-react';
 import { useCoachStore, type CoachPushRecord, type DailyBrief } from '../../stores/coachStore';
@@ -5,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../ui/Card';
 import { resolveActionPath, resolvePushPath } from '../../utils/actionPaths';
 import { toast } from '../../services/toastBus';
+import { BUSINESS_TIME_ZONE, formatBusinessDate } from '../../utils/date';
 
 interface BriefCardProps {
   data: DailyBrief;
@@ -16,9 +18,18 @@ function describeSpentDiff(diff: string | null): string {
   return `较近几日日均高 ${diff}`;
 }
 
+function formatSnapshotTime(timestamp: number | undefined): string {
+  if (timestamp === undefined || !Number.isFinite(timestamp)) return '生成时间未知';
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: BUSINESS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(timestamp);
+}
+
 export function BriefCard({ data }: BriefCardProps) {
   const navigate = useNavigate();
   const diffText = describeSpentDiff(data.yesterdayReview.spentDiff);
+  const snapshot = data.weeklyInsights[0];
+  const snapshotTitle = snapshot?.title === '今日教练简报'
+    ? `记录简报${snapshot.createdAt && Number.isFinite(snapshot.createdAt) ? ` · ${formatBusinessDate(new Date(snapshot.createdAt))}` : ''}`
+    : snapshot?.title;
 
   const insightActions = data.weeklyInsights
     .filter((i) => Boolean(i.actionSuggested))
@@ -52,16 +63,19 @@ export function BriefCard({ data }: BriefCardProps) {
             <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-white/15 backdrop-blur-sm">
               <TrendingUp size={18} className="text-white" aria-hidden />
             </div>
-            <span className="text-sm font-bold">今日教练简报</span>
+            <span className="text-sm font-bold">记录简报</span>
           </div>
+          <p className="mb-4 text-xs leading-relaxed text-white/80">
+            {data.source ? `${data.source === 'server' ? '云端已同步记录' : '本机记录'} · 读取于 ${formatSnapshotTime(data.generatedAt)}（北京时间）` : '正在读取记录…'}
+          </p>
 
           <div className="mb-5 space-y-4">
             <div className="flex items-start gap-3 rounded-[var(--radius-md)] bg-white/12 p-4 backdrop-blur-sm">
               <BarChart3 size={18} className="mt-0.5 shrink-0 text-white/90" aria-hidden />
               <div>
-                <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">昨日复盘</p>
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">{data.reviewDate ? `${data.reviewDate} 记录回顾` : '昨日复盘'}</p>
                 <p className="text-sm leading-relaxed">
-                  花了 ¥{data.yesterdayReview.spent}
+                  已记录支出 ¥{data.yesterdayReview.spent}
                   {diffText && `（${diffText}）`}· 习惯完成 {data.yesterdayReview.habits.done}/{data.yesterdayReview.habits.total}
                   {data.yesterdayReview.moodScore !== null && ` · 心情 ${data.yesterdayReview.moodScore}/10`}
                 </p>
@@ -72,9 +86,10 @@ export function BriefCard({ data }: BriefCardProps) {
               <div className="flex items-start gap-3">
                 <Target size={18} className="mt-0.5 shrink-0 text-white/80" aria-hidden />
                 <div>
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">本周发现</p>
-                  <p className="text-sm font-semibold">{data.weeklyInsights[0].title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-white/70">{data.weeklyInsights[0].description.slice(0, 60)}...</p>
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">洞察快照</p>
+                  <p className="text-sm font-semibold">{snapshotTitle}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-white/80">{data.weeklyInsights[0].description}</p>
+                  <p className="mt-2 text-[11px] leading-relaxed text-white/70">生成于 {formatSnapshotTime(data.weeklyInsights[0].createdAt)}（北京时间）；后续记录变动可能尚未计入</p>
                 </div>
               </div>
             )}
@@ -83,7 +98,7 @@ export function BriefCard({ data }: BriefCardProps) {
               <div className="flex items-start gap-3">
                 <TrendingUp size={18} className="mt-0.5 shrink-0 text-white/80" aria-hidden />
                 <div>
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">今日行动</p>
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">可选行动</p>
                   <ul className="mt-2 space-y-2">
                     {actions.map((action, i) => (
                       <motion.li
@@ -173,12 +188,21 @@ const pushTypeConfig: Record<string, { border: string; iconBg: string; iconColor
   evening_review: { border: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/10', iconColor: 'text-[var(--warning)]' },
 };
 
-function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; onRead: (id: string) => void; onAct: (id: string) => void; onDismiss: (id: string) => void }) {
+function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; onRead: (id: string) => Promise<void>; onAct: (id: string) => Promise<void>; onDismiss: (id: string) => Promise<void> }) {
   const navigate = useNavigate();
   const config = pushTypeConfig[push.type] ?? pushTypeConfig.daily_brief;
 
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
+  const perform = async (operation: () => Promise<void>) => {
+    if (pendingRef.current) return;
+    pendingRef.current = true; setPending(true);
+    try { await operation(); }
+    catch { toast.error('反馈未保存，请稍后重试'); }
+    finally { pendingRef.current = false; setPending(false); }
+  };
   const handleOpen = () => {
-    void onRead(push.id);
+    void perform(() => onRead(push.id));
     navigate(resolvePushPath(push.type));
   };
 
@@ -196,13 +220,15 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
           <button
             type="button"
             onClick={handleOpen}
+            disabled={pending}
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] transition-transform hover:scale-105 ${config.iconBg}`}
             aria-label={`查看推送详情：${push.title}`}
           >
             <Bell size={18} className={config.iconColor} aria-hidden />
           </button>
           <div className="min-w-0 flex-1">
-            <button type="button" onClick={handleOpen} className="block w-full text-left">
+            <button type="button" onClick={handleOpen}
+            disabled={pending} className="block w-full text-left">
               <p className="truncate text-[13px] font-bold text-[var(--text-1)] group-hover:text-[var(--primary)]">{push.title}</p>
               <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-[var(--text-2)]">{push.body}</p>
             </button>
@@ -212,19 +238,22 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
                   key={`${action.type}-${action.label}`}
                   whileTap={{ scale: 0.95 }}
                   type="button"
-                  onClick={() => {
+                  disabled={pending}
+                  aria-busy={pending}
+                  onClick={() => void perform(async () => {
                     if (action.type === 'chat') {
-                      void onAct(push.id);
-                      navigate(push.type === 'evening_review' ? '/quick-note' : '/coach');
+                      navigate(push.type === 'evening_review' ? '/quick-note' : action.label === '查看花销' ? '/expense' : '/coach');
+                      await onAct(push.id);
                     } else if (action.type === 'confirm') {
-                      void onAct(push.id);
-                      toast.success('已完成');
+                      await onAct(push.id);
+                      toast.success('已记录反馈');
                     } else if (action.type === 'dismiss') {
-                      void onDismiss(push.id);
+                      await onDismiss(push.id);
                     } else {
-                      void onRead(push.id);
+                      await onRead(push.id);
+                      toast.info('已收起这条提醒');
                     }
-                  }}
+                  })}
                   className={`rounded-[var(--radius-sm)] px-3.5 py-2 text-xs font-semibold transition-all ${
                     action.type === 'chat'
                       ? 'bg-[var(--primary-soft)] text-[var(--primary)] hover:bg-[var(--primary)]/12'
@@ -233,7 +262,7 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
                       : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
                   }`}
                 >
-                  {action.label}
+                  {action.type === 'snooze' ? '暂时收起' : action.label}
                 </motion.button>
               ))}
             </div>
@@ -241,7 +270,8 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
           <motion.button
             whileHover={{ scale: 1.1, rotate: 90 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => onDismiss(push.id)}
+            disabled={pending}
+            onClick={() => void perform(() => onDismiss(push.id))}
             aria-label={`关闭推送：${push.title}`}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-all hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)]"
           >

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useCoachStore } from '../stores/coachStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { api, isLoggedIn } from '../services/apiClient';
+import { isLoggedIn } from '../services/apiClient';
 import { flush } from '../services/syncEngine';
 import { generateRealInsights } from '../services/lifeIntelligence';
 import { generatePushesFromInsights } from '../services/coachEngine';
@@ -24,21 +24,7 @@ const item = {
   show: { opacity: 1, y: 0 },
 };
 
-let serverBriefGeneratedDate = '';
 let eveningReviewShownDate = '';
-
-async function ensureServerInsight(): Promise<void> {
-  if (!isLoggedIn()) return;
-  const today = getToday();
-  if (serverBriefGeneratedDate === today) return;
-
-  try {
-    await api.post('/coach/generate-brief');
-    serverBriefGeneratedDate = today;
-  } catch {
-    // rate-limited or offline
-  }
-}
 
 export default function Home() {
   const dailyBrief = useCoachStore((s) => s.dailyBrief);
@@ -52,9 +38,10 @@ export default function Home() {
 
     async function init() {
       if (isLoggedIn()) await flush();
-      await generateDailyBrief();
+      if (cancelled) return;
 
       const realInsights = await generateRealInsights();
+      if (cancelled) return;
       const existingTitles = new Set(
         useCoachStore.getState().insights.filter((i) => !i.dismissed).map((i) => i.title)
       );
@@ -73,7 +60,9 @@ export default function Home() {
         });
       }
 
-      await ensureServerInsight();
+      if (cancelled) return;
+      await generateDailyBrief({ isCurrent: () => !cancelled });
+      if (cancelled) return;
 
       const settings = useSettingsStore.getState();
       if (!settings.coachPushEnabled || isQuietHours(settings.quietHours)) return;

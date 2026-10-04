@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, TrendingUp, AlertTriangle, Link2, ThumbsUp, Lightbulb, Check, X, MessageCircle, ArrowUpRight, PenLine } from 'lucide-react';
 import { useCoachStore, type InsightType, type CoachInsightRecord } from '../stores/coachStore';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '../services/toastBus';
 import { resolveActionPath, dataSourceLabels } from '../utils/actionPaths';
+import { BUSINESS_TIME_ZONE, formatBusinessDate } from '../utils/date';
 
 const typeConfig: Record<InsightType, { icon: typeof TrendingUp; label: string; color: string; bg: string }> = {
   pattern: { icon: TrendingUp, label: '模式发现', color: '#5B5FC7', bg: 'bg-[#5B5FC7]/8' },
@@ -32,6 +33,15 @@ export default function CoachInsights() {
   const actOnInsight = useCoachStore((s) => s.actOnInsight);
   const [filter, setFilter] = useState<InsightType | 'all'>('all');
   const [showDismissed, setShowDismissed] = useState(false);
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const pendingRef = useRef(new Set<string>());
+  const changeFeedback = async (id: string, change: () => Promise<void>) => {
+    if (pendingRef.current.has(id)) return;
+    pendingRef.current.add(id); setPending(new Set(pendingRef.current));
+    try { await change(); }
+    catch { toast.error('反馈未保存，请稍后重试'); }
+    finally { pendingRef.current.delete(id); setPending(new Set(pendingRef.current)); }
+  };
 
   const filteredInsights = useMemo(() => {
     return insights
@@ -43,22 +53,11 @@ export default function CoachInsights() {
   const activeCount = insights.filter((i) => !i.dismissed).length;
   const hiddenCount = Math.max(filteredInsights.length - MAX_RENDERED, 0);
 
-  const handleAct = async (insight: CoachInsightRecord) => {
-    try {
-      await actOnInsight(insight.id);
-      toast.success('已采纳建议');
-    } catch {
-      toast.error('操作失败，请重试');
-    }
-  };
-
-  const handleDismiss = async (id: string) => {
-    try {
-      await dismissInsight(id);
-    } catch {
-      toast.error('操作失败，请重试');
-    }
-  };
+  const handleAct = (insight: CoachInsightRecord) => changeFeedback(insight.id, async () => {
+    await actOnInsight(insight.id);
+    toast.success('已记录采纳意向；相关任务仍需单独完成');
+  });
+  const handleDismiss = (id: string) => changeFeedback(id, () => dismissInsight(id));
 
   return (
     <div className="w-full">
@@ -182,8 +181,9 @@ export default function CoachInsights() {
                               {config.label}
                             </span>
                           </div>
-                          <h3 className="text-[13px] font-bold text-[var(--text-1)]">{insight.title}</h3>
+                          <h3 className="text-[13px] font-bold text-[var(--text-1)]">{insight.title === '今日教练简报' ? `记录简报 · ${formatBusinessDate(new Date(insight.createdAt))}` : insight.title}</h3>
                           <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-2)]">{insight.description}</p>
+                          <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-3)]">快照生成于 {new Intl.DateTimeFormat('zh-CN', { timeZone: BUSINESS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(insight.createdAt)}（北京时间），后续记录可能未计入</p>
 
                           {insight.actionSuggested && !insight.dismissed && !insight.actionTaken && (
                             <button
@@ -218,6 +218,8 @@ export default function CoachInsights() {
                           <button
                             type="button"
                             onClick={() => void handleAct(insight)}
+                            disabled={pending.has(insight.id)}
+                            aria-busy={pending.has(insight.id)}
                             className="flex flex-1 items-center justify-center gap-1 py-3 text-xs font-semibold text-[var(--success)] transition-colors hover:bg-[var(--success)]/5"
                           >
                             <Check size={14} aria-hidden />
@@ -241,6 +243,8 @@ export default function CoachInsights() {
                         <button
                           type="button"
                           onClick={() => void handleDismiss(insight.id)}
+                          disabled={pending.has(insight.id)}
+                          aria-busy={pending.has(insight.id)}
                           className="flex flex-1 items-center justify-center gap-1 border-l border-[var(--border-light)] py-3 text-xs font-medium text-[var(--text-3)] transition-colors hover:bg-[var(--surface-2)]"
                         >
                           <X size={14} aria-hidden />
@@ -252,7 +256,7 @@ export default function CoachInsights() {
                     {insight.actionTaken && (
                       <div className="flex items-center gap-2 border-t border-[var(--success)]/20 bg-[var(--success)]/5 px-5 py-2">
                         <Check size={14} className="text-[var(--success)]" aria-hidden />
-                        <span className="text-xs font-semibold text-[var(--success)]">已采纳建议</span>
+                        <span className="text-xs font-semibold text-[var(--success)]">已记录采纳意向，未代替你完成任务</span>
                       </div>
                     )}
                   </motion.article>

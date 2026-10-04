@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Trash2, Sparkles, Target, Phone } from 'lucide-react';
 import { useCoachStore } from '../stores/coachStore';
 import { MessageList } from '../components/coach/MessageList';
@@ -37,16 +37,20 @@ export default function Coach() {
   const prefillKey = prefillText.length;
   const [confirmClear, setConfirmClear] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const followingRef = useRef(true);
+  const [following, setFollowing] = useState(true);
+  const reducedMotion = useReducedMotion();
 
   const emotionState = assessEmotionState();
 
   useEffect(() => {
-    containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'smooth' });
+    if (followingRef.current) containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
   }, [messages, isTyping]);
 
   const handleSend = useCallback(
     async (text: string) => {
       if (isTyping || !text.trim()) return;
+      followingRef.current = true; setFollowing(true);
 
       if (detectCrisisKeywords(text)) {
         addMessage({ role: 'user', content: text });
@@ -124,7 +128,12 @@ export default function Coach() {
         </div>
       </div>
 
-      <div ref={containerRef} className="flex-1 overflow-y-auto">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+        followingRef.current = nearBottom; setFollowing(nearBottom);
+      }}>
         {!hasMessages ? (
           <div className="flex flex-col items-center justify-center px-6 py-20">
             <motion.div
@@ -175,6 +184,10 @@ export default function Coach() {
         )}
       </div>
 
+      {!following && <button type="button" className="self-center rounded-full bg-[var(--primary-soft)] px-4 py-2 text-xs text-[var(--text-1)]" onClick={() => {
+        followingRef.current = true; setFollowing(true);
+        containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' });
+      }}>回到最新消息</button>}
       <ChatInput
         key={prefillKey}
         initialText={prefillText}
@@ -185,7 +198,7 @@ export default function Coach() {
       <Modal
         open={confirmClear}
         onClose={() => setConfirmClear(false)}
-        title="清空对话"
+        title="清空本页对话"
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)}>取消</Button>
@@ -195,7 +208,7 @@ export default function Coach() {
           </>
         }
       >
-        <p className="text-sm text-[var(--text-1)]">确定要清空当前对话吗？清空后无法恢复。</p>
+        <p className="text-sm text-[var(--text-1)]">清空本页消息并开始新对话，会停止接收当前回复；不会删除服务端已经保存的对话记录。</p>
       </Modal>
     </div>
   );

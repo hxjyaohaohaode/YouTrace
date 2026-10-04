@@ -1,5 +1,5 @@
-import { useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Check, Square, Zap } from 'lucide-react';
 import type { CoachMessage, CoachAction } from '../../stores/coachStore';
 
@@ -59,11 +59,19 @@ function SmartActionItem({
   messageId: string;
   onExecute: (messageId: string, actionId: string) => Promise<void>;
 }) {
+  const [pending, setPending] = useState(false);
+  const execute = async () => {
+    if (pending || action.executed) return;
+    setPending(true);
+    try { await onExecute(messageId, action.id); }
+    finally { setPending(false); }
+  };
   return (
     <button
       type="button"
-      onClick={() => void onExecute(messageId, action.id)}
-      disabled={action.executed}
+      onClick={() => void execute()}
+      disabled={action.executed || pending}
+      aria-busy={pending}
       aria-label={`执行：${action.title}`}
       className={`flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] border px-3 py-2.5 text-left transition-all ${
         action.executed
@@ -81,7 +89,7 @@ function SmartActionItem({
       </span>
       {!action.executed && (
         <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">
-          点击执行
+          {pending ? '处理中…' : '点击执行'}
         </span>
       )}
     </button>
@@ -99,6 +107,7 @@ function AssistantMessage({
   onExecuteSmartAction: (messageId: string, actionId: string) => Promise<void>;
   streaming: boolean;
 }) {
+  const reducedMotion = useReducedMotion();
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -114,8 +123,8 @@ function AssistantMessage({
             {message.content}
             {streaming && (
               <motion.span
-                animate={{ opacity: [1, 0] }}
-                transition={{ duration: 0.6, repeat: Infinity }}
+                animate={{ opacity: reducedMotion ? 1 : [1, 0] }}
+                transition={reducedMotion ? { duration: 0 } : { duration: 0.6, repeat: Infinity }}
                 className="ml-0.5 inline-block h-4 w-0.5 bg-[var(--primary)] align-text-bottom"
                 aria-hidden
               />
@@ -174,6 +183,7 @@ function UserMessage({ message }: { message: CoachMessage }) {
 }
 
 function TypingIndicator() {
+  const reducedMotion = useReducedMotion();
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -189,8 +199,8 @@ function TypingIndicator() {
           {[0, 1, 2].map((i) => (
             <motion.div
               key={i}
-              animate={{ y: [0, -4, 0], opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
+              animate={{ y: reducedMotion ? 0 : [0, -4, 0], opacity: reducedMotion ? 1 : [0.5, 1, 0.5] }}
+              transition={reducedMotion ? { duration: 0 } : { duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
               className="h-[6px] w-[6px] rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)]"
             />
           ))}
@@ -201,12 +211,6 @@ function TypingIndicator() {
 }
 
 export function MessageList({ messages, onExecuteActions, onExecuteSmartAction, isTyping }: MessageListProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, isTyping]);
-
   return (
     <div className="py-4">
       {messages.map((message, index) => {
@@ -227,7 +231,6 @@ export function MessageList({ messages, onExecuteActions, onExecuteSmartAction, 
         );
       })}
       {isTyping && messages.at(-1)?.role !== 'assistant' && <TypingIndicator />}
-      <div ref={bottomRef} />
     </div>
   );
 }
