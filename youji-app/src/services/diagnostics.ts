@@ -1,5 +1,5 @@
 /** Device-memory-only operational counters. Never pass user content here. */
-export const ROUTE_IDS: Record<string, string> = { '/': 'home', '/schedule': 'schedule', '/quick-note': 'capture', '/quick-note/result': 'capture-review', '/expense': 'expenses', '/habit': 'habits', '/todo': 'todos', '/diary': 'diary', '/coach': 'coach', '/insights': 'insights', '/settings': 'settings', '/goal': 'goals', '/timeline': 'timeline', '/login': 'login', '/onboarding': 'onboarding' };
+export const ROUTE_IDS: Record<string, string> = { '/': 'home', '/more': 'navigation', '/schedule': 'schedule', '/quick-note': 'capture', '/quick-note/result': 'capture-review', '/expense': 'expenses', '/habit': 'habits', '/todo': 'todos', '/diary': 'diary', '/coach': 'coach', '/insights': 'insights', '/settings': 'settings', '/goal': 'goals', '/timeline': 'timeline', '/login': 'login', '/onboarding': 'onboarding' };
 export type DiagnosticKind = 'page-ready' | 'button' | 'checkbox' | 'input-focus' | 'runtime-error' | 'request-ok' | 'request-failed';
 export interface DiagnosticEvent { kind: DiagnosticKind; area: string; elapsedMs?: number; status?: number; at: number }
 const records: DiagnosticEvent[] = [];

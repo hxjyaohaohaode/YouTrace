@@ -16,17 +16,17 @@ interface SidebarItem {
 
 const mainItems: SidebarItem[] = [
   { icon: Home, label: '首页', path: '/' },
-  { icon: Calendar, label: '日程', path: '/schedule' },
-  { icon: Mic, label: '速记', path: '/quick-note' },
+  { icon: Mic, label: '速记', path: '/quick-note', section: '记录与回看' },
   { icon: BarChart3, label: '花销', path: '/expense' },
+  { icon: BookOpen, label: '日记', path: '/diary' },
+  { icon: Activity, label: '时间线', path: '/timeline' },
+  { icon: Calendar, label: '日程', path: '/schedule', section: '安排与坚持' },
   { icon: CheckSquare, label: '待办', path: '/todo' },
-  { icon: BookOpen, label: '日记', path: '/diary', section: '生活' },
-  { icon: MessageCircle, label: 'AI 教练', path: '/coach', section: '教练' },
-  { icon: Target, label: '教练洞察', path: '/insights' },
-  { icon: Activity, label: '时间线', path: '/timeline', section: '系统' },
   { icon: Sparkles, label: '习惯', path: '/habit' },
   { icon: Target, label: '目标', path: '/goal' },
-  { icon: Settings, label: '设置', path: '/settings', section: '系统' },
+  { icon: MessageCircle, label: 'AI 教练', path: '/coach', section: '观察与行动' },
+  { icon: Target, label: '教练洞察', path: '/insights' },
+  { icon: Settings, label: '设置', path: '/settings', section: '账号与偏好' },
 ];
 
 export function DesktopSidebar() {

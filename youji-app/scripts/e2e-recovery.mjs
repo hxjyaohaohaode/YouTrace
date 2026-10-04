@@ -534,7 +534,7 @@ try {
   await page.waitForFunction(() => location.pathname === '/quick-note/result');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.body.textContent.includes('明天学习英语'));
   await clickText(page, '确认保存所选记录'); await page.waitForFunction(() => location.search.includes('receipt=')); await clickText(page, '回到首页'); await page.waitForFunction(() => location.pathname === '/'); step('Capture review survives refresh and confirms transactionally');
-  const paths = ['/', '/schedule', '/quick-note', '/expense', '/todo', '/habit', '/diary', '/coach', '/insights', '/settings', '/goal', '/timeline'];
+  const paths = ['/', '/schedule', '/quick-note', '/expense', '/todo', '/habit', '/diary', '/coach', '/insights', '/settings', '/goal', '/timeline', '/more'];
   for (const width of [360, 768, 1280]) {
     await page.setViewport({ width, height: 900 });
     for (const path of paths) {
@@ -546,7 +546,7 @@ try {
     }
     await page.screenshot({ path: join(artifactDir, `youtrace-${width}.png`), fullPage: true });
   }
-  step('All 12 business routes at 360/768/1280 widths without overflow or error boundary');
+  step('Responsive appearance of 13 listed routes at 360/768/1280; capture result covered separately');
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await route(page, '/todo'); step('Reduced-motion preference route smoke');
   await route(page, '/settings'); await clickText(page, '退出登录'); await page.waitForSelector('#login-phone');
   await login(page, '13900009902', 'Synthetic B'); await route(page, '/todo');

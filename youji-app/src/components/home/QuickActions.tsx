@@ -1,77 +1,14 @@
-import { useNavigate } from 'react-router-dom';
-import { Mic, Calendar, BookOpen, BarChart3, MessageCircle, Activity, Target } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Link, useLocation } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
+import { destinations, directoryEntry } from '../../lib/navigation';
+import { useAuthStore } from '../../stores/authStore';
 
-interface QuickAction {
-  icon: typeof Mic;
-  label: string;
-  path: string;
-  color: string;
-  bg: string;
-  gradient: string;
-}
-
-const actions: QuickAction[] = [
-  { icon: Target, label: '目标', path: '/goal', color: '#7C5CFC', bg: 'bg-[#7C5CFC]/8', gradient: 'from-[#7C5CFC] to-[#9B80FF]' },
-  { icon: Mic, label: '速记', path: '/quick-note', color: '#5B5FC7', bg: 'bg-[#5B5FC7]/8', gradient: 'from-[#5B5FC7] to-[#7C5CFC]' },
-  { icon: Calendar, label: '日程', path: '/schedule', color: '#2EA06B', bg: 'bg-[#2EA06B]/8', gradient: 'from-[#2EA06B] to-[#3FBF7E]' },
-  { icon: BarChart3, label: '花销', path: '/expense', color: '#D99A2B', bg: 'bg-[#D99A2B]/8', gradient: 'from-[#D99A2B] to-[#E8853D]' },
-  { icon: BookOpen, label: '日记', path: '/diary', color: '#7C5CFC', bg: 'bg-[#7C5CFC]/8', gradient: 'from-[#7C5CFC] to-[#9B80FF]' },
-  { icon: MessageCircle, label: '教练', path: '/coach', color: '#E8853D', bg: 'bg-[#E8853D]/8', gradient: 'from-[#E8853D] to-[#F0A05C]' },
-  { icon: Activity, label: '时间线', path: '/timeline', color: '#2EA06B', bg: 'bg-[#2EA06B]/8', gradient: 'from-[#2EA06B] to-[#3FBF7E]' },
-];
-
+// Complement the fixed navigation rather than repeat all its primary actions.
+const shortcuts = ['/todo', '/habit', '/diary', '/goal'].map(path => destinations.find(item => item.path === path)!);
 export function QuickActions() {
-  const navigate = useNavigate();
-
-  return (
-    <>
-      <div className="hidden sm:grid grid-cols-3 sm:grid-cols-7 gap-3">
-        {actions.map((action, i) => {
-          const Icon = action.icon;
-          return (
-            <motion.button
-              key={action.label}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
-              whileHover={{ y: -4, scale: 1.04 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate(action.path)}
-              className="group flex flex-col items-center gap-2.5 rounded-[var(--radius-lg)] bg-[var(--surface)] p-4 border border-[var(--border-light)] transition-all duration-200 hover:border-[var(--border)] hover:shadow-[var(--shadow-md)]"
-              aria-label={action.label}
-            >
-              <div className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-sm transition-transform duration-200 group-hover:scale-105`}>
-                <Icon size={22} className="text-white" />
-              </div>
-              <span className="text-[11px] font-semibold text-[var(--text-2)] group-hover:text-[var(--text-1)] transition-colors">{action.label}</span>
-            </motion.button>
-          );
-        })}
-      </div>
-
-      <div className="flex sm:hidden overflow-x-auto gap-3 pb-2 scrollbar-hide snap-x">
-        {actions.map((action, i) => {
-          const Icon = action.icon;
-          return (
-            <motion.button
-              key={action.label}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => navigate(action.path)}
-              className="group flex flex-col items-center gap-2.5 rounded-[var(--radius-lg)] bg-[var(--surface)] p-4 border border-[var(--border-light)] min-w-[80px] snap-center shrink-0"
-              aria-label={action.label}
-            >
-              <div className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-sm`}>
-                <Icon size={22} className="text-white" />
-              </div>
-              <span className="text-[11px] font-semibold text-[var(--text-2)] whitespace-nowrap">{action.label}</span>
-            </motion.button>
-          );
-        })}
-      </div>
-    </>
-  );
+  const ownerId = useAuthStore(state => state.user?.id), location = useLocation();
+  return <nav aria-label="安排与记录快捷入口" className="space-y-3">
+    <div className="grid grid-cols-2 gap-3">{shortcuts.map(item => { const Icon = item.icon; return <Link key={item.path} to={item.path} aria-label={item.label} className="flex min-h-16 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 font-semibold text-[var(--text-1)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] motion-reduce:transition-none"><Icon size={20} className="shrink-0 text-[var(--text-2)]" aria-hidden /><span>{item.label}</span></Link>; })}</div>
+    <Link to="/more" state={directoryEntry(location.pathname + location.search, ownerId)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-1 text-sm font-semibold text-[var(--text-2)] underline focus-visible:outline-2 focus-visible:outline-[var(--primary)]">查看全部功能<ArrowRight size={16} aria-hidden /></Link>
+  </nav>;
 }

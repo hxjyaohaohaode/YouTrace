@@ -18,6 +18,7 @@ const Coach = lazy(() => import('../pages/Coach'));
 const CoachInsights = lazy(() => import('../pages/CoachInsights'));
 const Settings = lazy(() => import('../pages/Settings'));
 const Goal = lazy(() => import('../pages/Goal'));
+const More = lazy(() => import('../pages/More'));
 const Timeline = lazy(() => import('../pages/Timeline'));
 
 export const ONBOARDED_KEY = 'youji_onboarded';
@@ -69,6 +70,7 @@ export function AppRoutes() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/goal" element={<Goal />} />
           <Route path="/timeline" element={<Timeline />} />
+          <Route path="/more" element={<More />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Home, Calendar, Mic, BarChart3, MessageCircle, BookOpen,
-  CheckSquare, Target, Settings, Sparkles
+  CheckSquare, Target, Settings, Sparkles, Activity
 } from 'lucide-react';
 
 interface NavItem {
@@ -18,6 +18,7 @@ const items: NavItem[] = [
   { icon: BarChart3, label: '花销', path: '/expense' },
   { icon: CheckSquare, label: '待办', path: '/todo' },
   { icon: BookOpen, label: '日记', path: '/diary' },
+  { icon: Activity, label: '时间线', path: '/timeline' },
   { icon: MessageCircle, label: '教练', path: '/coach' },
   { icon: Target, label: '洞察', path: '/insights' },
   { icon: Sparkles, label: '习惯', path: '/habit' },

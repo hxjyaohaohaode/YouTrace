@@ -1,6 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Calendar, Mic, BarChart3, MessageCircle } from 'lucide-react';
+import { directoryEntry, isMoreDestination } from '../../lib/navigation';
+import { useAuthStore } from '../../stores/authStore';
+import { Home, Calendar, Mic, BarChart3, Grid2X2 } from 'lucide-react';
 
 interface NavItem {
   icon: typeof Home;
@@ -14,12 +16,13 @@ const navItems: NavItem[] = [
   { icon: Calendar, label: '日程', path: '/schedule' },
   { icon: Mic, label: '速记', path: '/quick-note', isCenter: true },
   { icon: BarChart3, label: '花销', path: '/expense' },
-  { icon: MessageCircle, label: '教练', path: '/coach' },
+  { icon: Grid2X2, label: '全部功能', path: '/more' },
 ];
 
 export function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
+  const ownerId = useAuthStore(state => state.user?.id);
 
   return (
     <nav
@@ -30,7 +33,7 @@ export function BottomNav() {
     >
       <div className="mx-auto flex h-16 max-w-lg items-center justify-around px-2">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isActive = item.path === '/more' ? isMoreDestination(location.pathname) : location.pathname === item.path;
           const Icon = item.icon;
 
           if (item.isCenter) {
@@ -38,8 +41,8 @@ export function BottomNav() {
               <button
                 key={item.path}
                 type="button"
-                onClick={() => navigate(item.path)}
-                aria-current={isActive ? 'page' : undefined}
+                onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : undefined); }}
+                aria-current={location.pathname === item.path ? 'page' : undefined}
                 className="relative -mt-7 flex flex-col items-center"
                 aria-label={item.label}
               >
@@ -58,10 +61,10 @@ export function BottomNav() {
           return (
             <button
               key={item.path}
-              onClick={() => navigate(item.path)}
+              onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : undefined); }}
               className="relative flex flex-col items-center gap-1 px-4 py-2"
               aria-label={item.label}
-              aria-current={isActive ? 'page' : undefined}
+              aria-current={location.pathname === item.path ? 'page' : undefined}
             >
               <div className={`rounded-full p-1.5 transition-all duration-200 ${isActive ? 'bg-gradient-to-r from-[var(--primary-soft)] to-[var(--primary-muted)]' : ''}`}>
                 <Icon
