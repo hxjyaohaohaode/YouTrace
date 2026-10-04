@@ -209,8 +209,16 @@ async function businessRegressions(page, errors) {
     await route(page, '/goal');
     await clickControl(page, '[aria-label="新建目标"]');
     await fillControl(page, '[role=dialog] input[placeholder="想完成什么？"]', 'Synthetic 学习目标');
+    const learningOption = await page.$eval('select[aria-label="领域"]', (el) => {
+      const options = [...el.options].filter(option => !option.disabled);
+      const matches = options.filter(option => option.value === '学习');
+      return { unique: matches.length === 1, index: options.findIndex(option => option.value === '学习') };
+    });
+    assert.equal(learningOption.unique, true, 'The rendered learning option must exist exactly once and be enabled');
     await clickControl(page, 'select[aria-label="领域"]');
-    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+    await page.keyboard.press('Home');
+    for (let index = 0; index < learningOption.index; index++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
     assert.equal(await page.$eval('select[aria-label="领域"]', (el) => el.value), '学习');
     await clickButton(page, '创建', '[role=dialog]'); await modalClosed(page);
     await clickControl(page, '[aria-label="将目标进度设为 100%"]');
