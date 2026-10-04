@@ -22,8 +22,9 @@ const step = (name, detail) => { report.push({ name, passed: true, ...(detail ? 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(url) { const until = Date.now() + 30000; while (Date.now() < until) { try { if ((await fetch(url)).ok) return; } catch {} await delay(200); } throw new Error(`Synthetic test server did not start: ${url}`); }
 function start(command, args, cwd) { const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }); child.stdout.on('data', () => {}); child.stderr.on('data', (text) => logs.push(String(text).slice(0, 500))); children.push(child); return child; }
-async function clickText(page, text) { await page.waitForFunction((label) => [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === label && !button.disabled), {}, text); await page.evaluate((label) => [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === label && !button.disabled).click(), text); }
+async function clickText(page, text) { await page.bringToFront(); await page.waitForFunction((label) => [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === label && !button.disabled), {}, text); await page.evaluate((label) => [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === label && !button.disabled).click(), text); }
 async function login(page, phone, nickname) {
+  await page.bringToFront();
   await page.goto(`${front}/login`, { waitUntil: 'networkidle0' });
   await page.waitForSelector('#login-phone');
   await page.type('#login-phone', phone);
@@ -41,7 +42,7 @@ async function login(page, phone, nickname) {
   if (new URL(page.url()).pathname === '/onboarding') await clickText(page, '跳过');
   await page.waitForFunction(() => location.pathname === '/' && Boolean(document.querySelector('main')), { timeout: 20000 });
 }
-async function route(page, path) { await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); }
+async function route(page, path) { await page.bringToFront(); await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); }
 async function addTodo(page, text) { await route(page, '/todo'); await page.click('[aria-label="新建待办"]'); await page.waitForSelector('[role=dialog] input'); await page.type('[role=dialog] input', text); await clickText(page, '保存'); await page.waitForFunction((needle) => document.body.textContent.includes(needle) && !document.querySelector('[role=dialog]'), {}, text); }
 try {
   const migrated = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { cwd: join(appDir, 'server'), env, encoding: 'utf8' });
@@ -87,6 +88,7 @@ try {
       await route(page, path);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `${path} overflow at ${width}`);
       assert.equal(await page.evaluate(() => document.body.textContent.includes('页面出了点问题')), false, path);
+      await delay(1000); // Existing greeting reveal is 900ms; capture its settled content.
       await page.screenshot({ path: join(artifactDir, `youtrace-${width}-${path.replaceAll('/', '-') || 'home'}.png`), fullPage: true });
     }
     await page.screenshot({ path: join(artifactDir, `youtrace-${width}.png`), fullPage: true });
@@ -100,10 +102,10 @@ try {
   await login(page, '13900009901', 'Synthetic A'); await route(page, '/todo');
   assert.equal(await page.evaluate(() => document.body.textContent.includes('Synthetic A private todo')), true); step('A recovers its data after A/B/A switch');
   const secondTab = await context.newPage(); await route(secondTab, '/todo');
-  await route(page, '/settings'); await clickText(page, '退出登录'); await page.waitForSelector('#login-phone'); await secondTab.waitForSelector('#login-phone'); step('Cross-tab sign-out locks old account view');
+  await route(page, '/settings'); await clickText(page, '退出登录'); await page.waitForSelector('#login-phone'); await secondTab.bringToFront(); await secondTab.waitForSelector('#login-phone'); step('Cross-tab sign-out locks old account view');
   await login(page, '13900009903', 'Synthetic C'); await route(secondTab, '/todo');
   await route(page, '/settings'); await clickText(page, '注销账号（删除全部云端数据）'); await clickText(page, '永久注销');
-  await page.waitForSelector('#login-phone'); await secondTab.waitForSelector('#login-phone'); step('Cross-tab account deletion locks stale private views');
+  await page.waitForSelector('#login-phone'); await secondTab.bringToFront(); await secondTab.waitForSelector('#login-phone'); step('Cross-tab account deletion locks stale private views');
   assert.deepEqual(errors, []); step('No uncaught page errors');
   await context.close();
 } catch (error) {
