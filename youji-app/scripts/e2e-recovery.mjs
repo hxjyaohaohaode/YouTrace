@@ -69,7 +69,13 @@ try {
   await page.click('input[type=checkbox] + span');
   await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Visible checkbox pointer target toggles persisted todo');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.querySelector('input[type=checkbox]')?.checked === true); step('Todo completion survives reload and sync');
-  await route(page, '/quick-note'); await page.type('textarea', '明天学习英语，午饭花了25元');
+  await route(page, '/quick-note');
+  await page.waitForSelector('textarea:not([disabled])');
+  await page.click('textarea');
+  // Commit Chinese text as a complete IME/paste-style input, rather than a
+  // sequence of synthetic non-keyboard insertions with no composition events.
+  await page.keyboard.insertText('明天学习英语，午饭花了25元');
+  assert.equal(await page.$eval('textarea', (el) => el.value), '明天学习英语，午饭花了25元');
   await clickText(page, '查看确认稿');
   await page.waitForFunction(() => location.pathname === '/quick-note/result');
   await page.reload({ waitUntil: 'networkidle0' }); await page.waitForFunction(() => document.body.textContent.includes('明天学习英语'));

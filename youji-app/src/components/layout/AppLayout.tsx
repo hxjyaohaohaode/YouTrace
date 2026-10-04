@@ -11,16 +11,17 @@ export function AppLayout() {
   const isTablet = useMediaQuery('(min-width: 769px) and (max-width: 1024px)');
   const isMobile = !isDesktop && !isTablet;
   const location = useLocation();
+  const immersive = ['/quick-note', '/quick-note/result'].includes(location.pathname);
 
   return (
     <div className="flex min-h-screen w-full overflow-x-hidden bg-[var(--bg)]">
-      {isDesktop && <DesktopSidebar />}
-      {isTablet && <TabletSidebar />}
+      {isDesktop && !immersive && <DesktopSidebar />}
+      {isTablet && !immersive && <TabletSidebar />}
 
       <main
         className={`flex-1 min-w-0 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-          isDesktop ? 'ml-[260px]' : isTablet ? 'ml-[76px]' : ''
-        } ${isMobile ? 'pb-24' : 'pb-8'}`}
+          !immersive && isDesktop ? 'ml-[260px]' : !immersive && isTablet ? 'ml-[76px]' : ''
+        } ${isMobile && !immersive ? 'pb-24' : 'pb-8'}`}
       >
         <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12">
           <LegacyDataNotice />
@@ -38,7 +39,7 @@ export function AppLayout() {
         </div>
       </main>
 
-      {isMobile && <BottomNav />}
+      {isMobile && !immersive && <BottomNav />}
     </div>
   );
 }
