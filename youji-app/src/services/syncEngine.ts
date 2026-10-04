@@ -1,397 +1,286 @@
 import { api, isLoggedIn } from './apiClient';
-import { db, getSetting, setSetting, type OutboxRecord, type SyncEntity } from '../db';
+import { db, generateLocalId, getSetting, LOCAL_DATA_EPOCH_KEY, type OutboxRecord, type SyncEntity } from '../db';
 import { toast } from './toastBus';
-import type { MoodLevel } from './parser';
 
-const MOOD_SET = new Set<MoodLevel>(['happy', 'good', 'normal', 'low', 'sad', 'angry', 'anxious']);
-
-const LAST_SYNC_KEY = 'lastSyncAt';
-const MAX_RETRY_DELAY_MS = 60_000;
-
+const CURSOR_KEY = 'syncV2Cursor';
+const BATCH_KEY = 'syncV2Batch';
+const ENTITIES: SyncEntity[] = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins'];
+const DELETE_KEYS: Record<SyncEntity, string> = { schedules: 'scheduleIds', expenses: 'expenseIds', todos: 'todoIds', habits: 'habitIds', quickNotes: 'quickNoteIds', diaries: 'diaryIds', habitCheckins: 'habitCheckinIds' };
 let flushing = false;
+let paused = false;
+let generation = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
-let consecutiveNetworkFailures = 0;
-let consecutiveRejections = 0;
+let failures = 0;
 let onlineListenerAttached = false;
+let pulling: Promise<void> | null = null;
 
-export async function enqueueSync(
-  entity: SyncEntity,
-  op: 'upsert' | 'delete',
-  payload: unknown,
-): Promise<void> {
-  await db.outbox.add({ entity, op, payload, queuedAt: Date.now() });
-  if (retryTimer === null && !flushing) {
-    scheduleFlush(300);
-  }
+export interface SyncEvent {
+  seq: string;
+  entity: SyncEntity;
+  entityId: string;
+  operation: 'upsert' | 'delete';
+  data: Record<string, unknown> | null;
 }
-
-function scheduleFlush(delayMs: number) {
-  if (retryTimer !== null) {
-    clearTimeout(retryTimer);
-  }
-  retryTimer = setTimeout(() => {
-    retryTimer = null;
-    void flush();
-  }, delayMs);
-}
+interface PullPage { protocol: 2; events: SyncEvent[]; nextCursor: string; hasMore: boolean }
+interface Version { entity: SyncEntity; entityId: string; seq: string }
+interface Ack { protocol: 2; mutationId: string; acknowledged: true; versions: Version[] }
+interface FrozenBatch { mutationId: string; seqs: number[]; keys: string[]; payload: Record<string, unknown> }
+export interface SyncConflict { event: SyncEvent; receivedAt: number }
+const versionKey = (key: string) => `sync-version:${key}`;
+const conflictKey = (key: string) => `sync-conflict:${key}`;
+const tableName = (entity: SyncEntity) => entity === 'diaries' ? 'diary' : entity;
+const isSequence = (value: unknown): value is string => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value);
 
 function recordKey(record: OutboxRecord): string {
-  if (record.entity === 'habitCheckins' && record.op === 'upsert') {
-    const payload = record.payload as { habitId?: string; date?: string };
-    return `habitCheckins:${payload.habitId}:${payload.date}`;
-  }
-  const payload = record.payload as { id?: string };
-  const id = record.op === 'delete' ? String(record.payload) : payload.id ?? '';
-  return `${record.entity}:${id}`;
+  if (record.op === 'delete') return `${record.entity}:${String(record.payload)}`;
+  const row = record.payload as { id?: string; habitId?: string; date?: string };
+  return `${record.entity}:${record.entity === 'habitCheckins' ? `${row.habitId}|${row.date}` : row.id}`;
 }
 
-interface SyncPushPayload {
-  schedules?: unknown[];
-  expenses?: unknown[];
-  todos?: unknown[];
-  habits?: unknown[];
-  quickNotes?: unknown[];
-  diaries?: unknown[];
-  habitCheckins?: unknown[];
-  deletions?: {
-    scheduleIds?: string[];
-    expenseIds?: string[];
-    todoIds?: string[];
-    habitIds?: string[];
-    quickNoteIds?: string[];
-    diaryIds?: string[];
-  };
+function scheduleFlush(delay: number) {
+  if (paused || !isLoggedIn()) return;
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => { retryTimer = null; void flush(); }, delay);
 }
 
-const UPSERT_ENTITY_TO_KEY: Record<string, keyof Omit<SyncPushPayload, 'deletions'>> = {
-  schedules: 'schedules',
-  expenses: 'expenses',
-  todos: 'todos',
-  habits: 'habits',
-  quickNotes: 'quickNotes',
-  diaries: 'diaries',
-  habitCheckins: 'habitCheckins',
-};
+export async function enqueueSync(entity: SyncEntity, op: 'upsert' | 'delete', payload: unknown): Promise<void> {
+  const row: OutboxRecord = { entity, op, payload, queuedAt: Date.now(), status: 'pending', attempts: 0 };
+  const key = recordKey(row);
+  row.baseVersion = await getSetting<string>(versionKey(key), '0');
+  row.predecessorSeq = (await db.outbox.orderBy('seq').toArray()).filter((previous) => recordKey(previous) === key).at(-1)?.seq;
+  await db.outbox.add(row);
+  if (retryTimer === null && !flushing) scheduleFlush(300);
+}
 
-const DELETE_ENTITY_TO_KEY: Record<string, keyof NonNullable<SyncPushPayload['deletions']>> = {
-  schedules: 'scheduleIds',
-  expenses: 'expenseIds',
-  todos: 'todoIds',
-  habits: 'habitIds',
-  quickNotes: 'quickNoteIds',
-  diaries: 'diaryIds',
-};
+export function pauseSync(): void {
+  paused = true;
+  generation += 1;
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = null;
+}
 
-interface FlushOutcome {
-  ok: boolean;
-  status?: number;
-  ownershipConflict: boolean;
-  flushedSeqs: number[];
+async function prepareBatch(): Promise<FrozenBatch | null> {
+  return db.transaction('rw', db.outbox, db.settings, async () => {
+    const frozen = await getSetting<FrozenBatch | null>(BATCH_KEY, null);
+    if (frozen) return frozen;
+    const ops = await db.outbox.orderBy('seq').toArray();
+    const latest = new Map<string, OutboxRecord>();
+    for (const row of ops) latest.set(recordKey(row), row);
+    const mutationId = generateLocalId();
+    const payload: Record<string, unknown> = { protocol: 2, mutationId };
+    const keys: string[] = [];
+    for (const [key, row] of latest) {
+      if (keys.length >= 100) break;
+      if (row.status === 'blocked') continue;
+      if (!ENTITIES.includes(row.entity)) {
+        await db.outbox.update(row.seq!, { status: 'blocked', lastStatus: 400 });
+        continue;
+      }
+      const baseVersion = row.baseVersion ?? '0';
+      const candidate = structuredClone(payload);
+      if (row.op === 'upsert') {
+        ((candidate[row.entity] ??= []) as unknown[]).push({ ...(row.payload as object), baseVersion });
+      } else {
+        const deletions = (candidate.deletions ??= {}) as Record<string, unknown[]>;
+        (deletions[DELETE_KEYS[row.entity]] ??= []).push({ id: String(row.payload), baseVersion });
+      }
+      if (new TextEncoder().encode(JSON.stringify(candidate)).length > 64_000) {
+        if (keys.length) break;
+        await db.outbox.update(row.seq!, { status: 'blocked', lastStatus: 413 });
+        continue;
+      }
+      Object.assign(payload, candidate);
+      keys.push(key);
+    }
+    if (!keys.length) return null;
+    const selected = new Set(keys);
+    const batch = { mutationId, keys, payload, seqs: ops.filter((row) => selected.has(recordKey(row))).map((row) => row.seq!) };
+    await db.settings.put({ key: BATCH_KEY, value: batch });
+    return batch;
+  });
+}
+
+function validAck(response: Ack, batch: FrozenBatch): boolean {
+  if (response.protocol !== 2 || response.acknowledged !== true || response.mutationId !== batch.mutationId || !Array.isArray(response.versions)) return false;
+  const received = new Set(response.versions.filter((v) => ENTITIES.includes(v.entity) && isSequence(v.seq)).map((v) => `${v.entity}:${v.entityId}`));
+  return batch.keys.every((key) => received.has(key));
 }
 
 export async function flush(): Promise<boolean> {
-  if (flushing || !isLoggedIn()) return false;
+  if (flushing || paused || !isLoggedIn()) return false;
   flushing = true;
-
+  const epoch = generation;
   try {
-    const ops = await db.outbox.orderBy('seq').toArray();
-    if (ops.length === 0) return true;
-
-    const latestByKey = new Map<string, OutboxRecord>();
-    for (const record of ops) {
-      latestByKey.set(recordKey(record), record);
-    }
-
-    const allInvolvedSeqs = ops.map((r) => r.seq!);
-    const payload: SyncPushPayload = {};
-    const deletions: NonNullable<SyncPushPayload['deletions']> = {};
-
-    let payloadEmpty = true;
-    for (const record of ops) {
-      if (record.op === 'upsert') {
-        const key = UPSERT_ENTITY_TO_KEY[record.entity];
-        if (!key) {
-          console.warn('syncEngine: dropping unknown upsert entity', record.entity);
-          continue;
-        }
-        if (latestByKey.get(recordKey(record)) !== record) continue;
-        if (!payload[key]) payload[key] = [];
-        payload[key].push(record.payload);
-        payloadEmpty = false;
-      } else {
-        const key = DELETE_ENTITY_TO_KEY[record.entity];
-        if (!key) {
-          console.warn('syncEngine: dropping unknown delete entity', record.entity);
-          continue;
-        }
-        if (latestByKey.get(recordKey(record)) !== record) continue;
-        if (!deletions[key]) deletions[key] = [];
-        deletions[key].push(String(record.payload));
-        payloadEmpty = false;
-      }
-    }
-
-    if (payloadEmpty) {
-      await db.outbox.bulkDelete(allInvolvedSeqs);
-      return true;
-    }
-
-    if (Object.keys(deletions).length > 0) {
-      payload.deletions = deletions;
-    }
-
-    let outcome: FlushOutcome;
+    const batch = await prepareBatch();
+    if (!batch) return await db.outbox.count() === 0;
     try {
-      await api.post('/sync/push', payload, 30_000);
-      outcome = { ok: true, ownershipConflict: false, flushedSeqs: allInvolvedSeqs };
+      const response = await api.post<Ack>('/sync/push', batch.payload, 30_000);
+      if (!validAck(response, batch)) throw new Error('同步回执不完整，修改已保留');
+      if (paused || !isLoggedIn()) return false;
+      await db.transaction('rw', db.outbox, db.settings, async () => {
+        const frozen = await getSetting<FrozenBatch | null>(BATCH_KEY, null);
+        if (epoch !== generation || paused || frozen?.mutationId !== batch.mutationId) return;
+        for (const version of response.versions) {
+          await db.settings.put({ key: versionKey(`${version.entity}:${version.entityId}`), value: version.seq });
+          const conflict = await getSetting<SyncConflict | null>(conflictKey(`${version.entity}:${version.entityId}`), null);
+          if (conflict && BigInt(conflict.event.seq) <= BigInt(version.seq)) await db.settings.delete(conflictKey(`${version.entity}:${version.entityId}`));
+        }
+        const successors = (await db.outbox.orderBy('seq').toArray()).filter((row) => !batch.seqs.includes(row.seq!));
+        const proven = new Set(batch.seqs);
+        for (const row of successors) {
+          if (row.predecessorSeq === undefined || !proven.has(row.predecessorSeq)) continue;
+          const version = response.versions.find((entry) => `${entry.entity}:${entry.entityId}` === recordKey(row));
+          if (version) { await db.outbox.update(row.seq!, { baseVersion: version.seq }); proven.add(row.seq!); }
+        }
+        await db.outbox.bulkDelete(batch.seqs);
+        await db.settings.delete(BATCH_KEY);
+        await db.settings.put({ key: 'lastPushAt', value: new Date().toISOString() });
+      });
+      failures = 0;
+      if (await db.outbox.count() > 0) scheduleFlush(1100);
+      return await db.outbox.count() === 0;
     } catch (error) {
-      const status = (error as { status?: number }).status;
-      const message = error instanceof Error ? error.message : '';
-      outcome = {
-        ok: false,
-        status,
-        ownershipConflict: message.includes('所有权冲突') || message.includes('越权'),
-        flushedSeqs: allInvolvedSeqs,
-      };
-    }
-
-    if (outcome.ok) {
-      await db.outbox.bulkDelete(outcome.flushedSeqs);
-      await setSetting('lastPushAt', new Date().toISOString());
-      if (consecutiveNetworkFailures > 0 || consecutiveRejections > 0) {
-        toast.success('数据已同步');
-      }
-      consecutiveNetworkFailures = 0;
-      consecutiveRejections = 0;
-      return true;
-    }
-
-    if (outcome.ownershipConflict) {
-      await db.outbox.bulkDelete(outcome.flushedSeqs);
-      consecutiveNetworkFailures = 0;
-      consecutiveRejections = 0;
-      toast.warning('检测到多设备数据冲突，已重置待同步队列');
-      void pullServerChanges().catch(() => undefined);
+      if (paused || !isLoggedIn()) return false;
+      const failure = error as { status?: number; code?: string; conflict?: { entity: SyncEntity; entityId: string } };
+      const failedKey = failure.conflict ? `${failure.conflict.entity}:${failure.conflict.entityId}` : null;
+      const blocked = failure.status !== undefined && failure.status >= 400 && failure.status < 500 && failure.status !== 401 && failure.status !== 429;
+      await db.transaction('rw', db.outbox, db.settings, async () => {
+        const frozen = await getSetting<FrozenBatch | null>(BATCH_KEY, null);
+        if (epoch !== generation || paused || frozen?.mutationId !== batch.mutationId) return;
+        for (const seq of batch.seqs) {
+          const row = await db.outbox.get(seq);
+          if (row) await db.outbox.update(seq, { status: blocked && (!failedKey || recordKey(row) === failedKey) ? 'blocked' : 'pending', lastStatus: failure.status, attempts: (row.attempts ?? 0) + 1, lastAttemptAt: Date.now() });
+        }
+        // Known protocol rejection is an atomic rollback. An unknown response,
+        // timeout or lost connection keeps the exact frozen batch for replay.
+        if (blocked && failure.code) await db.settings.delete(BATCH_KEY);
+      });
+      if (blocked) { toast.warning('部分修改需要检查，原稿已保留。请在设置中处理或导出'); if (failedKey) scheduleFlush(1100); }
+      else { failures += 1; scheduleFlush(Math.min(60_000, (failure.status === 429 ? 5000 : 2000) * 2 ** Math.min(failures, 5))); }
       return false;
     }
-
-    if (outcome.status === 429) {
-      consecutiveNetworkFailures += 1;
-      scheduleFlush(Math.min(MAX_RETRY_DELAY_MS, 5000 * 2 ** Math.min(consecutiveNetworkFailures, 4)));
-      return false;
-    }
-
-    if (outcome.status !== undefined && outcome.status >= 400 && outcome.status < 500) {
-      consecutiveRejections += 1;
-      if (consecutiveRejections >= 2) {
-        await db.outbox.bulkDelete(outcome.flushedSeqs);
-        consecutiveRejections = 0;
-        toast.error('有部分修改无法同步，已被丢弃（数据不被服务端接受）');
-      } else {
-        toast.warning('同步被服务端拒绝，正在重试');
-      }
-      return false;
-    }
-
-    consecutiveNetworkFailures += 1;
-    if (consecutiveNetworkFailures === 1 || consecutiveNetworkFailures % 5 === 0) {
-      toast.warning('部分修改尚未同步，将在网络恢复后自动重试');
-    }
-    scheduleFlush(Math.min(MAX_RETRY_DELAY_MS, 2000 * 2 ** Math.min(consecutiveNetworkFailures, 5)));
-    return false;
-  } finally {
-    flushing = false;
-    void compensatePending();
-  }
+  } finally { flushing = false; }
 }
 
-export async function clearPendingSync(): Promise<void> {
-  await db.outbox.clear();
-  if (retryTimer !== null) {
-    clearTimeout(retryTimer);
-    retryTimer = null;
-  }
-  consecutiveNetworkFailures = 0;
-}
-
-interface PullPage {
-  schedules: Array<Record<string, unknown> & { id: string; updatedAt: string }>;
-  expenses: Array<Record<string, unknown> & { id: string; updatedAt: string }>;
-  todos: Array<Record<string, unknown> & { id: string; updatedAt: string }>;
-  habits: Array<Record<string, unknown> & { id: string; updatedAt: string }>;
-  habitCheckins: Array<{ id: string; habitId: string; date: string; done: boolean; source?: string; aiReason?: string | null; confirmed?: boolean; updatedAt: string }>;
-  quickNotes: Array<{ id: string; content: string; timestamp: number | string; parsed?: Record<string, unknown>; confirmed?: boolean; updatedAt: string }>;
-  diaries: Array<{ id: string; date: string; content: string; mood?: string | null; moodScore?: number | null; source?: string; aiInsight?: string | null; createdAt: string; updatedAt: string }>;
-  hasMore: boolean;
-  serverTime: string;
-}
-
-function toMillis(value: unknown, fallback: number): number {
+function millis(value: unknown, fallback = Date.now()): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return parsed;
+  const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function localRow(event: SyncEvent): Record<string, unknown> {
+  const row: Record<string, unknown> = { ...event.data, id: event.entityId };
+  delete row.userId;
+  for (const field of ['createdAt', 'updatedAt']) if (field in row) row[field] = millis(row[field]);
+  if (event.entity === 'todos' && !row.dueDate) row.dueDate = undefined;
+  if (event.entity === 'habitCheckins') { row.confirmed = row.confirmed ?? true; row.aiReason = row.aiReason ?? undefined; }
+  if (event.entity === 'diaries') { row.quickNoteIds = []; row.moodScore = row.moodScore ?? 5; row.aiInsight = row.aiInsight ?? undefined; }
+  if (event.entity === 'quickNotes') {
+    const parsed = (row.parsed && typeof row.parsed === 'object' ? row.parsed : {}) as Record<string, unknown>;
+    return {
+      id: event.entityId, rawInput: row.content, createdAt: typeof row.timestamp === 'string' && /^\d+$/.test(row.timestamp) ? Number(row.timestamp) : millis(row.timestamp),
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [], diary: typeof parsed.diary === 'string' ? parsed.diary : null,
+      mood: parsed.mood ?? null, moodScore: parsed.moodScore ?? 5, habits: Array.isArray(parsed.habits) ? parsed.habits : [],
+      todos: Array.isArray(parsed.todos) ? parsed.todos.map((item: unknown, index: number) => typeof item === 'string' ? { id: `todo-${index}`, text: item, confirmed: true } : item) : [],
+      legacyParsed: parsed.legacyRaw,
+    };
   }
-  return fallback;
+  return row;
 }
 
-function toLocalTimestamp(value: unknown, fallback: number): number {
-  return toMillis(value, fallback);
-}
-
-async function mergePullPage(page: PullPage): Promise<void> {
-  const now = Date.now();
-
-  await db.transaction(
-    'rw',
-    [db.schedules, db.expenses, db.todos, db.habits, db.habitCheckins, db.quickNotes, db.diary],
-    async () => {
-      if (page.schedules.length) {
-        await db.schedules.bulkPut(
-          page.schedules.map((row) => pickFields<ScheduleRowLike>(row, now, ['id', 'title', 'date', 'startTime', 'endTime', 'type', 'location', 'repeat', 'remind'])),
-        );
-      }
-      if (page.expenses.length) {
-        await db.expenses.bulkPut(
-          page.expenses.map((row) => pickFields<ExpenseRowLike>(row, now, ['id', 'amount', 'category', 'name', 'date', 'source', 'isIncome', 'note'])),
-        );
-      }
-      if (page.todos.length) {
-        await db.todos.bulkPut(
-          page.todos.map((row) => {
-            const clean = pickFields<TodoRowLike>(row, now, ['id', 'text', 'dueDate', 'priority', 'done']);
-            return { ...clean, dueDate: clean.dueDate || undefined };
-          }),
-        );
-      }
-      if (page.habits.length) {
-        await db.habits.bulkPut(
-          page.habits.map((row) => pickFields<HabitRowLike>(row, now, ['id', 'name', 'icon', 'frequency', 'sortOrder'])),
-        );
-      }
-
-      if (page.habitCheckins.length) {
-        await db.habitCheckins.bulkPut(
-          page.habitCheckins.map((row) => ({
-            id: `${row.habitId}|${row.date}`,
-            habitId: row.habitId,
-            date: row.date,
-            done: row.done,
-            source: (row.source === 'ai' || row.source === 'schedule' ? row.source : 'manual') as 'manual' | 'ai' | 'schedule',
-            aiReason: row.aiReason ?? undefined,
-            confirmed: row.confirmed ?? true,
-            updatedAt: toMillis(row.updatedAt, now),
-          })),
-        );
-      }
-
-      if (page.quickNotes.length) {
-        await db.quickNotes.bulkPut(
-          page.quickNotes.map((row) => {
-            const parsed = (row.parsed ?? {}) as Record<string, unknown>;
-            const createdAt = toMillis(row.timestamp, toMillis(row.updatedAt, now));
-            const rawMood = typeof parsed.mood === 'string' ? parsed.mood : null;
-            const mood = rawMood && MOOD_SET.has(rawMood as MoodLevel) ? (rawMood as MoodLevel) : null;
-            return {
-              id: row.id,
-              rawInput: row.content,
-              createdAt,
-              expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
-              diary: typeof parsed.diary === 'string' ? parsed.diary : null,
-              mood,
-              moodScore: typeof parsed.moodScore === 'number' ? parsed.moodScore : 5,
-              habits: Array.isArray(parsed.habits) ? parsed.habits : [],
-              todos: Array.isArray(parsed.todos)
-                ? (parsed.todos as Array<string | { id?: string; text?: string; confirmed?: boolean }>).map((item, index) =>
-                    typeof item === 'string'
-                      ? { id: `todo-${index}`, text: item, confirmed: true }
-                      : { id: item.id ?? `todo-${index}`, text: item.text ?? '', confirmed: item.confirmed ?? true },
-                  )
-                : [],
-            };
-          }),
-        );
-      }
-
-      if (page.diaries.length) {
-        await db.diary.bulkPut(
-          page.diaries.map((row) => ({
-            id: row.id,
-            date: row.date,
-            content: row.content,
-            mood: row.mood ?? null,
-            moodScore: typeof row.moodScore === 'number' && row.moodScore >= 1 && row.moodScore <= 10 ? row.moodScore : 5,
-            source: (row.source === 'ai_generated' || row.source === 'quicknote_aggregated'
-              ? row.source
-              : 'manual') as 'manual' | 'ai_generated' | 'quicknote_aggregated',
-            quickNoteIds: [],
-            aiInsight: row.aiInsight ?? undefined,
-            createdAt: toLocalTimestamp(row.createdAt, now),
-            updatedAt: toMillis(row.updatedAt, now),
-          })),
-        );
-      }
-    },
-  );
-}
-
-interface ScheduleRowLike { id: string; title: string; date: string; startTime: string; endTime: string; type: 'class' | 'study' | 'work' | 'social' | 'other'; location: string; repeat: 'none' | 'weekly'; remind: number; createdAt: number; updatedAt: number }
-type ExpenseRowLike = import('../stores/expenseStore').ExpenseItem;
-type TodoRowLike = import('../stores/todoStore').TodoItem;
-type HabitRowLike = { id: string; name: string; icon: string; frequency: 'daily' | 'weekly'; sortOrder: number; createdAt: number };
-
-function pickFields<T>(row: Record<string, unknown>, fallbackTime: number, keepKeys: string[]): T {
-  const result: Record<string, unknown> = {};
-  for (const key of keepKeys) {
-    if (row[key] !== undefined) result[key] = row[key];
+async function applyEvent(event: SyncEvent) {
+  const table = db.table(tableName(event.entity));
+  if (event.operation === 'delete') {
+    await table.delete(event.entityId);
+    if (event.entity === 'habits') await db.habitCheckins.where('habitId').equals(event.entityId).delete();
+  } else {
+    if (!event.data || typeof event.data !== 'object') throw new Error('同步记录不完整，未推进游标');
+    await table.put(localRow(event));
   }
-  result.createdAt = toMillis(row.createdAt, fallbackTime);
-  result.updatedAt = toMillis(row.updatedAt, fallbackTime);
-  return result as T;
+  await db.settings.put({ key: versionKey(`${event.entity}:${event.entityId}`), value: event.seq });
 }
 
-export async function pullServerChanges(): Promise<void> {
-  let since = await getSetting<string>(LAST_SYNC_KEY, '1970-01-01T00:00:00.000Z');
-
-  for (let page = 0; page < 50; page += 1) {
-    const data = await api.get<PullPage>(`/sync/pull?since=${encodeURIComponent(since)}`, 30_000);
-    await mergePullPage(data);
-    since = data.serverTime;
-    await setSetting(LAST_SYNC_KEY, data.serverTime);
-    if (!data.hasMore) break;
+async function pullPages(): Promise<void> {
+  if (paused || !isLoggedIn()) return;
+  const epoch = generation;
+  const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
+  let cursor = await getSetting<string>(CURSOR_KEY, '0');
+  for (;;) {
+    const page = await api.get<PullPage>(`/sync/pull?protocol=2&cursor=${encodeURIComponent(cursor)}&limit=500`, 30_000);
+    if (paused || !isLoggedIn()) return;
+    if (page.protocol !== 2 || !Array.isArray(page.events) || !isSequence(page.nextCursor) || typeof page.hasMore !== 'boolean') throw new Error('同步协议不兼容，保留本地修改');
+    let previous = BigInt(cursor);
+    for (const event of page.events) {
+      if (!ENTITIES.includes(event.entity) || !isSequence(event.seq) || BigInt(event.seq) <= previous || typeof event.entityId !== 'string' || !['upsert', 'delete'].includes(event.operation)) throw new Error('同步顺序无效，未推进游标');
+      previous = BigInt(event.seq);
+    }
+    if (page.nextCursor !== previous.toString() || (page.hasMore && page.events.length === 0)) throw new Error('同步游标无效，未推进游标');
+    await db.transaction('rw', db.tables, async () => {
+      if (paused || epoch !== generation || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return;
+      const pending = new Set((await db.outbox.toArray()).map(recordKey));
+      for (const event of page.events) {
+        const key = `${event.entity}:${event.entityId}`;
+        const known = await getSetting<string>(versionKey(key), '0');
+        if (BigInt(event.seq) <= BigInt(known)) continue;
+        if (pending.has(key) || (event.entity === 'habits' && event.operation === 'delete' && [...pending].some((id) => id.startsWith(`habitCheckins:${event.entityId}|`)))) {
+          const previous = await getSetting<SyncConflict | null>(conflictKey(key), null);
+          if (!previous || BigInt(previous.event.seq) < BigInt(event.seq)) await db.settings.put({ key: conflictKey(key), value: { event, receivedAt: Date.now() } satisfies SyncConflict });
+          continue;
+        }
+        await applyEvent(event);
+      }
+      const committed = await getSetting<string>(CURSOR_KEY, '0');
+      await db.settings.put({ key: CURSOR_KEY, value: BigInt(committed) > BigInt(page.nextCursor) ? committed : page.nextCursor });
+      await db.settings.put({ key: 'lastPullAt', value: new Date().toISOString() });
+    });
+    if (paused || epoch !== generation || await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return;
+    cursor = page.nextCursor;
+    if (!page.hasMore) return;
   }
+}
+
+export function pullServerChanges(): Promise<void> {
+  if (!pulling) pulling = pullPages().finally(() => { pulling = null; });
+  return pulling;
+}
+
+export function resumeSync(): void { paused = false; scheduleFlush(500); }
+
+export async function retryBlockedSync(): Promise<void> {
+  await db.outbox.toCollection().modify({ status: 'pending' });
+  paused = false;
+  await flush();
+}
+
+export async function acceptRemoteConflict(key: string): Promise<void> {
+  if (flushing || await getSetting(BATCH_KEY, null)) throw new Error('还有结果未确认的同步请求，请先重试同步');
+  await db.transaction('rw', db.tables, async () => {
+    if (await getSetting(BATCH_KEY, null)) throw new Error('同步请求结果尚未确认，请先重试');
+    const conflict = await getSetting<SyncConflict | null>(key, null);
+    if (!key.startsWith('sync-conflict:') || !conflict) throw new Error('冲突已变化，请刷新');
+    const recordId = `${conflict.event.entity}:${conflict.event.entityId}`;
+    const currentVersion = await getSetting<string>(versionKey(recordId), '0');
+    if (BigInt(currentVersion) >= BigInt(conflict.event.seq)) { await db.settings.delete(key); return; }
+    const ops = (await db.outbox.toArray()).filter((row) => recordKey(row) === recordId || (conflict.event.entity === 'habits' && recordKey(row).startsWith(`habitCheckins:${conflict.event.entityId}|`)));
+    const local = await db.table(tableName(conflict.event.entity)).get(conflict.event.entityId);
+    // A recovery copy survives resolution and is included in the local export.
+    await db.settings.put({ key: `sync-recovery:${generateLocalId()}`, value: { local, mutations: ops, remote: conflict, resolvedAt: Date.now() } });
+    await applyEvent(conflict.event);
+    await db.outbox.bulkDelete(ops.map((row) => row.seq!));
+    await db.settings.delete(key);
+  });
 }
 
 export async function bootstrapSync(): Promise<{ offline: boolean }> {
   if (!onlineListenerAttached && typeof window !== 'undefined') {
     onlineListenerAttached = true;
-    window.addEventListener('online', () => scheduleFlush(500));
+    window.addEventListener('online', () => { scheduleFlush(500); void pullServerChanges().catch(() => undefined); });
   }
-
   if (!isLoggedIn()) return { offline: false };
-
-  let offline = false;
-  try {
-    await pullServerChanges();
-  } catch {
-    offline = true;
-    toast.warning('当前处于离线状态，展示本地数据');
-  }
-
-  void flush();
-  return { offline };
+  paused = false;
+  try { await flush(); await pullServerChanges(); return { offline: false }; }
+  catch { toast.warning('同步暂未完成，展示当前账号本地记录'); return { offline: true }; }
 }
 
-export async function resetSyncCursor(): Promise<void> {
-  await setSetting(LAST_SYNC_KEY, '1970-01-01T00:00:00.000Z');
-  consecutiveNetworkFailures = 0;
-  consecutiveRejections = 0;
-}
-
-async function compensatePending(): Promise<void> {
-  if (flushing) return;
-  const pending = await db.outbox.count();
-  if (pending > 0 && isLoggedIn()) {
-    scheduleFlush(500);
-  }
-}
+export async function resetSyncCursor(): Promise<void> { await db.settings.put({ key: CURSOR_KEY, value: '0' }); }
+export async function clearPendingSync(): Promise<void> { throw new Error('未确认修改不能自动清除，请先导出并处理'); }

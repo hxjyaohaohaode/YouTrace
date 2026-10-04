@@ -29,3 +29,8 @@ server/prisma/*.db-*
 *.njsproj
 *.sln
 *.sw?
+
+# Synthetic test reports and browser screenshots
+test-artifacts/
+
+!server/.env.example

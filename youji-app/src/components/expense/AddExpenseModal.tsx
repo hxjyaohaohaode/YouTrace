@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { UtensilsCrossed, Car, Gamepad2, BookOpen, ShoppingCart, Package, Check } from 'lucide-react';
 import { Modal } from '../ui/Modal';
@@ -25,6 +25,8 @@ interface AddExpenseModalProps {
 }
 
 export function AddExpenseModal({ open, onClose }: AddExpenseModalProps) {
+  const savingGuard = useRef(false);
+  const [saving, setSaving] = useState(false);
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('food');
   const [name, setName] = useState('');
@@ -36,6 +38,7 @@ export function AddExpenseModal({ open, onClose }: AddExpenseModalProps) {
   const amountValid = fenValue > 0 && fenValue <= MAX_AMOUNT_FEN;
 
   const handleSave = async () => {
+    if (savingGuard.current) return;
     if (!amountValid) {
       toast.error(isIncome ? '请输入有效的收入金额' : '请输入有效的金额（大于0）');
       return;
@@ -43,6 +46,8 @@ export function AddExpenseModal({ open, onClose }: AddExpenseModalProps) {
 
     const label = expenseCategoryIcons[category]?.label ?? '其他';
 
+    savingGuard.current = true;
+    setSaving(true);
     try {
       await addItem({
         name: (name.trim() || label).slice(0, 100),
@@ -57,15 +62,15 @@ export function AddExpenseModal({ open, onClose }: AddExpenseModalProps) {
       setIsIncome(false);
       onClose();
     } catch {
-      toast.error('保存失败，请重试');
-    }
+      toast.error('保存失败，输入已保留，请重试');
+    } finally { savingGuard.current = false; setSaving(false); }
   };
 
   return (
     <Modal open={open} onClose={onClose} title="记一笔" footer={
       <>
         <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
-        <Button size="sm" onClick={() => void handleSave()} disabled={!amountValid}>保存</Button>
+        <Button size="sm" onClick={() => void handleSave()} disabled={!amountValid || saving}>{saving ? '保存中…' : '保存'}</Button>
       </>
     }>
       <div className="space-y-5">

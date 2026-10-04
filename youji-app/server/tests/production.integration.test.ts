@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { consumeSseStream } from '../../src/services/sseParser.ts'
 
 const databasePath = resolve('prisma', `youji-test-${process.pid}-${Date.now()}.db`)
@@ -103,16 +104,12 @@ before(async () => {
     .map((entry) => entry.name)
     .sort()
 
-  for (const name of entries) {
-    const migration = await readFile(resolve(migrationsDir, name, 'migration.sql'), 'utf8')
-    const statements = migration
-      .split(';')
-      .map((statement) => statement.trim())
-      .filter(Boolean)
-    for (const statement of statements) {
-      await prisma.$executeRawUnsafe(statement)
+  const fixture = new DatabaseSync(databasePath, { enableDoubleQuotedStringLiterals: true })
+  try {
+    for (const name of entries) {
+      fixture.exec(await readFile(resolve(migrationsDir, name, 'migration.sql'), 'utf8'))
     }
-  }
+  } finally { fixture.close() }
 
   ;({ app } = await import('../src/app.js'))
 })
@@ -526,92 +523,50 @@ test('user settings patch validates input and persists', async () => {
   assert.equal(unauthenticated.status, 401)
 })
 
-test('sync round-trips client-owned records with deletions and enforces ownership', async () => {
+test('sync v2 round-trips records, deletion events, cursors and ownership', async () => {
   const alice = await registerUser('13900001006', 'alice-sync')
   const mallory = await registerUser('13900001007', 'mallory-sync')
-
-  const scheduleId = 'sched-alice-0001'
-  const expenseId = 'expen-alice-0001'
-  const todoId = 'todo--alice-0001'
-  const habitId = 'habit-alice-0001'
-
+  const scheduleId = 'sched-alice-0001', expenseId = 'expen-alice-0001', todoId = 'todo--alice-0001', habitId = 'habit-alice-0001'
   const pushed = await jsonRequest('/api/sync/push', {
-    schedules: [{
-      id: scheduleId, title: '小组会', date: '2026-08-24',
-      startTime: '10:00', endTime: '11:00', type: 'study', location: '图书馆',
-    }],
+    protocol: 2, mutationId: 'alice-initial-0001',
+    schedules: [{ id: scheduleId, title: '小组会', date: '2026-08-24', startTime: '10:00', endTime: '11:00', type: 'study', location: '图书馆' }],
     expenses: [{ id: expenseId, amount: 2500, category: 'food', name: '午饭', date: '2026-08-23' }],
     todos: [{ id: todoId, text: '复习高数', dueDate: '2026-08-25', priority: 'high' }],
     habits: [{ id: habitId, name: '背单词', icon: '📖' }],
     habitCheckins: [{ habitId, date: '2026-08-23', done: true, source: 'manual' }],
   }, { Cookie: alice.cookie })
   assert.equal(pushed.status, 200)
-  const pushResult = await pushed.json() as { synced: Record<string, number> }
-  assert.equal(pushResult.synced.schedules, 1)
-  assert.equal(pushResult.synced.habitCheckins, 1)
-
-  const malloryPush = await jsonRequest('/api/sync/push', {
-    schedules: [{
-      id: scheduleId, title: '篡改', date: '2026-08-24',
-      startTime: '10:00', endTime: '11:00',
-    }],
+  const receipt = await pushed.json() as { acknowledged: boolean; synced: Record<string, number>; versions: Array<{ entityId: string; seq: string }> }
+  assert.equal(receipt.acknowledged, true)
+  assert.equal(receipt.synced.schedules, 1)
+  assert.equal(receipt.synced.habitCheckins, 1)
+  const version = (id: string) => receipt.versions.find((v) => v.entityId === id)!.seq
+  const foreign = await jsonRequest('/api/sync/push', {
+    protocol: 2, mutationId: 'mallory-update-0001', schedules: [{ id: scheduleId, title: '篡改', date: '2026-08-24', startTime: '10:00', endTime: '11:00' }],
   }, { Cookie: mallory.cookie })
-  assert.equal(malloryPush.status, 403)
-
-  const pulled = await request('/api/sync/pull?since=1970-01-01T00:00:00Z', {
-    headers: { Cookie: alice.cookie },
-  })
+  assert.equal(foreign.status, 403)
+  const pulled = await request('/api/sync/pull?protocol=2&cursor=0', { headers: { Cookie: alice.cookie } })
   assert.equal(pulled.status, 200)
-  const pullData = await pulled.json() as {
-    schedules: Array<{ id: string; title: string }>
-    expenses: Array<{ id: string; updatedAt: string }>
-    todos: Array<{ id: string; text: string }>
-    habits: Array<{ id: string; name: string }>
-    habitCheckins: Array<{ habitId: string; date: string; done: boolean }>
-    quickNotes: unknown[]
-    diaries: unknown[]
-    serverTime: string
-  }
-  assert.equal(pullData.schedules.length, 1)
-  assert.equal(pullData.schedules[0].title, '小组会')
-  assert.equal(pullData.habitCheckins.length, 1)
-  assert.ok(pullData.serverTime)
-
-  const incremental = await request(`/api/sync/pull?since=${encodeURIComponent(pullData.serverTime)}`, {
-    headers: { Cookie: alice.cookie },
-  })
-  const incrementalData = await incremental.json() as { schedules: unknown[] }
-  assert.equal(incrementalData.schedules.length, 0)
-
-  const deleted = await jsonRequest('/api/sync/push', {
-    deletions: { scheduleIds: [scheduleId], expenseIds: [expenseId] },
-  }, { Cookie: alice.cookie })
+  const page = await pulled.json() as { events: Array<{ entity: string; entityId: string; operation: string; data: { title: string } }>; nextCursor: string }
+  assert.equal(page.events.filter((e) => e.entity === 'schedules').length, 1)
+  assert.equal(page.events.find((e) => e.entity === 'schedules')!.data.title, '小组会')
+  assert.equal(page.events.filter((e) => e.entity === 'habitCheckins').length, 1)
+  const incremental = await request(`/api/sync/pull?protocol=2&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
+  assert.equal(((await incremental.json()) as { events: unknown[] }).events.length, 0)
+  const deletions = { scheduleIds: [{ id: scheduleId, baseVersion: version(scheduleId) }], expenseIds: [{ id: expenseId, baseVersion: version(expenseId) }] }
+  const deleted = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'alice-delete-0001', deletions }, { Cookie: alice.cookie })
   assert.equal(deleted.status, 200)
-
-  const malloryDelete = await jsonRequest('/api/sync/push', {
-    deletions: { todoIds: [todoId] },
-  }, { Cookie: mallory.cookie })
-  assert.equal(malloryDelete.status, 200)
-
-  const repeatDelete = await jsonRequest('/api/sync/push', {
-    deletions: { scheduleIds: [scheduleId], expenseIds: [scheduleId] },
-  }, { Cookie: alice.cookie })
-  assert.equal(repeatDelete.status, 200)
-
-  const afterDelete = await request('/api/sync/pull', { headers: { Cookie: alice.cookie } })
-  const afterDeleteData = await afterDelete.json() as { schedules: unknown[]; expenses: unknown[]; todos: unknown[] }
-  assert.equal(afterDeleteData.schedules.length, 0)
-  assert.equal(afterDeleteData.expenses.length, 0)
-  assert.equal(afterDeleteData.todos.length, 1)
-
-  const badSince = await request('/api/sync/pull?since=not-a-date', {
-    headers: { Cookie: alice.cookie },
-  })
-  assert.equal(badSince.status, 400)
-
-  const invalidPush = await jsonRequest('/api/sync/push', {
-    expenses: [{ id: 'short', amount: -5, category: '', name: '', date: 'bad' }],
-  }, { Cookie: alice.cookie })
+  const foreignDelete = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'mallory-delete-0001', deletions: { todoIds: [{ id: todoId, baseVersion: version(todoId) }] } }, { Cookie: mallory.cookie })
+  assert.equal(foreignDelete.status, 403)
+  const replay = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'alice-delete-0001', deletions }, { Cookie: alice.cookie })
+  assert.equal(replay.status, 200)
+  const afterDelete = await request(`/api/sync/pull?protocol=2&cursor=${page.nextCursor}`, { headers: { Cookie: alice.cookie } })
+  const events = ((await afterDelete.json()) as { events: Array<{ operation: string }> }).events
+  assert.equal(events.filter((e) => e.operation === 'delete').length, 2)
+  assert.equal(await prisma.todo.count({ where: { id: todoId } }), 1)
+  assert.equal((await request('/api/sync/pull?protocol=2&cursor=not-a-seq', { headers: { Cookie: alice.cookie } })).status, 400)
+  assert.equal((await request('/api/sync/pull?since=1970-01-01', { headers: { Cookie: alice.cookie } })).status, 426)
+  const invalidPush = await jsonRequest('/api/sync/push', { protocol: 2, mutationId: 'invalid-mutation-0001', expenses: [{ id: 'short', amount: -5, category: '', name: '', date: 'bad' }] }, { Cookie: alice.cookie })
   assert.equal(invalidPush.status, 400)
 })
 
@@ -679,4 +634,24 @@ test('account deletion cascades every owned record and revokes access', async ()
 
   const meAfter = await request('/api/auth/me', { headers: { Cookie: cookie } })
   assert.equal(meAfter.status, 401)
+})
+
+
+test('expected-account header rejects shared-cookie races on every private route', async () => {
+  const { cookie } = await registerUser('13900001030', 'account-boundary')
+  const requests: Array<[string, string]> = [['/api/todos', 'GET'], ['/api/sync/pull?protocol=2', 'GET'], ['/api/user/settings', 'GET'], ['/api/chat', 'POST'], ['/api/user', 'DELETE']]
+  for (const [path, method] of requests) {
+    const response = await request(path, { method, headers: { Cookie: cookie, 'X-YouTrace-Account': 'different-account' } })
+    assert.equal(response.status, 409, path)
+    assert.equal(response.headers.get('X-YouTrace-Account-Mismatch'), 'true')
+  }
+})
+
+test('logout revokes copied cookie on auth and business routes', async () => {
+  const { cookie } = await registerUser('13900001031', 'logout-boundary')
+  assert.equal((await request('/api/todos', { headers: { Cookie: cookie } })).status, 200)
+  assert.equal((await jsonRequest('/api/auth/logout', {}, { Cookie: cookie })).status, 200)
+  for (const path of ['/api/auth/me', '/api/todos', '/api/user/settings', '/api/sync/pull?protocol=2']) {
+    assert.equal((await request(path, { headers: { Cookie: cookie } })).status, 401, path)
+  }
 })

@@ -57,6 +57,7 @@ export function AddTodoModal({ open, onClose }: AddTodoModalProps) {
     setSaving(true);
     try {
       await addItem({ text: trimmed.slice(0, 200), priority, dueDate: resolveDueDate(dueChoice) });
+      setText('');
       onClose();
     } catch {
       toast.error('待办创建失败，请重试');

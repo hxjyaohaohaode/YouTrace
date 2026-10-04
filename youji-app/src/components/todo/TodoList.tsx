@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, AlertCircle, Calendar, Clock } from 'lucide-react';
 import { useTodoStore, isOverdue, type TodoItem, type Priority } from '../../stores/todoStore';
+import { toast } from '../../services/toastBus';
 import { Checkbox } from '../ui/Checkbox';
 import { formatDateLabel, getNaturalWeekDates, getToday } from '../../utils/date';
 
@@ -86,7 +87,7 @@ function TodoRow({ item, onToggle, onUndo }: TodoRowProps) {
       className="relative"
     >
       <div className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] px-4 py-3.5 shadow-[var(--shadow-sm)] transition-all duration-200 hover:shadow-[var(--shadow-md)]">
-        <Checkbox checked={item.done} onChange={handleToggle} aria-label={`完成 ${item.text}`} />
+        <Checkbox checked={item.done} onChange={handleToggle} ariaLabel={`完成 ${item.text}`} />
 
         <div className="min-w-0 flex-1">
           <motion.p
@@ -164,7 +165,7 @@ export function TodoList() {
           className="py-12 text-center"
         >
           <p className="mb-2 text-2xl" aria-hidden>🎉</p>
-          <p className="text-sm font-medium text-[var(--text-3)]">今天都做完了</p>
+          <p className="text-sm font-medium text-[var(--text-3)]">清单里的待办都已完成</p>
         </motion.div>
       )}
 
@@ -186,8 +187,8 @@ export function TodoList() {
                   <TodoRow
                     key={item.id}
                     item={item}
-                    onToggle={() => void toggleTodo(item.id)}
-                    onUndo={() => void toggleTodo(item.id)}
+                    onToggle={() => void toggleTodo(item.id).catch((error: unknown) => toast.error(error instanceof Error ? error.message : '未保存，请重试'))}
+                    onUndo={() => void toggleTodo(item.id).catch((error: unknown) => toast.error(error instanceof Error ? error.message : '未保存，请重试'))}
                   />
                 ))}
               </AnimatePresence>

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { db, generateLocalId, type HabitCheckinRecord } from '../db';
-import { enqueueSync, flush } from '../services/syncEngine';
-import { isLoggedIn } from '../services/apiClient';
+import { commitLocalMutation } from '../services/localMutation';
 import { addDays, getToday } from '../utils/date';
 import { normalizeHabitFrequency } from '../utils/icons';
 
@@ -23,44 +22,6 @@ export interface HabitView extends HabitItem {
   done: boolean;
   streak: number;
   recentCheckins: HabitCheckinDay[];
-}
-
-const HABIT_DOMAIN_MAP: Array<{ keywords: string[]; domain: string }> = [
-  { keywords: ['跑', '运动', '健身', '锻炼', '游泳', '瑜伽'], domain: '健康' },
-  { keywords: ['读', '学', '单词', '背', '课', '写日记'], domain: '学习' },
-  { keywords: ['水', '早睡', '早起', '冥想'], domain: '生活' },
-];
-
-function inferDomain(habitName: string): string | null {
-  for (const rule of HABIT_DOMAIN_MAP) {
-    if (rule.keywords.some((kw) => habitName.includes(kw))) return rule.domain;
-  }
-  return null;
-}
-
-async function propagateToGoals(habitName: string) {
-  try {
-    const { useGoalStore } = await import('./goalStore');
-    const domain = inferDomain(habitName);
-    if (!domain) return;
-
-    const goals = useGoalStore.getState().items.filter(
-      (g) => g.domain === domain && g.progress < 100
-    );
-    for (const goal of goals) {
-      const increment = goal.level === 'short' ? 5 : goal.level === 'medium' ? 2 : 1;
-      const newProgress = Math.min(100, goal.progress + increment);
-      if (newProgress !== goal.progress) {
-        await useGoalStore.getState().updateProgress(goal.id, newProgress);
-        if (newProgress >= 100) {
-          const { toast } = await import('../services/toastBus');
-          toast.success(`🎉 目标「${goal.title}」已完成！`);
-        }
-      }
-    }
-  } catch {
-    // goal propagation is best-effort
-  }
 }
 
 interface HabitState {
@@ -137,22 +98,12 @@ export const useHabitStore = create<HabitState>((set, get) => ({
       createdAt: now,
     };
 
-    await db.habits.put(item);
+    await commitLocalMutation('habits', 'upsert', item, () => db.habits.put(item));
     const allCheckins = await db.habitCheckins.toArray();
     set((state) => ({
       items: deriveViews([...state.items, item], allCheckins),
     }));
 
-    if (isLoggedIn()) {
-      await enqueueSync('habits', 'upsert', {
-        id: item.id,
-        name: item.name,
-        icon: item.icon,
-        frequency: item.frequency,
-        sortOrder: item.sortOrder,
-      });
-      void flush();
-    }
 
     return { ...item, done: false, streak: 0, recentCheckins: [] };
   },
@@ -175,34 +126,22 @@ export const useHabitStore = create<HabitState>((set, get) => ({
       updatedAt: Date.now(),
     };
 
-    await db.habitCheckins.put(record);
+    await commitLocalMutation('habitCheckins', 'upsert', record, () => db.habitCheckins.put(record), undefined, existing ?? null);
     await useHabitStore.getState().loadFromDB();
 
-    if (nextDone) {
-      void propagateToGoals(habit.name);
-    }
 
-    if (isLoggedIn()) {
-      await enqueueSync('habitCheckins', 'upsert', {
-        habitId: record.habitId,
-        date: record.date,
-        done: record.done,
-        source: record.source,
-      });
-      void flush();
-    }
   },
 
   removeHabit: async (id) => {
-    await db.transaction('rw', db.habits, db.habitCheckins, async () => {
+    const habit = get().items.find((item) => item.id === id);
+    if (!habit) return;
+    const { id: habitId, name, icon, frequency, sortOrder, createdAt } = habit;
+    const expected = { id: habitId, name, icon, frequency, sortOrder, createdAt };
+    await commitLocalMutation('habits', 'delete', id, async () => {
       await db.habitCheckins.where('habitId').equals(id).delete();
       await db.habits.delete(id);
-    });
+    }, [db.habits, db.habitCheckins], expected);
     set((state) => ({ items: state.items.filter((h) => h.id !== id) }));
 
-    if (isLoggedIn()) {
-      await enqueueSync('habits', 'delete', id);
-      void flush();
-    }
   },
 }));

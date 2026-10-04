@@ -62,6 +62,7 @@ function scheduleServerSync(key: keyof AppSettings) {
 
   const send = () => {
     serverSyncTimers.delete(key);
+    if (!isLoggedIn()) return;
     const state = useSettingsStore.getState();
     const body: Record<string, unknown> = {};
     if (key === 'coachStyle') body.coachStyle = state.coachStyle;

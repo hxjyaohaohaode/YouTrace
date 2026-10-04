@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 import { useAuthStore } from '../stores/authStore';
 
+const DataInfo = lazy(() => import('../pages/DataInfo'));
 const Login = lazy(() => import('../pages/Login'));
 const Onboarding = lazy(() => import('../pages/Onboarding'));
 const Home = lazy(() => import('../pages/Home'));
@@ -33,6 +34,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const location = useLocation();
   if (!isAuthenticated) {
+    sessionStorage.setItem('youtrace:return-to', location.pathname + location.search);
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
   return <>{children}</>;
@@ -50,6 +52,7 @@ export function AppRoutes() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        <Route path="/data-info" element={<DataInfo />} />
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
@@ -63,7 +66,8 @@ export function AppRoutes() {
           <Route path="/diary" element={<Diary />} />
           <Route path="/coach" element={<Coach />} />
           <Route path="/insights" element={<CoachInsights />} />
-          <Route path="/settings" element={<Settings />} />`n          <Route path="/goal" element={<Goal />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/goal" element={<Goal />} />
           <Route path="/timeline" element={<Timeline />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

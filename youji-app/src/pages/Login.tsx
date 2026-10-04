@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { useLocation, Navigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
@@ -16,7 +16,6 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function Login() {
-  const navigate = useNavigate()
   const location = useLocation()
   const sendCode = useAuthStore((s) => s.sendCode)
   const verify = useAuthStore((s) => s.verify)
@@ -39,7 +38,8 @@ export default function Login() {
     return () => clearTimeout(timer)
   }, [resendCountdown])
 
-  const from = (location.state as { from?: string } | null)?.from ?? '/'
+  const requestedPath = (location.state as { from?: string } | null)?.from ?? sessionStorage.getItem('youtrace:return-to') ?? '/'
+  const from = requestedPath.startsWith('/') && !requestedPath.startsWith('//') && !requestedPath.startsWith('/login') ? requestedPath : '/'
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
   if (isAuthenticated) {
@@ -83,7 +83,8 @@ export default function Login() {
         setRegistrationTicket(result.registrationTicket)
         setStep('register')
       } else {
-        navigate(from, { replace: true })
+        sessionStorage.removeItem('youtrace:return-to')
+        window.location.replace(from)
       }
     } catch (err: unknown) {
       setError(getErrorMessage(err, '验证失败'))
@@ -103,7 +104,8 @@ export default function Login() {
     try {
       if (!registrationTicket) throw new Error('注册凭证已失效，请重新验证')
       await register(phone, nickname.trim(), registrationTicket)
-      navigate(from, { replace: true })
+      sessionStorage.removeItem('youtrace:return-to')
+        window.location.replace(from)
     } catch (err: unknown) {
       setError(getErrorMessage(err, '注册失败'))
     } finally {
@@ -256,7 +258,7 @@ export default function Login() {
         </div>
 
         <p className="mt-4 text-center text-xs text-[var(--text-3)]">
-          登录即代表同意用户协议和隐私政策
+          使用前请阅读<Link to="/data-info" className="ml-1 text-[var(--primary)] underline">数据处理说明</Link>
         </p>
       </motion.div>
     </div>

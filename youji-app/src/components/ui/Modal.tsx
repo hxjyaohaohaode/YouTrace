@@ -23,6 +23,8 @@ export function Modal({ open, onClose, title, children, footer, className = '' }
   const isMobile = useMediaQuery('(max-width: 768px)');
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const stackSymbol = useRef(Symbol('modal'));
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function Modal({ open, onClose, title, children, footer, className = '' }
 
     const panel = panelRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const focusTarget = panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    const focusTarget = panel?.querySelector<HTMLElement>('input:not([type=hidden]), textarea, select') ?? panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     (focusTarget ?? panel)?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -46,7 +48,7 @@ export function Modal({ open, onClose, title, children, footer, className = '' }
 
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !panel) return;
@@ -82,7 +84,7 @@ export function Modal({ open, onClose, title, children, footer, className = '' }
       }
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>

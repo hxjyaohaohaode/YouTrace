@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { liveQuery } from 'dexie';
+import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
+import { SyncConflictPanel } from '../components/settings/SyncConflictPanel';
 import { motion } from 'framer-motion';
 import { Download, Trash2, Shield, Clock, Moon, Sun, Monitor, Sparkles, Bell, AlertTriangle, LogOut, Wallet, UserX, RefreshCw, Database } from 'lucide-react';
 import { useSettingsStore, type CoachStyle, type ThemeMode } from '../stores/settingsStore';
 import { useExpenseStore } from '../stores/expenseStore';
 import { useAuthStore } from '../stores/authStore';
-import { exportAllData, clearAllData, db } from '../db';
+import { exportAllData, clearAllData, exportLegacyData, hasLegacyDatabase, db } from '../db';
 import { api, isLoggedIn, clearSession } from '../services/apiClient';
-import { resetSyncCursor } from '../services/syncEngine';
+
 import { toast } from '../services/toastBus';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
@@ -60,6 +63,7 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
 
 interface SyncStats {
   pending: number;
+  blocked: number;
   lastPush: string | null;
   localRecords: number;
 }
@@ -69,43 +73,39 @@ function SyncPanel() {
   const [stats, setStats] = useState<SyncStats | null>(null);
   const [syncing, setSyncing] = useState(false);
 
-  const load = async () => {
-    try {
-      const [pending, lastPushRecord, counts] = await Promise.all([
-        db.outbox.count(),
-        db.settings.get('lastPushAt'),
-        Promise.all([
-          db.expenses.count(),
-          db.todos.count(),
-          db.habits.count(),
-          db.quickNotes.count(),
-          db.diary.count(),
-          db.schedules.count(),
-        ]),
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const subscription = liveQuery(async () => {
+      const [pendingRows, lastPushRecord, counts] = await Promise.all([
+        db.outbox.toArray(), db.settings.get('lastPushAt'),
+        Promise.all([db.expenses.count(), db.todos.count(), db.habits.count(), db.habitCheckins.count(), db.quickNotes.count(), db.diary.count(), db.schedules.count(), db.goals.count()]),
       ]);
-      setStats({
-        pending,
-        lastPush:
-          typeof lastPushRecord?.value === 'string' ? (lastPushRecord.value as string) : null,
+      return {
+        pending: pendingRows.length,
+        blocked: pendingRows.filter((row) => row.status === 'blocked').length,
+        lastPush: typeof lastPushRecord?.value === 'string' ? lastPushRecord.value : null,
         localRecords: counts.reduce((sum, n) => sum + n, 0),
-      });
-    } catch {
-      // ignore
-    }
-  };
-
-  void load();
+      };
+    }).subscribe({ next: setStats, error: () => setError('暂时无法读取同步状态，请刷新重试') });
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSyncNow = async () => {
     if (syncing || !isAuthenticated) return;
     setSyncing(true);
-    const { flush, pullServerChanges } = await import('../services/syncEngine');
-    await pullServerChanges().catch(() => undefined);
-    const ok = await flush();
-    await load();
-    setSyncing(false);
-    if (ok) toast.success('同步完成');
-    else toast.warning('当前离线，稍后自动重试');
+    setError('');
+    try {
+      const { retryBlockedSync, pullServerChanges } = await import('../services/syncEngine');
+      await retryBlockedSync();
+      await pullServerChanges();
+      const { loadAllStores } = await import('../hooks/useAppInit');
+      await loadAllStores();
+      const pending = await db.outbox.count();
+      if (pending === 0) toast.success('支持同步的记录已核对');
+      else toast.warning(`还有 ${pending} 条修改待确认，原稿仍安全保存在本设备`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '同步暂未完成，修改已保留');
+    } finally { setSyncing(false); }
   };
 
   if (!isAuthenticated) {
@@ -120,6 +120,8 @@ function SyncPanel() {
 
   return (
     <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+      {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
+      {!stats && !error && <p role="status" className="text-sm text-[var(--text-3)]">正在读取本设备状态…</p>}
       {stats && (
         <>
           <div className="flex items-center justify-between">
@@ -127,7 +129,7 @@ function SyncPanel() {
               <span className={`h-2 w-2 rounded-full ${stats.pending > 0 ? 'bg-[var(--warning)]' : 'bg-[var(--success)]'}`} aria-hidden />
               <div>
                 <p className="text-[13px] font-semibold text-[var(--text-1)]">
-                  {stats.pending > 0 ? `${stats.pending} 条待同步` : '全部已同步'}
+                  {stats.pending > 0 ? `${stats.pending} 条待确认${stats.blocked ? `，${stats.blocked} 条需要检查` : ''}` : '没有待上传修改'}
                 </p>
                 {stats.lastPush && (
                   <p className="mt-0.5 text-xs text-[var(--text-3)]">
@@ -150,7 +152,7 @@ function SyncPanel() {
           <div className="flex items-center gap-2 border-t border-[var(--border-light)] pt-3">
             <Database size={13} className="shrink-0 text-[var(--text-4)]" aria-hidden />
             <p className="text-xs text-[var(--text-3)]">
-              本设备共 {stats.localRecords} 条记录（花销/待办/习惯/速记/日记/日程）
+              当前账号本设备共 {stats.localRecords} 条记录，包含打卡与目标。目标目前仅保存在本设备，请定期导出备份
             </p>
           </div>
         </>
@@ -166,22 +168,26 @@ export default function Settings() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const logout = useAuthStore((s) => s.logout);
 
+  const [hasLegacy, setHasLegacy] = useState(false);
+  const [showLegacyConfirm, setShowLegacyConfirm] = useState(false);
+  useEffect(() => { void hasLegacyDatabase().then(setHasLegacy); }, []);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [budgetInput, setBudgetInput] = useState<string>((monthBudgetFen / 100).toString());
 
-  const handleExport = async () => {
+  const handleExport = async (legacy = false) => {
     try {
-      const data = await exportAllData();
+      const data = legacy ? await exportLegacyData() : await exportAllData();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `youji-backup-${getToday()}.json`;
+      a.download = `youtrace-${legacy ? 'legacy-unverified' : 'backup'}-${getToday()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      toast.success('数据已导出');
+      setShowLegacyConfirm(false);
+      toast.success('备份已生成，包含本地记录、草稿和未确认的修改；请妥善保存');
     } catch {
       toast.error('导出失败，请重试');
     }
@@ -203,25 +209,28 @@ export default function Settings() {
 
   const handleClear = async () => {
     try {
+      const { pauseSync } = await import('../services/syncEngine');
+      pauseSync();
       await clearAllData();
       window.location.reload();
-    } catch {
-      toast.error('清除失败，请重试');
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : '清除失败，请重试');
+      const { resumeSync } = await import('../services/syncEngine');
+      resumeSync();
       setShowClearConfirm(false);
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    void resetSyncCursor().then(() => window.location.assign('/'));
-  };
+  const handleLogout = () => { void logout(); };
 
   const handleDeleteAccount = async () => {
     if (deletingAccount) return;
     setDeletingAccount(true);
     try {
       await api.delete('/user', 15_000);
-      await clearAllData();
+      const { pauseSync } = await import('../services/syncEngine');
+      pauseSync();
+      await clearAllData({ allowPending: true });
       clearSession();
       toast.success('账号与所有云端数据已删除');
       window.location.assign('/login');
@@ -289,7 +298,6 @@ export default function Settings() {
                     step="1"
                     value={budgetInput}
                     onChange={(e) => setBudgetInput(e.target.value)}
-                    onBlur={() => void handleBudgetSave()}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handleBudgetSave(); }}
                     className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-[var(--primary)]"
                   />
@@ -308,13 +316,13 @@ export default function Settings() {
             <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
               <ToggleRow
                 label="教练推送"
-                sub="洞察提醒、正向鼓励等"
+                sub="打开应用时显示洞察与提醒，不是系统后台推送"
                 checked={settings.coachPushEnabled}
                 onChange={(next) => void settings.updateSetting('coachPushEnabled', next)}
               />
               <ToggleRow
                 label="晚间复盘"
-                sub="每晚回顾一天"
+                sub="打开应用时，在设定时段提示回顾"
                 checked={settings.eveningReviewEnabled}
                 onChange={(next) => void settings.updateSetting('eveningReviewEnabled', next)}
               />
@@ -410,6 +418,8 @@ export default function Settings() {
               数据同步
             </h2>
             <SyncPanel />
+            <SyncConflictPanel />
+            <DiagnosticsPanel />
           </section>
 
           <section className="space-y-3" aria-label="账号">
@@ -445,9 +455,10 @@ export default function Settings() {
               <div>
                 <p className="text-[13px] font-bold text-[var(--text-1)]">你的数据属于你</p>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--text-2)]">
-                  数据默认存储在本设备。登录后，你的记录会同步到服务端以支持多设备使用和 AI 教练分析。你随时可以导出或清除本地数据。
+                  当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；目标、部分偏好和草稿仍是本地数据。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
                 </p>
               </div>
+              {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-xs text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
               <div className="flex gap-2 border-t border-[var(--border-light)] pt-4">
                 <Button variant="ghost" size="sm" icon={Download} onClick={() => void handleExport()} className="flex-1">
                   导出数据
@@ -460,11 +471,14 @@ export default function Settings() {
           </section>
         </div>
 
+        <Modal open={showLegacyConfirm} onClose={() => setShowLegacyConfirm(false)} title="导出旧版本地资料" footer={<><Button variant="ghost" onClick={() => setShowLegacyConfirm(false)}>取消</Button><Button onClick={() => void handleExport(true)}>导出原始备份</Button></>}>
+          <p className="text-sm text-[var(--text-2)]">旧版本使用共享数据库，资料可能来自多个账号，归属尚未确认。导出会保留原始字段与旧版草稿，不会删除原库，也不会上传或自动归入当前账号。请仅在你有权访问这台设备资料时继续，并妥善保管备份。</p>
+        </Modal>
         <Modal open={showClearConfirm} onClose={() => setShowClearConfirm(false)} title="确认清除所有本地数据" footer={<><Button variant="ghost" size="sm" onClick={() => setShowClearConfirm(false)}>取消</Button><Button variant="danger" size="sm" onClick={() => void handleClear()}>确认清除</Button></>}>
           <div className="flex items-start gap-3">
             <AlertTriangle size={20} className="mt-0.5 shrink-0 text-[var(--danger)]" aria-hidden />
             <div>
-              <p className="text-sm text-[var(--text-1)]">此操作将删除本设备的全部数据：花销、习惯、速记、日记、日程和设置。</p>
+              <p className="text-sm text-[var(--text-1)]">此操作只清除当前账号在本设备的记录、目标、草稿、打卡和设置，不影响其他账号和旧版隔离数据。未同步修改存在时将阻止清除，请先同步或导出。</p>
               {isLoggedIn() && (
                 <p className="mt-2 text-xs text-[var(--text-2)]">注意：服务端已有同步数据不会删除，重新联网后会恢复到本设备。</p>
               )}

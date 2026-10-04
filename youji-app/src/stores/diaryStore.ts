@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { db, generateLocalId, type DiaryRecord } from '../db';
-import { enqueueSync, flush } from '../services/syncEngine';
-import { isLoggedIn } from '../services/apiClient';
+import { commitLocalMutation } from '../services/localMutation';
 
 type DiarySource = DiaryRecord['source'];
 
@@ -46,13 +45,9 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
       updatedAt: now,
     };
 
-    await db.diary.put(record);
+    await commitLocalMutation('diaries', 'upsert', toServerShape(record), () => db.diary.put(record));
     set((state) => ({ items: [record, ...state.items] }));
 
-    if (isLoggedIn()) {
-      await enqueueSync('diaries', 'upsert', toServerShape(record));
-      void flush();
-    }
 
     return record;
   },
@@ -62,24 +57,17 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
     if (!existing) return;
 
     const updated: DiaryRecord = { ...existing, ...updates, updatedAt: Date.now() };
+    await commitLocalMutation('diaries', 'upsert', toServerShape(updated), () => db.diary.put(updated), undefined, existing);
     set((state) => ({ items: state.items.map((i) => (i.id === id ? updated : i)) }));
-    await db.diary.put(updated);
 
-    if (isLoggedIn()) {
-      await enqueueSync('diaries', 'upsert', toServerShape(updated));
-      void flush();
-    }
   },
 
   removeItem: async (id) => {
     const existing = get().items.find((i) => i.id === id);
-    await db.diary.delete(id);
+    if (!existing) return;
+    await commitLocalMutation('diaries', 'delete', id, () => db.diary.delete(id), undefined, existing);
     set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
 
-    if (isLoggedIn() && existing) {
-      await enqueueSync('diaries', 'delete', id);
-      void flush();
-    }
   },
 
   getItemsByDate: (date) => {

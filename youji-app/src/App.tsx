@@ -1,3 +1,4 @@
+import { MotionConfig } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { BrowserRouter, useNavigate } from 'react-router-dom';
 import { useEffect as useReactEffect } from 'react';
@@ -14,6 +15,7 @@ function NavigateBridge() {
   }, [nav]);
   return null;
 }
+import { RuntimeObserver } from './components/layout/RuntimeObserver';
 import { AppRoutes } from './routes';
 import { useAppInit } from './hooks/useAppInit';
 import { useAuthStore, useUnauthedRedirect } from './stores/authStore';
@@ -22,10 +24,11 @@ import { ToastHost } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 function App() {
-  const { ready, failed } = useAppInit();
+  const authChecked = useAuthStore((s) => s.authChecked);
+  const identityUnavailable = useAuthStore((s) => s.identityUnavailable);
+  const { ready, failed } = useAppInit(authChecked);
   const [splashComplete, setSplashComplete] = useState(false);
   const loadUser = useAuthStore((s) => s.loadUser);
-  const authChecked = useAuthStore((s) => s.authChecked);
 
   useEffect(() => {
     loadUser().catch(() => undefined);
@@ -39,12 +42,13 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <MotionConfig reducedMotion="user">
       {!ready || !authChecked ? (
         <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
           <div className="flex flex-col items-center gap-3">
-            {failed ? (
+            {failed || identityUnavailable ? (
               <>
-                <p className="text-sm text-[var(--text-2)]">加载遇到问题</p>
+                <p className="text-sm text-[var(--text-2)]">{identityUnavailable ? '暂时无法确认登录身份，记录仍保存在本设备' : '加载遇到问题'}</p>
                 <button
                   type="button"
                   onClick={() => window.location.reload()}
@@ -64,10 +68,12 @@ function App() {
       ) : (
         <BrowserRouter>
           <NavigateBridge />
+          <RuntimeObserver />
           <AppRoutes />
         </BrowserRouter>
       )}
       <ToastHost />
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

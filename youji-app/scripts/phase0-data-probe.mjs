@@ -173,7 +173,7 @@ try {
     });
     await vite.listen();
     const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
-    browser = await puppeteer.launch({ executablePath: process.env.AUDIT_BROWSER_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true });
+    browser = await puppeteer.launch({ executablePath: process.env.AUDIT_BROWSER_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: process.env.AUDIT_BROWSER_NO_SANDBOX === 'true' ? ['--no-sandbox'] : [] });
     const page = await browser.newPage();
     await page.goto(`${origin}/phase0-blank`);
     const clientResults = await page.evaluate(async () => {

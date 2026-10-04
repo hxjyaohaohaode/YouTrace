@@ -15,9 +15,10 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
   const inputId = useId();
 
   return (
-    <span
+    <label
+      htmlFor={inputId}
       className={`
-        inline-flex select-none items-center gap-2.5
+        inline-flex min-h-11 min-w-11 select-none items-center justify-center gap-2.5
         ${disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}
         ${className}
       `}
@@ -53,10 +54,10 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
         </motion.span>
       </motion.span>
       {label && (
-        <label htmlFor={inputId} className="cursor-pointer text-sm text-[var(--text-1)]">
+        <span className="cursor-pointer text-sm text-[var(--text-1)]">
           {label}
-        </label>
+        </span>
       )}
-    </span>
+    </label>
   );
 }

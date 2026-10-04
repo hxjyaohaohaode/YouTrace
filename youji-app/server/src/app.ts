@@ -52,7 +52,8 @@ export function createApp() {
   app.use('*', cors({
     origin: (origin) => (isOriginAllowed(origin) && origin ? origin : ''),
     credentials: true,
-    exposeHeaders: ['X-Session-Id'],
+    exposeHeaders: ['X-Session-Id', 'X-YouTrace-Account-Mismatch'],
+    allowHeaders: ['Content-Type', 'X-YouTrace-Account'],
   }))
 
   app.use('/api/*', bodyLimit({

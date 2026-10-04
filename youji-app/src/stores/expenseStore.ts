@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { db, generateLocalId } from '../db';
-import { enqueueSync, flush } from '../services/syncEngine';
-import { isLoggedIn } from '../services/apiClient';
+import { commitLocalMutation } from '../services/localMutation';
+import { deliverControlledPush } from '../services/pushControl';
 import { getBusinessMonth, getNaturalWeekDates, getToday } from '../utils/date';
 import { normalizeExpenseCategory } from '../utils/icons';
 
@@ -34,7 +34,7 @@ interface ExpenseState {
 
 const BUDGET_SETTING_KEY = 'monthBudget';
 
-async function checkBudgetThreshold(): Promise<void> {
+export async function checkBudgetThreshold(): Promise<void> {
   try {
     const { useCoachStore } = await import('./coachStore');
     const coach = useCoachStore.getState();
@@ -59,22 +59,26 @@ async function checkBudgetThreshold(): Promise<void> {
       body = `已花¥${(total / 100).toFixed(0)}，超出预算¥${((total - budget) / 100).toFixed(0)}。别自责，看看钱主要花在哪了。`;
     } else if (pct >= 80) {
       title = '预算即将用完';
-      body = `本月已使用${pct}%的预算（¥${(total / 100).toFixed(0)}/¥${(budget / 100).toFixed(0)}）。接下来两周注意控制节奏。`;
+      body = `本月已使用${pct}%的预算（¥${(total / 100).toFixed(0)}/¥${(budget / 100).toFixed(0)}）。可以结合本月剩余安排，决定是否需要调整。`;
     } else {
       return;
     }
 
-    await coach.addPush({
-      insightId: undefined,
-      type: 'anomaly',
-      title,
-      body,
-      actions: [
-        { label: '查看花销', type: 'chat' },
-        { label: '知道了', type: 'confirm' },
-      ],
-      read: false,
-      acted: false,
+    await deliverControlledPush('anomaly', title, async () => {
+      // Another local flow may have created the same alert while we read totals.
+      if (useCoachStore.getState().pushes.some((p) => !p.read && p.type === 'anomaly' && p.title.includes('预算'))) return false;
+      await useCoachStore.getState().addPush({
+        insightId: undefined,
+        type: 'anomaly',
+        title,
+        body,
+        actions: [
+          { label: '查看花销', type: 'chat' },
+          { label: '知道了', type: 'confirm' },
+        ],
+        read: false,
+        acted: false,
+      });
     });
   } catch {
     // threshold check is best-effort
@@ -100,8 +104,8 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
 
   setMonthBudget: async (budget) => {
     if (!Number.isFinite(budget) || budget < 0) return;
-    set({ monthBudget: budget });
     await db.settings.put({ key: BUDGET_SETTING_KEY, value: Math.round(budget) });
+    set({ monthBudget: Math.round(budget) });
   },
 
   addItem: async (item) => {
@@ -116,39 +120,23 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       id: generateLocalId(),
     };
 
-    await db.expenses.put(newItem);
+    await commitLocalMutation('expenses', 'upsert', { ...newItem, source: newItem.source || 'manual' }, () => db.expenses.put(newItem));
     set((state) => ({ items: [newItem, ...state.items] }));
 
     if (!newItem.isIncome) {
       void checkBudgetThreshold();
     }
 
-    if (isLoggedIn()) {
-      await enqueueSync('expenses', 'upsert', {
-        id: newItem.id,
-        amount: newItem.amount,
-        category: newItem.category,
-        name: newItem.name,
-        date: newItem.date,
-        source: newItem.source || 'manual',
-        isIncome: newItem.isIncome ?? false,
-        ...(newItem.note ? { note: newItem.note } : {}),
-      });
-      void flush();
-    }
 
     return newItem;
   },
 
   removeItem: async (id) => {
     const existing = get().items.find((i) => i.id === id);
-    await db.expenses.delete(id);
+    if (!existing) return;
+    await commitLocalMutation('expenses', 'delete', id, () => db.expenses.delete(id), undefined, existing);
     set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
 
-    if (isLoggedIn() && existing) {
-      await enqueueSync('expenses', 'delete', id);
-      void flush();
-    }
   },
 
   todayTotal: () => {

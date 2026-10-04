@@ -3,7 +3,7 @@ import { api, streamChat, isLoggedIn } from '../services/apiClient';
 import { useTodoStore } from './todoStore';
 import { useHabitStore } from './habitStore';
 import { db } from '../db';
-import { recordPushActed, recordPushIgnored, recordPositiveSent } from '../services/pushControl';
+import { recordPushActed, recordPushIgnored } from '../services/pushControl';
 import { addDays, getBusinessClock, getBusinessDayStartTimestamp, getToday, getYesterday } from '../utils/date';
 
 function getDateDaysAgoStr(days: number): string {
@@ -670,10 +670,6 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     };
 
     set((state) => ({ pushes: [record, ...state.pushes] }));
-
-    if (push.type === 'positive') {
-      void recordPositiveSent();
-    }
 
     if (!isLoggedIn()) {
       await db.coachPushes.put(record);

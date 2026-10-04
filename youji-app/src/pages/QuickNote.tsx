@@ -1,10 +1,10 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Mic, Keyboard, Square, AlertCircle, Wallet, CheckSquare, BookOpen, Smile, Tag, Sparkles } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { parseQuickNote } from '../services/parser';
-import { db, getSetting, setSetting } from '../db';
+import { generateLocalId, getSetting, setSetting } from '../db';
 import { getMoodMeta, expenseCategoryIcons } from '../utils/icons';
 
 const MAX_NOTE_LENGTH = 5000;
@@ -44,6 +44,8 @@ function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null 
 export default function QuickNote() {
   const [text, setText] = useState('');
   const [draftRestored, setDraftRestored] = useState(false);
+  const submitting = useRef(false);
+  const touched = useRef(false);
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isRecording, setIsRecording] = useState(false);
   const [speechError, setSpeechError] = useState('');
@@ -53,19 +55,11 @@ export default function QuickNote() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  void (async () => {
-    if (!draftRestored && !text) {
-      try {
-        const draft = await getSetting<string>(DRAFT_KEY, '');
-        if (draft) {
-          setText(draft.slice(0, MAX_NOTE_LENGTH));
-          setDraftRestored(true);
-        }
-      } catch {
-        // ignore draft restore failure
-      }
-    }
-  })();
+  useEffect(() => {
+    let active = true;
+    void getSetting<string>(DRAFT_KEY, '').then((draft) => { if (active && draft && !touched.current) { setText(draft.slice(0, MAX_NOTE_LENGTH)); setDraftRestored(true); } });
+    return () => { active = false; recognitionRef.current?.stop(); };
+  }, []);
 
   const liveParsed = useMemo(() => {
     const trimmed = text.trim();
@@ -102,12 +96,9 @@ export default function QuickNote() {
   const speechSupported = getSpeechRecognitionConstructor() !== null;
 
   const updateText = (next: string) => {
+    touched.current = true;
     setText(next);
     void setSetting(DRAFT_KEY, next).catch(() => undefined);
-  };
-
-  const clearDraft = () => {
-    void db.settings.delete(DRAFT_KEY).catch(() => undefined);
   };
 
   const autoResize = (el: HTMLTextAreaElement | null) => {
@@ -159,11 +150,16 @@ export default function QuickNote() {
     return recognition;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    clearDraft();
-    navigate('/quick-note/result', { state: { input: trimmed } });
+    if (!trimmed || submitting.current) return;
+    submitting.current = true;
+    recognitionRef.current?.stop();
+    try {
+      await setSetting('quicknote_review', { id: generateLocalId(), input: trimmed, ...parseQuickNote(trimmed) });
+      navigate('/quick-note/result');
+    } catch { setSpeechError('确认稿保存失败，输入仍在，请检查设备存储后重试'); }
+    finally { submitting.current = false; }
   };
 
   const toggleRecording = () => {
@@ -257,7 +253,7 @@ export default function QuickNote() {
                 updateText(e.target.value.slice(0, MAX_NOTE_LENGTH));
                 autoResize(e.target);
               }}
-              placeholder="今天发生了什么？说一句话，AI 帮你分类整理..."
+              placeholder="今天发生了什么？先记录，按规则整理后由你确认..."
               maxLength={MAX_NOTE_LENGTH}
               aria-label="速记内容"
               className="w-full resize-none rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-5 text-[15px] font-medium leading-relaxed text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)]"
@@ -336,12 +332,13 @@ export default function QuickNote() {
       </div>
 
       <div className="border-t border-[var(--border-light)] p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+        {draftRestored && <p className="mb-2 text-center text-xs text-[var(--text-3)]">已恢复当前账号的本地草稿</p>}
         <Button
           onClick={handleSubmit}
           disabled={!text.trim()}
           className="h-12 w-full text-[15px]"
         >
-          提交
+          查看确认稿
         </Button>
       </div>
     </motion.div>

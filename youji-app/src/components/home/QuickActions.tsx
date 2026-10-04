@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Mic, Calendar, BookOpen, BarChart3, MessageCircle, Activity } from 'lucide-react';
+import { Mic, Calendar, BookOpen, BarChart3, MessageCircle, Activity, Target } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface QuickAction {
@@ -12,6 +12,7 @@ interface QuickAction {
 }
 
 const actions: QuickAction[] = [
+  { icon: Target, label: '目标', path: '/goal', color: '#7C5CFC', bg: 'bg-[#7C5CFC]/8', gradient: 'from-[#7C5CFC] to-[#9B80FF]' },
   { icon: Mic, label: '速记', path: '/quick-note', color: '#5B5FC7', bg: 'bg-[#5B5FC7]/8', gradient: 'from-[#5B5FC7] to-[#7C5CFC]' },
   { icon: Calendar, label: '日程', path: '/schedule', color: '#2EA06B', bg: 'bg-[#2EA06B]/8', gradient: 'from-[#2EA06B] to-[#3FBF7E]' },
   { icon: BarChart3, label: '花销', path: '/expense', color: '#D99A2B', bg: 'bg-[#D99A2B]/8', gradient: 'from-[#D99A2B] to-[#E8853D]' },
@@ -25,7 +26,7 @@ export function QuickActions() {
 
   return (
     <>
-      <div className="hidden sm:grid grid-cols-3 sm:grid-cols-6 gap-3">
+      <div className="hidden sm:grid grid-cols-3 sm:grid-cols-7 gap-3">
         {actions.map((action, i) => {
           const Icon = action.icon;
           return (

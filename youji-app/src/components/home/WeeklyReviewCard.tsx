@@ -26,23 +26,21 @@ export function WeeklyReviewCard() {
   if (!stats || stats.daysActive === 0) return null;
 
   return (
-    <motion.button
-      type="button"
+    <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-      onClick={() => navigate('/timeline')}
       className="group w-full rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-5 text-left shadow-[var(--shadow-sm)] transition-all hover:border-[var(--primary)]/20 hover:shadow-[var(--shadow-md)]"
-      aria-label="查看本周回顾和时间线"
+      aria-label="查看近7天回顾和时间线"
     >
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--primary-muted)]">
             <BarChart3 size={16} className="text-[var(--primary)]" aria-hidden />
           </div>
-          <h3 className="text-[13px] font-bold text-[var(--text-1)]">本周回顾</h3>
+          <h3 className="text-[13px] font-bold text-[var(--text-1)]">近7天回顾</h3>
         </div>
-        <ChevronRight size={16} className="text-[var(--text-4)] transition-transform group-hover:translate-x-0.5" aria-hidden />
+        <button type="button" onClick={() => navigate('/timeline')} aria-label="查看时间线" className="flex min-h-11 min-w-11 items-center justify-center"><ChevronRight size={16} className="text-[var(--text-4)]" aria-hidden /></button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -81,6 +79,6 @@ export function WeeklyReviewCard() {
           <pre className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--text-2)]">{review}</pre>
         </details>
       )}
-    </motion.button>
+    </motion.div>
   );
 }

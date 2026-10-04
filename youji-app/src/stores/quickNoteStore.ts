@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { db, generateLocalId } from '../db';
-import { enqueueSync, flush } from '../services/syncEngine';
-import { isLoggedIn } from '../services/apiClient';
+import { commitLocalMutation } from '../services/localMutation';
 import { parseQuickNote, type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
 
 export interface QuickNoteRecord {
@@ -66,25 +65,18 @@ export const useQuickNoteStore = create<QuickNoteState>((set, get) => ({
       todos: parsed.todos,
     };
 
-    await db.quickNotes.put(record);
+    await commitLocalMutation('quickNotes', 'upsert', toServerShape(record), () => db.quickNotes.put(record));
     set((state) => ({ records: [record, ...state.records] }));
 
-    if (isLoggedIn()) {
-      await enqueueSync('quickNotes', 'upsert', toServerShape(record));
-      void flush();
-    }
 
     return record;
   },
 
   removeRecord: async (id) => {
     const existing = get().records.find((r) => r.id === id);
-    await db.quickNotes.delete(id);
+    if (!existing) return;
+    await commitLocalMutation('quickNotes', 'delete', id, () => db.quickNotes.delete(id), undefined, existing);
     set((state) => ({ records: state.records.filter((r) => r.id !== id) }));
 
-    if (isLoggedIn() && existing) {
-      await enqueueSync('quickNotes', 'delete', id);
-      void flush();
-    }
   },
 }));

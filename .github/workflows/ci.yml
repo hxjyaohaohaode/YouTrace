@@ -2,47 +2,51 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  frontend:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: youji-app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: youji-app/package-lock.json
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: youji-app
-      - name: Frontend type check and production build (tsc + vite)
-        run: npm run build
-        working-directory: youji-app
-
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: youji-app/server/package-lock.json
-      - name: Install backend dependencies
-        run: npm ci
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            youji-app/package-lock.json
+            youji-app/server/package-lock.json
+      - run: npm ci
+      - run: npm ci
         working-directory: youji-app/server
-      - name: Prisma client generate
-        run: npx prisma generate
+      - run: npm run db:generate
         working-directory: youji-app/server
-      - name: Backend build (tsc)
-        run: npm run build
+      - name: Frontend lint, types, build and data recovery regressions
+        run: npm run lint && npm run build && npm test
+      - name: Backend lint, build, auth and synchronization regressions
+        run: npm run check
         working-directory: youji-app/server
-      - name: Backend integration tests
-        run: npm test
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high && npm --prefix server audit --omit=dev --audit-level=high
+      - name: Real Chromium HTTP, IndexedDB and responsive recovery flows
+        run: npm run test:browser
         env:
-          JWT_SECRET: ci-test-secret-0123456789abcdef0123456789abcdef
-        working-directory: youji-app/server
+          AUDIT_BROWSER_PATH: /usr/bin/google-chrome
+      - name: Browser evidence (synthetic data only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtrace-browser-evidence-${{ github.sha }}
+          path: youji-app/test-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

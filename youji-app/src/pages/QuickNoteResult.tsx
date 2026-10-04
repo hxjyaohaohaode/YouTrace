@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Wallet, BookOpen, Smile, Tag, Trash2, Plus, Check, ListTodo } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Checkbox';
-import { parseQuickNote, type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
-import { useQuickNoteStore } from '../stores/quickNoteStore';
-import { applyParsedResult } from '../services/quickNoteIntegration';
+import { type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from '../services/parser';
+import { getSetting, setSetting } from '../db';
+import { applyCaptureDraft, type CaptureDraft } from '../services/quickNoteIntegration';
 import { toast } from '../services/toastBus';
 import { MOOD_LEVELS, getMoodMeta, EXPENSE_CATEGORY_KEYS, expenseCategoryIcons, normalizeExpenseCategory } from '../utils/icons';
 
@@ -21,13 +21,16 @@ const typeColors = {
 const MAX_EXPENSE_AMOUNT_FEN = 100_000_000_00;
 
 export default function QuickNoteResult() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const addRecord = useQuickNoteStore((s) => s.addRecord);
-  const input = (location.state as { input?: unknown })?.input;
-  const safeInput = typeof input === 'string' ? input : '';
+  const [draft, setDraft] = useState<CaptureDraft | null | undefined>(undefined);
+  useEffect(() => { let active = true; void getSetting<CaptureDraft | null>('quicknote_review', null).then((value) => { if (active) setDraft(value); }); return () => { active = false; }; }, []);
+  if (draft === undefined) return <p role="status" className="p-6">正在恢复确认稿…</p>;
+  return <CaptureReview key={draft?.id ?? 'empty'} draft={draft} />;
+}
 
-  const parsed = safeInput ? parseQuickNote(safeInput) : { expenses: [], diary: null, mood: null as MoodLevel | null, moodScore: 5, habits: [], todos: [] };
+function CaptureReview({ draft }: { draft: CaptureDraft | null }) {
+  const navigate = useNavigate();
+  const safeInput = draft?.input ?? '';
+  const parsed = draft ?? { expenses: [], diary: null, mood: null as MoodLevel | null, moodScore: 5, habits: [], todos: [] };
 
   const [expenses, setExpenses] = useState<ParsedExpense[]>(parsed.expenses);
   const [amountTexts, setAmountTexts] = useState<Record<string, string>>(() =>
@@ -39,6 +42,13 @@ export default function QuickNoteResult() {
   const [mood, setMood] = useState<MoodLevel | null>(parsed.mood);
   const [moodScore, setMoodScore] = useState(parsed.moodScore);
   const [saving, setSaving] = useState(false);
+  const saved = useRef(false);
+  const savingGuard = useRef(false);
+  useEffect(() => {
+    if (!draft || saving || saved.current) return;
+    void setSetting('quicknote_review', { id: draft.id, input: safeInput, expenses, habits, todos, diary, mood, moodScore }).catch(() => toast.warning('确认稿暂未存入本地，请勿关闭页面'));
+  }, [draft, safeInput, expenses, habits, todos, diary, mood, moodScore, saving]);
+
 
   if (!safeInput) {
     return (
@@ -59,7 +69,7 @@ export default function QuickNoteResult() {
           >
             <ArrowLeft size={18} aria-hidden />
           </button>
-          <h1 className="text-[15px] font-bold text-[var(--text-1)]">AI 拆分结果</h1>
+          <h1 className="text-[15px] font-bold text-[var(--text-1)]">整理确认稿</h1>
         </div>
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
@@ -133,40 +143,20 @@ export default function QuickNoteResult() {
       toast.error('请补全花销的名称和有效金额（大于0）');
       return;
     }
-    if (saving) return;
+    if (savingGuard.current) return;
+    savingGuard.current = true;
     setSaving(true);
     try {
-      await addRecord(safeInput);
-
-      const result = await applyParsedResult(
-        confirmedExpenses,
-        habits.filter((h) => h.confirmed),
-        todos.filter((todo) => todo.confirmed && todo.text.trim()),
-        diary,
-        mood,
-        moodScore,
-      );
-
-      if (result.failures.length > 0) {
-        toast.warning(`已保存大部分内容，${result.failures.length}项失败：${result.failures[0]}`);
-      } else {
-        const parts = [
-          result.expenseCount > 0 && `${result.expenseCount}笔账单`,
-          result.todoCount > 0 && `${result.todoCount}个待办`,
-          (result.diaryCreated || result.diaryUpdated) && '日记',
-          result.habitCount > 0 && `${result.habitCount}次打卡`,
-        ].filter(Boolean);
-        if (parts.length > 0) {
-          toast.success(`已保存：${parts.join('、')}`);
-        } else {
-          toast.success('速记已保存');
-        }
-      }
-
+      if (!draft) throw new Error('确认稿已失效');
+      const result = await applyCaptureDraft({ id: draft.id, input: safeInput, expenses, habits, todos, diary, mood, moodScore });
+      const parts = [result.expenseCount > 0 && `${result.expenseCount}笔账单`, result.todoCount > 0 && `${result.todoCount}个待办`, (result.diaryCreated || result.diaryUpdated) && '日记', result.habitCount > 0 && `${result.habitCount}次打卡`].filter(Boolean);
+      toast.success(parts.length ? `已保存：${parts.join('、')}` : '速记已保存');
+      saved.current = true;
       navigate('/');
-    } catch {
-      toast.error('保存失败，请重试');
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : '保存失败，确认稿已保留');
     } finally {
+      savingGuard.current = false;
       setSaving(false);
     }
   };
@@ -182,7 +172,7 @@ export default function QuickNoteResult() {
       className="fixed inset-0 flex flex-col bg-[var(--bg)]"
       style={{ zIndex: 'var(--z-page-overlay)' }}
       role="dialog"
-      aria-label="AI 拆分结果"
+      aria-label="整理确认稿"
     >
       <div className="flex items-center gap-3 px-4 py-3">
         <button
@@ -193,13 +183,13 @@ export default function QuickNoteResult() {
         >
           <ArrowLeft size={18} aria-hidden />
         </button>
-        <h1 className="text-[15px] font-bold text-[var(--text-1)]">AI 拆分结果</h1>
+        <h1 className="text-[15px] font-bold text-[var(--text-1)]">整理确认稿</h1>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
         <div className="rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] p-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-3)]">原始输入</p>
-          <p className="mt-1.5 text-[13px] font-medium text-[var(--text-1)]">{safeInput}</p>
+          <p className="mt-1.5 text-[13px] font-medium text-[var(--text-1)]">{safeInput}</p><p className="mt-2 text-xs text-[var(--text-3)]">按规则识别，可能有遗漏。只有确认后才会写入；日记将追加到今天原文。</p>
         </div>
 
         {!hasAnyData && (
@@ -207,7 +197,7 @@ export default function QuickNoteResult() {
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--surface-2)]">
               <Smile size={28} className="text-[var(--text-3)]" aria-hidden />
             </div>
-            <p className="text-sm font-medium text-[var(--text-3)]">AI 没有识别到可拆分的内容</p>
+            <p className="text-sm font-medium text-[var(--text-3)]">规则暂未识别到可拆分的内容</p>
             <p className="mt-1 text-xs text-[var(--text-4)]">可以直接保存为一条纯文本速记</p>
           </div>
         )}

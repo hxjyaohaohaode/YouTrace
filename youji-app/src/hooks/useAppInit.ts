@@ -12,7 +12,7 @@ import { useGoalStore } from '../stores/goalStore';
 
 const INIT_TIMEOUT_MS = 12_000;
 
-function loadAllStores(): Promise<void> {
+export function loadAllStores(): Promise<void> {
   return Promise.all([
     useExpenseStore.getState().loadFromDB(),
     useTodoStore.getState().loadFromDB(),
@@ -25,12 +25,15 @@ function loadAllStores(): Promise<void> {
   ]).then(() => undefined);
 }
 
-export function useAppInit() {
+export function useAppInit(enabled: boolean) {
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
+    const refresh = () => { void loadAllStores().catch(() => undefined); };
+    window.addEventListener('youtrace:data-updated', refresh);
     const timeout = setTimeout(() => {
       if (!cancelled) setFailed(true);
     }, INIT_TIMEOUT_MS);
@@ -72,9 +75,10 @@ export function useAppInit() {
 
     return () => {
       cancelled = true;
+      window.removeEventListener('youtrace:data-updated', refresh);
       clearTimeout(timeout);
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     if (!failed) return;

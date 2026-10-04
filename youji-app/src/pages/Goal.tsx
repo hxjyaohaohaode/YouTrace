@@ -74,12 +74,12 @@ function GoalCard({ goal, onProgress, onDelete }: {
           />
         </div>
         <div className="mt-1.5 flex gap-1">
-          {[25, 50, 75, 100].map((val) => (
+          {[0, 25, 50, 75, 100].map((val) => (
             <button
               key={val}
               type="button"
               onClick={() => onProgress(goal.id, val)}
-              disabled={isDone}
+              aria-label={`将目标进度设为 ${val}%`}
               className="flex-1 rounded-full py-1 text-[10px] font-semibold text-[var(--text-4)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--primary)] disabled:opacity-30"
             >
               {val}%
@@ -98,6 +98,7 @@ export default function Goal() {
   const updateProgress = useGoalStore((s) => s.updateProgress);
   const removeGoal = useGoalStore((s) => s.removeGoal);
 
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [filter, setFilter] = useState<GoalLevel | 'all'>('all');
   const [showModal, setShowModal] = useState(false);
   const [title, setTitle] = useState('');
@@ -160,6 +161,7 @@ export default function Goal() {
         }
       />
 
+      <p className="mb-4 text-xs text-[var(--text-3)]">进度由你手动确认，可随时调回。目标目前仅保存在本设备，请在设置中备份。</p>
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1 scrollbar-hide" role="tablist" aria-label="目标类型筛选">
         {levelFilters.map((opt) => (
           <button
@@ -204,13 +206,14 @@ export default function Goal() {
                 key={goal.id}
                 goal={goal}
                 onProgress={(id, val) => void updateProgress(id, val)}
-                onDelete={() => void removeGoal(goal.id)}
+                onDelete={() => setDeleteId(goal.id)}
               />
             ))}
           </AnimatePresence>
         </div>
       )}
 
+      <Modal open={deleteId !== null} onClose={() => setDeleteId(null)} title="删除这个目标？" footer={<><Button variant="ghost" onClick={() => setDeleteId(null)}>保留目标</Button><Button variant="danger" onClick={() => { if (deleteId) void removeGoal(deleteId).then(() => setDeleteId(null)).catch(() => toast.error('删除失败，请重试')); }}>确认删除</Button></>}><p className="text-sm">这会移除目标及其手动进度。其他记录不会受影响；可先导出备份。</p></Modal>
       <Modal open={showModal} onClose={() => setShowModal(false)} title="新建目标" footer={
         <>
           <Button variant="ghost" size="sm" onClick={() => setShowModal(false)}>取消</Button>

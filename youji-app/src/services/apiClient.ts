@@ -1,6 +1,7 @@
+import { recordDiagnostic, requestArea } from './diagnostics'
 import { consumeSseStream } from './sseParser'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL?.trim() || '/api'
+const API_BASE = import.meta.env?.VITE_API_BASE_URL?.trim() || '/api'
 const SESSION_FLAG_KEY = 'youji_has_session'
 const DEFAULT_TIMEOUT_MS = 15_000
 
@@ -10,15 +11,39 @@ interface ErrorResponse {
   error?: string
 }
 
-export function setSessionActive() {  localStorage.setItem(SESSION_FLAG_KEY, 'true')
+export const SESSION_REVISION_KEY = 'youtrace:session-revision'
+export const SIGNED_OUT_KEY = 'youtrace:signed-out'
+let activeOwner: string | null = null
+let sessionController = new AbortController()
+
+export function setSessionActive(ownerId: string) {
+  if (!ownerId) throw new Error('账号尚未验证')
+  activeOwner = ownerId
+  localStorage.setItem(SESSION_FLAG_KEY, 'true')
+  localStorage.removeItem(SIGNED_OUT_KEY)
 }
 
 export function clearSession() {
+  activeOwner = null
+  sessionController.abort()
+  sessionController = new AbortController()
   localStorage.removeItem(SESSION_FLAG_KEY)
 }
 
+export function announceSessionChange() {
+  localStorage.setItem(SESSION_REVISION_KEY, crypto.randomUUID())
+}
+
 export function isLoggedIn(): boolean {
-  return localStorage.getItem(SESSION_FLAG_KEY) === 'true'
+  return activeOwner !== null
+}
+
+function sessionSignal(timeoutMs: number, signal?: AbortSignal) {
+  return AbortSignal.any([sessionController.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])
+}
+
+function accountHeaders(): Record<string, string> {
+  return activeOwner ? { 'X-YouTrace-Account': activeOwner } : {}
 }
 
 async function request<T>(
@@ -26,21 +51,25 @@ async function request<T>(
   options: RequestInit = {},
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  if (!path.startsWith('/auth/') && !activeOwner) throw new AuthError('请先确认登录身份')
   const headers: Record<string, string> = {
+    ...(!path.startsWith('/auth/') ? accountHeaders() : {}),
     ...((options.headers as Record<string, string>) || {}),
   }
   if (options.body !== undefined && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json'
   }
 
+  const startedAt = performance.now()
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
     credentials: 'include',
-    signal: options.signal ?? AbortSignal.timeout(timeoutMs),
-  })
+    signal: sessionSignal(timeoutMs, options.signal ?? undefined),
+  }).catch((error: unknown) => { recordDiagnostic('request-failed', requestArea(path), performance.now() - startedAt); throw error })
+  recordDiagnostic(res.ok ? 'request-ok' : 'request-failed', requestArea(path), performance.now() - startedAt, res.status)
 
-  if (res.status === 401) {
+  if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
     clearSession()
     window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
     throw new AuthError('登录已过期')
@@ -60,7 +89,7 @@ async function request<T>(
   if (!res.ok) {
     throw Object.assign(
       new Error((typeof data.error === 'string' && data.error) || `请求失败: ${res.status}`),
-      { status: res.status },
+      { status: res.status, code: data.code, conflict: data.conflict },
     );
   }
 
@@ -68,6 +97,7 @@ async function request<T>(
 }
 
 export class AuthError extends Error {
+  readonly status = 401
   constructor(message: string) {
     super(message)
     this.name = 'AuthError'
@@ -75,6 +105,7 @@ export class AuthError extends Error {
 }
 
 export const api = {
+  logout: (ownerId: string) => request('/auth/logout', { method: 'POST', headers: { 'X-YouTrace-Account': ownerId } }, 5000),
   get: <T>(path: string, timeoutMs?: number) => request<T>(path, {}, timeoutMs),
 
   post: <T>(path: string, body?: unknown, timeoutMs?: number) =>
@@ -116,17 +147,19 @@ export async function streamChat(
   onActions?: (actions: CoachActionPayload[]) => void,
   signal?: AbortSignal,
 ): Promise<{ sessionId: string; content: string }> {
+  if (!activeOwner) throw new AuthError('请先确认登录身份')
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...accountHeaders(),
     },
     body: JSON.stringify({ message, sessionId }),
     credentials: 'include',
-    signal: signal ?? AbortSignal.timeout(60_000),
+    signal: sessionSignal(60_000, signal),
   })
 
-  if (res.status === 401) {
+  if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
     clearSession()
     window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
     throw new AuthError('登录已过期')

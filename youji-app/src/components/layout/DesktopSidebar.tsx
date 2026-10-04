@@ -25,6 +25,7 @@ const mainItems: SidebarItem[] = [
   { icon: Target, label: '教练洞察', path: '/insights' },
   { icon: Activity, label: '时间线', path: '/timeline', section: '系统' },
   { icon: Sparkles, label: '习惯', path: '/habit' },
+  { icon: Target, label: '目标', path: '/goal' },
   { icon: Settings, label: '设置', path: '/settings', section: '系统' },
 ];
 

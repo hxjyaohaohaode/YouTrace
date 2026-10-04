@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { db, generateLocalId, type ScheduleRecord } from '../db';
-import { enqueueSync, flush } from '../services/syncEngine';
-import { isLoggedIn } from '../services/apiClient';
+import { commitLocalMutation } from '../services/localMutation';
 import { getToday } from '../utils/date';
 
 type ScheduleType = ScheduleRecord['type'];
@@ -85,13 +84,9 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       updatedAt: now,
     };
 
-    await db.schedules.put(record);
+    await commitLocalMutation('schedules', 'upsert', toServerShape(record), () => db.schedules.put(record));
     set((state) => ({ items: [...state.items, record] }));
 
-    if (isLoggedIn()) {
-      await enqueueSync('schedules', 'upsert', toServerShape(record));
-      void flush();
-    }
 
     return record;
   },
@@ -101,24 +96,17 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     if (!existing) return;
 
     const updated: ScheduleRecord = { ...existing, ...updates, updatedAt: Date.now() };
+    await commitLocalMutation('schedules', 'upsert', toServerShape(updated), () => db.schedules.put(updated), undefined, existing);
     set((state) => ({ items: state.items.map((i) => (i.id === id ? updated : i)) }));
-    await db.schedules.put(updated);
 
-    if (isLoggedIn()) {
-      await enqueueSync('schedules', 'upsert', toServerShape(updated));
-      void flush();
-    }
   },
 
   removeItem: async (id) => {
     const existing = get().items.find((i) => i.id === id);
-    await db.schedules.delete(id);
+    if (!existing) return;
+    await commitLocalMutation('schedules', 'delete', id, () => db.schedules.delete(id), undefined, existing);
     set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
 
-    if (isLoggedIn() && existing) {
-      await enqueueSync('schedules', 'delete', id);
-      void flush();
-    }
   },
 
   getItemsByDate: (date) => {

@@ -58,6 +58,12 @@ export interface OutboxRecord {
   entity: SyncEntity;
   payload: unknown;
   queuedAt: number;
+  attempts?: number;
+  baseVersion?: string;
+  predecessorSeq?: number;
+  status?: 'pending' | 'blocked';
+  lastStatus?: number;
+  lastAttemptAt?: number;
 }
 
 export interface GoalRecord {
@@ -87,7 +93,16 @@ export function generateLocalId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-class YoujiDatabase extends Dexie {
+export const LOCAL_DATA_EPOCH_KEY = 'localDataEpoch';
+
+export const ENTITY_TABLES = [
+  'schedules', 'expenses', 'todos', 'habits', 'habitCheckins', 'quickNotes',
+  'diary', 'settings', 'coachInsights', 'coachPushes', 'goals', 'outbox',
+] as const;
+
+// Account stores start with a fresh schema. The historical shared `youtrace`
+// database is deliberately never opened with an upgrade or assigned to a user.
+export class YoujiDatabase extends Dexie {
   schedules!: Table<ScheduleRecord, string>;
   expenses!: Table<ExpenseItem, string>;
   todos!: Table<TodoItem, string>;
@@ -100,23 +115,15 @@ class YoujiDatabase extends Dexie {
   coachPushes!: Table<CoachPushRecord, string>;
   goals!: Table<GoalRecord, string>;
   outbox!: Table<OutboxRecord, number>;
+  readonly ownerId: string | null;
 
-  constructor() {
-    super('youtrace');
-    this.version(2).stores({
-      schedules: '++id, date, type, repeat',
-      expenses: 'id, date, category',
-      todos: 'id, done, dueDate, priority',
-      habits: 'id',
-      habitCheckins: '++id, habitId, date, [habitId+date]',
-      quickNotes: 'id, timestamp',
-      diary: '++id, date',
-      settings: 'key',
-      coachInsights: 'id, type, dismissed, createdAt',
-      coachPushes: 'id, type, read, createdAt',
-    });
-
-    this.version(3).stores({
+  constructor(ownerId: string | null = null) {
+    if (ownerId !== null && !/^[a-zA-Z0-9_-]{1,128}$/.test(ownerId)) {
+      throw new Error('账号标识无效，未打开数据');
+    }
+    super(ownerId ? `youtrace:user:${ownerId}` : 'youtrace:guest');
+    this.ownerId = ownerId;
+    this.version(1).stores({
       schedules: 'id, date, type',
       expenses: 'id, date, category',
       todos: 'id, done, dueDate, priority',
@@ -129,106 +136,66 @@ class YoujiDatabase extends Dexie {
       coachPushes: 'id, type, read, createdAt',
       goals: 'id, level, domain, priority',
       outbox: '++seq, entity, queuedAt',
-    }).upgrade(async (tx) => {
-      const schedules = await tx.table('schedules').toArray();
-      await tx.table('schedules').clear();
-      await tx.table('schedules').bulkPut(
-        schedules.map((item: Record<string, unknown>) => ({
-          ...item,
-          id: typeof item.id === 'string' && item.id ? item.id : generateLocalId(),
-        })),
-      );
-
-      const diaries = await tx.table('diary').toArray();
-      await tx.table('diary').clear();
-      await tx.table('diary').bulkPut(
-        diaries.map((item: Record<string, unknown>) => ({
-          ...item,
-          id: typeof item.id === 'string' && item.id ? item.id : generateLocalId(),
-          moodScore: typeof item.moodScore === 'number' && item.moodScore >= 1 && item.moodScore <= 10 ? item.moodScore : 5,
-        })),
-      );
-
-      const checkins = await tx.table('habitCheckins').toArray();
-      await tx.table('habitCheckins').clear();
-      await tx.table('habitCheckins').bulkPut(
-        checkins.map((item: Record<string, unknown>) => ({
-          confirmed: true,
-          updatedAt: Date.now(),
-          ...item,
-          id: `${String(item.habitId)}|${String(item.date)}`,
-        })),
-      );
-
-      const legacyNotes = await tx.table('quickNotes').toArray();
-      const droppable = legacyNotes.filter((item: Record<string, unknown>) => typeof item.rawInput !== 'string');
-      if (droppable.length > 0) {
-        console.warn(`[db] v3 upgrade: dropping ${droppable.length} quickNotes without rawInput`, droppable);
-      }
-      if (legacyNotes.length > 0) {
-        await tx.table('quickNotes').clear();
-        await tx.table('quickNotes').bulkPut(
-          legacyNotes
-            .filter((item: Record<string, unknown>) => typeof item.rawInput === 'string')
-            .map((item: Record<string, unknown>) => ({
-              ...item,
-              createdAt: typeof item.createdAt === 'number'
-                ? item.createdAt
-                : Number(item.timestamp) || Date.now(),
-            })),
-        );
-      }
     });
   }
 }
 
-export const db = new YoujiDatabase();
+export let db = new YoujiDatabase();
+let bound = false;
 
-export async function exportAllData(): Promise<Record<string, unknown[]>> {
-  const [schedules, expenses, todos, habits, habitCheckins, quickNotes, diary, settings, coachInsights, coachPushes, goals] =
-    await Promise.all([
-      db.schedules.toArray(),
-      db.expenses.toArray(),
-      db.todos.toArray(),
-      db.habits.toArray(),
-      db.habitCheckins.toArray(),
-      db.quickNotes.toArray(),
-      db.diary.toArray(),
-      db.settings.toArray(),
-      db.coachInsights.toArray(),
-      db.coachPushes.toArray(),
-      db.goals.toArray(),
-    ]);
-
-  return {
-    schedules,
-    expenses,
-    todos,
-    habits,
-    habitCheckins,
-    quickNotes,
-    diary,
-    settings,
-    coachInsights,
-    coachPushes,
-    goals,
-  };
+// Bind only once in a document, after /auth/me verifies the owner. Changing an
+// account reloads the document, so late store callbacks cannot reach another DB.
+export async function bindAccountDatabase(ownerId: string | null): Promise<void> {
+  if (bound && db.ownerId !== ownerId) throw new Error('切换账号需要重新加载页面');
+  if (!bound && db.ownerId !== ownerId) {
+    db.close();
+    db = new YoujiDatabase(ownerId);
+  }
+  bound = true;
+  await db.open();
 }
 
-export async function clearAllData(): Promise<void> {
-  await Promise.all([
-    db.schedules.clear(),
-    db.expenses.clear(),
-    db.todos.clear(),
-    db.habits.clear(),
-    db.habitCheckins.clear(),
-    db.quickNotes.clear(),
-    db.diary.clear(),
-    db.settings.clear(),
-    db.coachInsights.clear(),
-    db.coachPushes.clear(),
-    db.outbox.clear(),
-  ]);
+export async function exportAllData() {
+  return db.transaction('r', db.tables, async () => {
+    const tables: Record<string, unknown[]> = {};
+    for (const name of ENTITY_TABLES) tables[name] = await db.table(name).toArray();
+    return {
+      format: 'youtrace-local-backup', schemaVersion: 1,
+      exportedAt: new Date().toISOString(), ownerId: db.ownerId,
+      scope: db.ownerId ? 'account' : 'guest', tables,
+    };
+  });
+}
+
+export async function clearAllData(options: { allowPending?: boolean } = {}): Promise<void> {
+  await db.transaction('rw', db.tables, async () => {
+    if (!options.allowPending && await db.outbox.count() > 0) {
+      throw new Error('还有未同步的修改，先同步或导出备份后再处理');
+    }
+    for (const table of db.tables) await table.clear();
+    await db.settings.put({ key: LOCAL_DATA_EPOCH_KEY, value: generateLocalId() });
+  });
+}
+
+export async function hasLegacyDatabase(): Promise<boolean> {
+  return Dexie.exists('youtrace');
+}
+
+export async function exportLegacyData() {
+  if (!await hasLegacyDatabase()) throw new Error('没有找到旧版本地数据');
+  // Dynamic schema: read the actual existing version without a versionchange.
+  const legacy = new Dexie('youtrace');
+  try {
+    await legacy.open();
+    return await legacy.transaction('r', legacy.tables, async () => {
+      const tables: Record<string, unknown[]> = {};
+      for (const table of legacy.tables) tables[table.name] = await table.toArray();
+      return {
+        format: 'youtrace-legacy-quarantine', schemaVersion: legacy.verno,
+        exportedAt: new Date().toISOString(), ownership: 'unverified', tables,
+      };
+    });
+  } finally { legacy.close(); }
 }
 
 export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {

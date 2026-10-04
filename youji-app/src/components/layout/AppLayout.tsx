@@ -1,3 +1,4 @@
+import { LegacyDataNotice } from './LegacyDataNotice';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { DesktopSidebar } from './DesktopSidebar';
@@ -22,6 +23,7 @@ export function AppLayout() {
         } ${isMobile ? 'pb-24' : 'pb-8'}`}
       >
         <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12">
+          <LegacyDataNotice />
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

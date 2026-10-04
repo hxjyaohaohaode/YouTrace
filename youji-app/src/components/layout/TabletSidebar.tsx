@@ -21,6 +21,7 @@ const items: NavItem[] = [
   { icon: MessageCircle, label: '教练', path: '/coach' },
   { icon: Target, label: '洞察', path: '/insights' },
   { icon: Sparkles, label: '习惯', path: '/habit' },
+  { icon: Target, label: '目标', path: '/goal' },
   { icon: Settings, label: '设置', path: '/settings' },
 ];
 

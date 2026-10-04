@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { prisma } from '../utils/db.js'
 import { generateId } from '../utils/id.js'
-import { clearSession, issueSession, readSessionToken, verifySessionToken } from '../utils/session.js'
+import { clearSession, issueSession, readSessionToken, verifySessionToken, isSessionRevoked, revokeSession } from '../utils/session.js'
 import { consumeRateLimit, getClientIp } from '../utils/rateLimit.js'
 import { env } from '../utils/env.js'
 import {
@@ -25,7 +25,7 @@ const verifySchema = z.object({
 const registerSchema = z.object({
   phone: phoneSchema,
   nickname: z.string().trim().min(1).max(20),
-  identity: z.enum(['student', 'worker', 'freelancer', 'other']).default('student'),
+  identity: z.enum(['student', 'worker', 'freelancer', 'other']).default('other'),
   city: z.string().trim().max(50).default(''),
   registrationTicket: z.string().min(32).max(256),
 }).strict()
@@ -263,21 +263,25 @@ authRoutes.post('/register', async (c) => {
 authRoutes.get('/me', async (c) => {
   const token = readSessionToken(c)
   if (!token) return c.json({ error: '未登录' }, 401)
-
-  try {
-    const payload = verifySessionToken(token) as { id: string }
-    const user = await prisma.user.findUnique({ where: { id: payload.id } })
-    if (!user) {
-      clearSession(c)
-      return c.json({ error: '登录已失效' }, 401)
-    }
-    return c.json({ user: publicUser(user) })
-  } catch {
-    return c.json({ error: '登录已过期' }, 401)
-  }
+  let payload: { id: string }
+  try { payload = verifySessionToken(token) } catch { return c.json({ error: '登录已过期' }, 401) }
+  if (await isSessionRevoked(token)) { clearSession(c); return c.json({ error: '登录已退出，请重新登录' }, 401) }
+  const user = await prisma.user.findUnique({ where: { id: payload.id } })
+  if (!user) { clearSession(c); return c.json({ error: '登录已失效' }, 401) }
+  return c.json({ user: publicUser(user) })
 })
 
-authRoutes.post('/logout', (c) => {
+authRoutes.post('/logout', async (c) => {
+  const token = readSessionToken(c)
+  if (token) {
+    try { verifySessionToken(token) } catch { clearSession(c); return c.json({ success: true }) }
+    const expected = c.req.header('X-YouTrace-Account')
+    if (expected && expected !== verifySessionToken(token).id) {
+      c.header('X-YouTrace-Account-Mismatch', 'true')
+      return c.json({ error: '其他标签页已切换账号，未退出新账号' }, 409)
+    }
+    await revokeSession(token)
+  }
   clearSession(c)
   return c.json({ success: true })
 })
