@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Wallet, CheckCircle, BookOpen, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -6,7 +6,8 @@ import { useExpenseStore } from '../../stores/expenseStore';
 import { useHabitStore } from '../../stores/habitStore';
 import { useDiaryStore } from '../../stores/diaryStore';
 import { useScheduleStore } from '../../stores/scheduleStore';
-import { getBusinessMonth, getNaturalWeekDates, getToday } from '../../utils/date';
+import { formatBusinessDate, getNaturalWeekDates } from '../../utils/date';
+import { getExpenseOverview, getHabitOverview, getOverviewRefreshDelay, getScheduleOverview } from '../../lib/homeOverview';
 
 interface OverviewItem {
   icon: typeof Wallet;
@@ -26,63 +27,47 @@ export function OverviewCard() {
   const habits = useHabitStore((s) => s.items);
   const diaries = useDiaryStore((s) => s.items);
   const schedules = useScheduleStore((s) => s.items);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      clearTimeout(timer);
+      const current = Date.now();
+      setNow(current);
+      timer = setTimeout(refresh, getOverviewRefreshDelay(current));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    timer = setTimeout(refresh, getOverviewRefreshDelay(Date.now()));
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+    };
+  }, []);
 
   const overview = useMemo(() => {
-    const month = getBusinessMonth();
-    const monthTotalFen = expenses
-      .filter((e) => e.date.startsWith(month) && !e.isIncome)
-      .reduce((sum, e) => sum + e.amount, 0);
-    const monthIncomeFen = expenses
-      .filter((e) => e.date.startsWith(month) && e.isIncome)
-      .reduce((sum, e) => sum + e.amount, 0);
-
-    const habitsDone = habits.filter((h) => h.done);
-    const pendingHabitNames = habits.filter((h) => !h.done).slice(0, 2).map((h) => h.name).join(' · ');
-
-    const weekDates = new Set(getNaturalWeekDates());
+    const current = new Date(now);
+    const weekDates = new Set(getNaturalWeekDates(formatBusinessDate(current)));
     const weekDiaryCount = diaries.filter((d) => weekDates.has(d.date)).length;
 
-    const today = getToday();
-    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-    const todaySchedules = schedules
-      .filter((s) => s.date === today || (s.repeat === 'weekly' && s.date <= today))
-      .filter((s) => s.date === today || new Date(`${today}T12:00:00Z`).getUTCDay() === new Date(`${s.date}T12:00:00Z`).getUTCDay())
-      .sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-    const nextSchedule = todaySchedules[0];
-    let scheduleSub = '今天没有日程';
-    if (nextSchedule) {
-      const [h, m] = nextSchedule.startTime.split(':').map(Number);
-      const startMinutes = h * 60 + m;
-      const until = startMinutes - nowMinutes;
-      if (until > 30) {
-        scheduleSub = `下个: ${nextSchedule.startTime} ${nextSchedule.title} · ${Math.floor(until / 60) > 0 ? `${Math.floor(until / 60)}小时` : `${until % 60}分钟`}后`;
-      } else if (until >= 0) {
-        scheduleSub = `即将开始: ${nextSchedule.title}`;
-      } else {
-        scheduleSub = `进行中: ${nextSchedule.title}`;
-      }
-    }
-
     return {
-      expense: {
-        value: `¥${(monthTotalFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`,
-        sub: monthBudget > 0 ? `预算 ¥${(monthBudget / 100).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}` : (monthIncomeFen > 0 ? `本月收入 ¥${(monthIncomeFen / 100).toFixed(0)}` : '本月暂无记录'),
-      },
-      habit: {
-        value: `${habitsDone.length}/${habits.length}`,
-        sub: pendingHabitNames || '全部完成',
-      },
+      expense: getExpenseOverview(expenses, monthBudget, current),
+      habit: getHabitOverview(habits, current),
       diary: {
         value: `${weekDiaryCount} 篇`,
         sub: '本周已写',
       },
-      schedule: {
-        value: `${todaySchedules.length} 项`,
-        sub: scheduleSub,
-      },
+      schedule: getScheduleOverview(schedules, current),
     };
-  }, [expenses, monthBudget, habits, diaries, schedules]);
+  }, [expenses, monthBudget, habits, diaries, schedules, now]);
 
   const items: OverviewItem[] = [
     {
@@ -96,7 +81,6 @@ export function OverviewCard() {
     },
     {
       icon: CheckCircle,
-      label: '今日习惯',
       ...overview.habit,
       color: '#2EA06B',
       gradient: 'from-[#2EA06B] to-[#3FBF7E]',

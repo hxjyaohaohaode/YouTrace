@@ -9,6 +9,7 @@ import { useDiaryStore } from '../stores/diaryStore';
 import { useCoachStore } from '../stores/coachStore';
 import { bootstrapSync } from '../services/syncEngine';
 import { useGoalStore } from '../stores/goalStore';
+import { recordDiagnostic } from '../services/diagnostics';
 
 const INIT_TIMEOUT_MS = 12_000;
 
@@ -65,8 +66,8 @@ export function useAppInit(enabled: boolean) {
           setReady(true);
         }
       })
-      .catch((error) => {
-        console.error('App init failed', error);
+      .catch(() => {
+        recordDiagnostic('runtime-error', 'unknown');
         if (!cancelled) {
           clearTimeout(timeout);
           setFailed(true);

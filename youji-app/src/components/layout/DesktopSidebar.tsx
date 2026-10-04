@@ -103,7 +103,7 @@ export function DesktopSidebar() {
           </div>
           <div>
             <p className="text-[13px] font-medium text-[var(--text-1)]">{user?.nickname || '未登录'}</p>
-            <p className="text-[11px] text-[var(--text-4)]">v2.0</p>
+            <p className="text-[11px] text-[var(--text-4)]">构建 {__BUILD_REVISION__}</p>
           </div>
         </div>
       </div>
