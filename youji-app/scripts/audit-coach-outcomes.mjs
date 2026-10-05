@@ -154,6 +154,9 @@ export async function runCoachOutcomes(h) {
       await pointer(page, 'button', '重新读取当前观察'); await page.waitForSelector(comparisonSurface);
     });
     await segment(page, `${label}-hide-survives-revisit-reload-source-change`, async () => {
+      // A normal reading scroll is needed when DOM.scrollIntoView leaves a
+      // fully-in-viewport control underneath the persistent mobile navigation.
+      await readCard(page, '[data-observation-choice="spending-comparison:true"]');
       await pointer(page, `${currentSurface} button`, '在此设备隐藏本期间支出观察'); await page.waitForSelector(comparisonSurface, { hidden: true });
       await page.waitForFunction(() => document.activeElement?.getAttribute('data-observation-choice') === 'spending-comparison:false');
       await observe(page, `${label}-device-hide-clear-scope-and-focus`, (await state(page)).text.includes('其他设备不受影响'), 'Hidden current observation replaced by an explicit same-device restore control, with keyboard focus retained');
@@ -167,6 +170,9 @@ export async function runCoachOutcomes(h) {
       await openPage(page, '/insights'); await page.waitForFunction(selector => document.querySelector(selector)?.innerText.includes('此设备已隐藏'), {}, currentSurface);
       await observe(page, `${label}-source-change-does-not-revoke-choice`, !await page.$(comparisonSurface), 'Editing the source does not silently revoke this period’s device hide');
       await pointer(page, `${currentSurface} button`, '在此设备恢复本期间支出观察'); await page.waitForSelector(comparisonSurface);
+      await page.waitForFunction(() => document.activeElement?.getAttribute('data-observation-choice') === 'spending-comparison:true');
+      const restoreFocus = await page.$eval('[data-observation-choice="spending-comparison:true"]', el => { const r = el.getBoundingClientRect(); return { focused: document.activeElement === el, fullyVisible: r.top >= 0 && r.bottom <= innerHeight - 85, hits: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), rect: r.toJSON() }; });
+      await observe(page, `${label}-restore-natural-next-focus-visible`, restoreFocus.focused && restoreFocus.fullyVisible && restoreFocus.hits, JSON.stringify(restoreFocus));
       await readCard(page, comparisonSurface);
       await observe(page, `${label}-explicit-restore-current-cents`, await page.$eval(comparisonSurface, el => el.innerText.includes('40.25') && el.innerText.includes('约100%')), 'User explicitly restored the current view, which uses actual source content');
     });
@@ -175,17 +181,25 @@ export async function runCoachOutcomes(h) {
       const sourceSelector = `button[data-observation-record="${sources[0].id}"]`, sourceHandle = await page.$(sourceSelector); assert.ok(sourceHandle); await sourceHandle.dispose(); await readCard(page, sourceSelector);
       await observe(page, `${label}-before-read-failure-current-source-ack`, await page.$eval(sourceSelector, el => el.innerText.includes('40.25') && el.innerText.includes('已收到云端版本确认')), 'Current source and its matching confirmed status are actually shown before the injected later read failure');
       await page.evaluate(owner => {
-        const original = IDBDatabase.prototype.transaction, deadline = Date.now() + 15000;
-        const diagnostic = window.__observationOutage = { owner, deadline, hits: [], expired: false, restoredAt: null };
-        let restored = false; const restore = () => { if (restored) return; restored = true; IDBDatabase.prototype.transaction = original; clearTimeout(timer); diagnostic.restoredAt = Date.now(); };
+        // Dexie binds db.transaction during open; patching its prototype later
+        // misses that bound reference. Its core.get dynamically calls store.get.
+        // This exact epoch read must succeed before any current view is trusted.
+        const original = IDBObjectStore.prototype.get, deadline = Date.now() + 15000;
+        const diagnostic = window.__observationOutage = { owner, deadline, calls: [], hitCount: 0, hits: [], expired: false, restoredAt: null };
+        let restored = false; const restore = () => { if (restored) return; restored = true; IDBObjectStore.prototype.get = original; clearTimeout(timer); diagnostic.restoredAt = Date.now(); };
         const timer = setTimeout(() => { diagnostic.expired = true; restore(); }, 15000); window.__restoreObservationRead = restore;
-        IDBDatabase.prototype.transaction = function(names, mode, ...rest) {
-          const tables = typeof names === 'string' ? [names] : Array.from(names);
-          if (this.name === `youtrace:user:${owner}` && mode === 'readonly' && tables.length === 7 && ['expenses','habitCheckins','diary','quickNotes','settings','outbox','coachInsights'].every(name => tables.includes(name)) && Date.now() < deadline) { diagnostic.hits.push({ at: Date.now(), db: this.name, mode, tables }); throw new DOMException('Synthetic bounded observation read outage', 'UnknownError'); }
-          return original.call(this, names, mode, ...rest);
+        IDBObjectStore.prototype.get = function(key) {
+          if (this.transaction.db.name === `youtrace:user:${owner}` && this.name === 'settings' && key === 'localDataEpoch') {
+            const tables = [...this.transaction.objectStoreNames], mode = this.transaction.mode;
+            const eligible = mode === 'readonly' && tables.length === 7 && ['expenses','habitCheckins','diary','quickNotes','settings','outbox','coachInsights'].every(name => tables.includes(name));
+            const call = { at: Date.now(), db: this.transaction.db.name, table: this.name, key, mode, tables, eligible };
+            if (diagnostic.calls.length < 50) diagnostic.calls.push(call);
+            if (eligible && Date.now() < deadline) { diagnostic.hitCount++; if (diagnostic.hits.length < 50) diagnostic.hits.push(call); throw new DOMException('Synthetic bounded observation epoch-read outage', 'UnknownError'); }
+          }
+          return original.call(this, key);
         };
       }, api.ownerId);
-      actions.push({ kind: 'synthetic-native-IDB-observation-transaction-outage', label, hardLimitMs: 15000 });
+      actions.push({ kind: 'synthetic-native-IDB-observation-epoch-read-outage', label, hardLimitMs: 15000 });
       try {
         await pointer(page, `${currentSurface} button`, '重新核对本机记录'); await page.waitForFunction(() => window.__observationOutage.hits.length > 0 && document.body.innerText.includes('当前金额和同步确认已撤下'));
         assert.equal(await page.evaluate(() => window.__observationOutage.expired), false, 'Expired fault window is harness-blocked, never product failure');

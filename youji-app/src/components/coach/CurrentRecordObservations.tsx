@@ -36,7 +36,7 @@ export function CurrentRecordObservations() {
     const request = choiceFocus.current;
     if (!snapshot || pending || !request || snapshot.choices[request.rule].hidden !== request.hidden) return;
     const target = document.querySelector<HTMLButtonElement>(`[data-observation-choice="${request.rule}:${!request.hidden}"]`);
-    const frame = requestAnimationFrame(() => { if (!target?.isConnected || intentRevision.current !== request.intent || useAuthStore.getState().user?.id !== owner || !observationActorCurrent(db, snapshot)) return; choiceFocus.current = null; target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
+    const frame = requestAnimationFrame(() => { if (!target?.isConnected || intentRevision.current !== request.intent || useAuthStore.getState().user?.id !== owner || !observationActorCurrent(db, snapshot)) return; choiceFocus.current = null; target.focus({ preventScroll: true }); const rect = target.getBoundingClientRect(); if (rect.top < 70 || rect.bottom > window.innerHeight - 100) target.scrollIntoView({ block: 'center', behavior: 'instant' }); });
     return () => cancelAnimationFrame(frame);
   }, [snapshot, pending, owner]);
   const change = async (rule: ObservationRule, hidden: boolean) => {
