@@ -103,17 +103,30 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     const el = nodes[0], rect = el.getBoundingClientRect(), dialog = el.closest('[role=dialog]');
     const navs = dialog ? [] : [...document.querySelectorAll('nav[aria-label="主导航"]')].filter(node => !node.contains(el)).map(node => node.getBoundingClientRect()).filter(box => box.width >= innerWidth / 2 && box.height > 0 && box.top > innerHeight / 2 && box.bottom >= innerHeight - 1);
     const clip = { left: 0, top: 0, right: innerWidth, bottom: Math.min(innerHeight, ...navs.map(box => box.top)) };
+    // A viewport-fixed navigation bar escapes static overflow ancestors. Keep
+    // ordinary/modal clipping unchanged and fail closed for transformed or
+    // specially contained ancestors; do not grant a fractional-pixel tolerance.
+    const fixedNav = el.closest('nav[aria-label="主导航"]'), navAncestors = [];
+    if (fixedNav && getComputedStyle(fixedNav).position === 'fixed') for (let parent = fixedNav.parentElement; parent; parent = parent.parentElement) {
+      const css = getComputedStyle(parent);
+      navAncestors.push({ tag: parent.tagName, transform: css.transform, perspective: css.perspective, filter: css.filter, backdropFilter: css.backdropFilter, contain: css.contain, willChange: css.willChange, containerType: css.containerType, contentVisibility: css.contentVisibility, clipPath: css.clipPath, maskImage: css.maskImage });
+    }
+    const viewportFixedNav = Boolean(fixedNav && getComputedStyle(fixedNav).position === 'fixed') && navAncestors.every(css =>
+      [css.transform, css.perspective, css.filter, css.backdropFilter, css.clipPath, css.maskImage].every(value => !value || value === 'none') &&
+      !/layout|paint|strict|content/.test(css.contain) && !/transform|perspective|filter|contain/.test(css.willChange) &&
+      (!css.containerType || css.containerType === 'normal') && (!css.contentVisibility || css.contentVisibility === 'visible'));
     let scroller = null, painted = getComputedStyle(el).visibility === 'visible' && Number(getComputedStyle(el).opacity) >= 0.99;
     for (let parent = el.parentElement; parent; parent = parent.parentElement) {
       const css = getComputedStyle(parent), box = parent.getBoundingClientRect();
       painted = painted && css.visibility === 'visible' && Number(css.opacity) >= 0.99;
-      if (/(auto|scroll|hidden|clip)/.test(css.overflowY)) { clip.top = Math.max(clip.top, box.top); clip.bottom = Math.min(clip.bottom, box.bottom); }
-      if (/(auto|scroll|hidden|clip)/.test(css.overflowX)) { clip.left = Math.max(clip.left, box.left); clip.right = Math.min(clip.right, box.right); }
-      if (!scroller && /(auto|scroll)/.test(css.overflowY) && parent.scrollHeight > parent.clientHeight) scroller = { tag: parent.tagName, role: parent.getAttribute('role'), scrollTop: parent.scrollTop, scrollHeight: parent.scrollHeight, clientHeight: parent.clientHeight };
+      const clipsThisTarget = !viewportFixedNav || parent === fixedNav || fixedNav.contains(parent);
+      if (clipsThisTarget && /(auto|scroll|hidden|clip)/.test(css.overflowY)) { clip.top = Math.max(clip.top, box.top); clip.bottom = Math.min(clip.bottom, box.bottom); }
+      if (clipsThisTarget && /(auto|scroll|hidden|clip)/.test(css.overflowX)) { clip.left = Math.max(clip.left, box.left); clip.right = Math.min(clip.right, box.right); }
+      if (clipsThisTarget && !scroller && /(auto|scroll)/.test(css.overflowY) && parent.scrollHeight > parent.clientHeight) scroller = { tag: parent.tagName, role: parent.getAttribute('role'), scrollTop: parent.scrollTop, scrollHeight: parent.scrollHeight, clientHeight: parent.clientHeight };
     }
     const centerHit = el.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
     const textNotTruncated = /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.scrollWidth <= el.clientWidth + 1;
-    return { unique: true, text: el.innerText, rect: rect.toJSON(), clip, scroller, centerHit, painted, textNotTruncated,
+    return { unique: true, text: el.innerText, rect: rect.toJSON(), clip, scroller, centerHit, painted, textNotTruncated, viewportFixedNav, navAncestors,
       visible: painted && centerHit && textNotTruncated && rect.width > 0 && rect.height > 0 && rect.left >= clip.left && rect.right <= clip.right && rect.top >= clip.top && rect.bottom <= clip.bottom };
   }
   async function read(page, selector) {
@@ -180,7 +193,7 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     // the real control, then retain the original painted/clip/hit checks.
     await page.waitForSelector('#login-code', { visible: true, timeout: 7000 });
     await fill(page, '#login-code', challenge.devCode); await tap(page, 'button', '验证');
-    await page.waitForFunction(() => location.pathname === '/onboarding' || location.pathname === '/' && Boolean(document.querySelector('aside nav,nav[aria-label="主导航"]')), { timeout: 15000 });
+    await page.waitForFunction(() => location.pathname === '/onboarding' || location.pathname === '/' && Boolean(document.querySelector('aside nav,nav[aria-label="主导航"]')), { polling: 100, timeout: 15000 });
     if (new URL(page.url()).pathname === '/onboarding') {
       for (let step = 0; step < 4; step++) { await capture(page, `${surfaceNames.get(page)}-existing-account-new-device-onboarding-${step + 1}`); await tap(page, 'button', step < 3 ? '下一步' : '开始使用'); await sleep(650); }
       actions.push({ kind: 'native-existing-account-new-profile-onboarding', surface: surfaceNames.get(page), steps: 4, note: 'Actual first-visit controls; no localStorage flag injection' });

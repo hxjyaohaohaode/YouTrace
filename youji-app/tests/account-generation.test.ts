@@ -181,3 +181,28 @@ test('recovery encoding preserves Error changes, array metadata, cyclic BigInt a
   assert.notEqual(JSON.stringify(await encodeRecovery(new Uint8Array(buffer, 1, 2))), JSON.stringify(await encodeRecovery(new Uint8Array(buffer, 2, 2))));
   assert.notEqual(JSON.stringify(await encodeRecovery(new Error('before'))), JSON.stringify(await encodeRecovery(new Error('after'))));
 });
+
+test('retained source detects resizable buffer capacity changes and export preserves capacity', async () => {
+  const owner = 'generation-buffer-capacity';
+  const source = await sourceDatabase(owner, { futureMetadata: 'id' });
+  const original = { id: 'original-buffer', buffer: new ArrayBuffer(4, { maxByteLength: 8 }) };
+  new Uint8Array(original.buffer).set([1, 2, 3, 4]);
+  await source.table('futureMetadata').put(original);
+  const current = await currentDatabase(owner);
+  try {
+    const copied = await current.table('futureMetadata').get(original.id);
+    assert.equal(copied.buffer.resizable, true);
+    assert.equal(copied.buffer.maxByteLength, 8);
+    const changed = { ...original, buffer: new ArrayBuffer(4, { maxByteLength: 16 }) };
+    new Uint8Array(changed.buffer).set([1, 2, 3, 4]);
+    await source.table('futureMetadata').put(changed);
+    const recovery = await generationRecovery(owner);
+    assert.deepEqual(recovery.status.changedTables, ['futureMetadata']);
+    const baselineBuffer = recovery.baseline?.tables.find(table => table.name === 'futureMetadata')?.rows[0].value as typeof original;
+    const sourceBuffer = recovery.source?.tables.find(table => table.name === 'futureMetadata')?.rows[0].value as typeof original;
+    assert.deepEqual(JSON.parse(JSON.stringify(await encodeRecovery(baselineBuffer.buffer))), { $id: 0, $type: 'ArrayBuffer', resizable: true, maxByteLength: 8, bytes: [1, 2, 3, 4] });
+    assert.deepEqual(JSON.parse(JSON.stringify(await encodeRecovery(sourceBuffer.buffer))), { $id: 0, $type: 'ArrayBuffer', resizable: true, maxByteLength: 16, bytes: [1, 2, 3, 4] });
+    assert.notDeepEqual(await encodeRecovery(new ArrayBuffer(4)), await encodeRecovery(new ArrayBuffer(4, { maxByteLength: 4 })));
+    assert.equal((await current.table('futureMetadata').get(original.id)).buffer.maxByteLength, 8, 'Detection and export never apply a later source change to current data');
+  } finally { current.close(); source.close(); }
+});

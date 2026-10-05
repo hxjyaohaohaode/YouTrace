@@ -162,7 +162,10 @@ export async function encodeRecovery(value: unknown): Promise<unknown> {
     if (item instanceof RegExp) return { $id: id, $type: 'RegExp', source: item.source, flags: item.flags };
     if (typeof File !== 'undefined' && item instanceof File) return { $id: id, $type: 'File', name: item.name, lastModified: item.lastModified, type: item.type, bytes: Array.from(new Uint8Array(await item.arrayBuffer())) };
     if (item instanceof Blob) return { $id: id, $type: 'Blob', type: item.type, bytes: Array.from(new Uint8Array(await item.arrayBuffer())) };
-    if (item instanceof ArrayBuffer) return { $id: id, $type: 'ArrayBuffer', bytes: Array.from(new Uint8Array(item)) };
+    if (item instanceof ArrayBuffer) {
+      const shape = item as ArrayBuffer & { resizable?: boolean; maxByteLength?: number };
+      return { $id: id, $type: 'ArrayBuffer', resizable: shape.resizable ?? false, maxByteLength: shape.maxByteLength ?? item.byteLength, bytes: Array.from(new Uint8Array(item)) };
+    }
     if (ArrayBuffer.isView(item)) return { $id: id, $type: item.constructor.name, buffer: await encode(item.buffer), byteOffset: item.byteOffset, byteLength: item.byteLength }; 
     if (item instanceof Map) return { $id: id, $type: 'Map', entries: await Promise.all(Array.from(item.entries(), async ([key, value]) => [await encode(key), await encode(value)])) };
     if (item instanceof Set) return { $id: id, $type: 'Set', values: await Promise.all(Array.from(item.values(), encode)) };

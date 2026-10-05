@@ -11,7 +11,15 @@ try { const report = JSON.parse(await readFile(join(evidence, 'outcome-report.js
 const executionEvidence = { terminalReportPresent, incomplete: !terminalReportPresent, mediaVerification: 'Packaging preserves bytes only; playable video and complete trace require independent review.' };
 if (!terminalReportPresent) await writeFile(join(evidence, 'INCOMPLETE.txt'), 'INCOMPLETE HARNESS RUN: no terminal result report was produced. The last partial checkpoint and any completed PNG/DOM, trace or media bytes are preserved unchanged. Missing or unfinished media are evidence gaps. No successful outcome, sourceEnd verification, or playable-video conclusion is inferred. Inspect the exact CI step status and partial checkpoint.\n');
 const files = [];
-for (const file of (await readdir(evidence)).sort()) { const body = await readFile(join(evidence, file)); files.push({ file, bytes: body.length, sha256: createHash('sha256').update(body).digest('hex') }); }
+async function collect(directory, prefix = '') {
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    const file = prefix + entry.name, path = join(directory, entry.name);
+    if (entry.isDirectory()) await collect(path, file + '/');
+    else if (entry.isFile()) { const body = await readFile(path); files.push({ file, bytes: body.length, sha256: createHash('sha256').update(body).digest('hex') }); }
+    else throw new Error(`Unsupported evidence entry; preserve and inspect it without following external links: ${file}`);
+  }
+}
+await collect(evidence);
 const archive = join(destination, 'evidence.tar.gz'); execFileSync('tar', ['-czf', archive, '-C', evidence, '.']);
 const body = await readFile(archive), size = 24 * 1024 * 1024, parts = [];
 if (body.length > size * 16) throw new Error('Evidence exceeds configured artifact parts; expand packaging, never discard evidence');
