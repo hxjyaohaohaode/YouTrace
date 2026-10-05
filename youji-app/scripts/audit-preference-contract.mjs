@@ -1,5 +1,16 @@
 import { isDeepStrictEqual } from 'node:util';
 
+export function preferenceEvidenceErrorName(error) {
+  try { const name = error?.name; return ['Error', 'TimeoutError', 'ProtocolError', 'TargetCloseError', 'AbortError'].includes(name) ? name : 'unknown'; }
+  catch { return 'unknown'; }
+}
+
+export function preferenceSetupStatus(endpoint) {
+  const expected = { '/api/auth/send-code': 200, '/api/auth/verify': 200, '/api/auth/register': 201 };
+  if (!Object.hasOwn(expected, endpoint)) throw new Error('Undeclared preference setup response');
+  return expected[endpoint];
+}
+
 export const PREFERENCE_STATE_KEY = 'accountPreferences:state:v1';
 export const PREFERENCE_PENDING_KEY = 'pendingSetting:accountPreferences';
 export const WIRE_KEYS = ['coachStyle', 'coachPushEnabled', 'pushLimit', 'quietEnabled', 'quietStart', 'quietEnd', 'eveningReviewEnabled', 'eveningReviewTime'];

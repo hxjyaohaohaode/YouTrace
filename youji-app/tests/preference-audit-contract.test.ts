@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
-import { acknowledgedPreferences, validPreferenceWire, unchangedPreferences, validPreferenceAck, retainedPreferenceIntent, frozenPreferenceRequestMatches, exactPreferenceAck, comparisonRows, comparisonTextMatches } from '../scripts/audit-preference-contract.mjs';
+import { preferenceEvidenceErrorName, preferenceSetupStatus, acknowledgedPreferences, validPreferenceWire, unchangedPreferences, validPreferenceAck, retainedPreferenceIntent, frozenPreferenceRequestMatches, exactPreferenceAck, comparisonRows, comparisonTextMatches } from '../scripts/audit-preference-contract.mjs';
 import { installPreferenceFault } from '../scripts/audit-preference-faults.mjs';
 const settings = { coachStyle: 'gentle', coachPushEnabled: false, coachPushFrequency: 0, quietHours: { enabled: true, start: '23:00', end: '07:00' }, eveningReviewEnabled: false, eveningReviewTime: '21:00' };
 const remote = { protocol: 1, revision: '0', settings: { coachStyle: 'gentle', coachPushEnabled: false, pushLimit: 0, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', eveningReviewEnabled: false, eveningReviewTime: '21:00' } };
@@ -95,4 +95,37 @@ test('a frozen preference ID cannot silently change its base or any wire field',
   assert.equal(frozenPreferenceRequestMatches(active, request), true);
   assert.equal(frozenPreferenceRequestMatches(active, { ...request, baseRevision: '0' }), false);
   assert.equal(frozenPreferenceRequestMatches(active, { ...request, changes: { eveningReviewTime: '20:45' } }), false);
+});
+
+// The real register route returns Created, while challenge and verification return OK.
+test('preference setup preserves each actual endpoint status instead of accepting any 2xx', () => {
+  for (const [endpoint, expected] of [['/api/auth/send-code', 200], ['/api/auth/verify', 200], ['/api/auth/register', 201]]) {
+    assert.equal(preferenceSetupStatus(endpoint), expected);
+    for (const wrong of [202, 204, 400, 500, expected === 200 ? 201 : 200]) assert.notEqual(preferenceSetupStatus(endpoint), wrong);
+  }
+  assert.throws(() => preferenceSetupStatus('/api/user/settings'), /Undeclared/);
+});
+
+test('evidence finishing observes success or failure without replaying or replacing the operation', async () => {
+  const { readFile } = await import('node:fs/promises'), { runInNewContext } = await import('node:vm');
+  const source = await readFile(new URL('../scripts/audit-user-outcomes.mjs', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('async function finishPreferenceEvidence('), source.indexOf('async function isolated('));
+  const actions = [], infrastructure = [], checkpoints = [];
+  const finish = runInNewContext(body + '\nfinishPreferenceEvidence', { actions, infrastructure, checkpoint: async stage => checkpoints.push(stage), preferenceEvidenceErrorName, Date });
+  let calls = 0; const marker = {};
+  assert.equal(await finish('YP-write-1280', 'recorder-stop', async () => { calls++; return marker; }), marker);
+  const original = Object.assign(new Error('Synthetic detail not copied'), { name: 'private-synthetic-name' });
+  await assert.rejects(finish('YP-write-1280', 'trace-stop', async () => { calls++; throw original; }), error => error === original);
+  assert.equal(calls, 2); assert.deepEqual(actions.map(row => row.kind), ['preference-evidence-finish-start', 'preference-evidence-finish-ended', 'preference-evidence-finish-start', 'preference-evidence-finish-ended']);
+  assert.equal(infrastructure.length, 1); assert.equal(infrastructure[0].errorName, 'unknown'); assert.equal(checkpoints.length, 4);
+  await finish('Y4-original', 'recorder-stop', async () => { calls++; });
+  assert.equal(calls, 3); assert.equal(actions.length, 4); assert.equal(checkpoints.length, 4);
+});
+
+test('evidence error names read a changing or throwing getter only once', () => {
+  let reads = 0;
+  const changing = Object.defineProperty({}, 'name', { get() { reads++; return reads === 1 ? 'ProtocolError' : 'private-synthetic-detail'; } });
+  assert.equal(preferenceEvidenceErrorName(changing), 'ProtocolError'); assert.equal(reads, 1);
+  assert.equal(preferenceEvidenceErrorName(Object.defineProperty({}, 'name', { get() { throw new Error('Synthetic getter failure'); } })), 'unknown');
+  assert.equal(preferenceEvidenceErrorName({ name: 'private-synthetic-detail' }), 'unknown');
 });

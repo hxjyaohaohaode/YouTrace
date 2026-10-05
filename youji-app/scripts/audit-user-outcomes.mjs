@@ -16,6 +16,7 @@ import { runLegacyGoalOutcomes, waitForStableModalTarget } from './audit-legacy-
 import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs';
 import { runStartupRecoveryOutcomes } from './audit-startup-recovery-outcomes.mjs';
 import { runPreferenceOutcomes } from './audit-preference-outcomes.mjs';
+import { preferenceEvidenceErrorName } from './audit-preference-contract.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
@@ -161,6 +162,17 @@ async function login(page, phone, nickname) {
   for (let step = 0; step < 4; step++) { await capture(page, `${nickname}-onboarding-${step + 1}`); await pointer(page, 'button', step < 3 ? '下一步' : '开始使用'); await sleep(650); }
   await waitPath(page, '/'); await page.waitForSelector('main'); await capture(page, `${nickname}-home`);
 }
+async function finishPreferenceEvidence(name, stage, operation) {
+  if (!name.startsWith('YP-')) return operation();
+  actions.push({ kind: 'preference-evidence-finish-start', surface: name, stage, at: new Date().toISOString() });
+  await checkpoint(`${name}: ${stage} started`).catch(() => undefined);
+  try { return await operation(); }
+  catch (error) { infrastructure.push({ preferenceEvidenceFinish: stage, errorName: preferenceEvidenceErrorName(error), surface: name }); throw error; }
+  finally {
+    actions.push({ kind: 'preference-evidence-finish-ended', surface: name, stage, at: new Date().toISOString() });
+    await checkpoint(`${name}: ${stage} ended`).catch(() => undefined);
+  }
+}
 async function isolated(name, viewport, body) {
   const context = await browser.createBrowserContext(), page = await context.newPage();
   surfaceNames.set(page, name);
@@ -174,7 +186,7 @@ async function isolated(name, viewport, body) {
     recorder = await page.screencast({ path: join(artifacts, `${name}.webm`), fps: 12, quality: 35 });
     await body(page);
   } catch (error) { await segment(page, `${name}-setup`, async () => { throw error; }); }
-  finally { if (recorder && !page.isClosed()) { actions.push({ kind: 'natural-reading-interval', surface: name, durationMs: 500, purpose: 'final visible state before recording closes' }); await sleep(500); await capture(page, `${name}-final-visible-frame`).catch(() => infrastructure.push({ scenario: name, finalVisibleFrameMissing: true })); } try { if (recorder) await recorder.stop(); } finally { try { await page.tracing.stop(); } finally { await context.close(); actions.push({ kind: 'isolated-profile-closed', surface: name }); } } }
+  finally { if (recorder && !page.isClosed()) { actions.push({ kind: 'natural-reading-interval', surface: name, durationMs: 500, purpose: 'final visible state before recording closes' }); await sleep(500); await finishPreferenceEvidence(name, 'final-visible-capture', () => capture(page, `${name}-final-visible-frame`)).catch(() => infrastructure.push({ scenario: name, finalVisibleFrameMissing: true })); } try { if (recorder) await finishPreferenceEvidence(name, 'recorder-stop', () => recorder.stop()); } finally { try { await finishPreferenceEvidence(name, 'trace-stop', () => page.tracing.stop()); } finally { await finishPreferenceEvidence(name, 'profile-close', () => context.close()); actions.push({ kind: 'isolated-profile-closed', surface: name }); } } }
 }
 async function apiFor(page) {
   const cookie = (await page.browserContext().cookies()).filter(row => row.domain === '127.0.0.1').map(row => `${row.name}=${row.value}`).join('; ');
@@ -627,7 +639,7 @@ try {
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
-  browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
   if (taskSet.startsWith('preferences-')) {
     const { media, peerMedia } = await runPreferenceOutcomes({ isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames }, { branch: taskSet.slice('preferences-'.length) });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);

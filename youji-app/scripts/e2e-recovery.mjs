@@ -6,6 +6,7 @@ import { resolve, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { installStorageProgress, projectStorageProgress, storageProgressSchema } from './audit-storage-progress.mjs';
 
 // BEGIN safe initialization capture (also exercised without a browser in unit tests).
 const traceSchema = {
@@ -20,7 +21,9 @@ const traceFlags = ['authChecked', 'isAuthenticated', 'identityUnavailable', 'si
 const traceRoutes = ['/', '/login', '/onboarding', '/data-info', '/schedule', '/quick-note', '/quick-note/result', '/expense', '/todo', '/habit', '/diary', '/coach', '/insights', '/settings', '/goal', '/timeline', '/more'];
 const traceMarkers = ['navigation-committed', 'document-start', 'login-start', 'login-root-ready', 'route-start', 'route-ready', 'reload-start', 'reload-ready', 'account-b-login-start', 'account-b-login-root-ready', 'account-b-todo-ready'];
 const traceLimit = 2048, pageErrorLimit = 160;
-const chronology = [], errors = [], tracedPages = new WeakMap();
+const chronology = [], storageChronology = [], errors = [], tracedPages = new WeakMap();
+let storageDropped = 0;
+const storageLimit = 4096;
 const traceStarted = performance.now();
 let traceSequence = 0, traceDropped = 0, nextPage = 0, nextRequest = 0;
 const safeCounter = value => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000;
@@ -87,11 +90,24 @@ async function observeInitialization(page) {
     const status = response.status();
     appendTrace(page, { kind: 'request', outcome: 'response', ...request.safe, durationMs: elapsed(request.started), ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}) });
   });
+  page.on('requestfinished', request => {
+    const saved = requests.get(request);
+    if (saved && saved.safe.endpoint !== 'asset') appendTrace(page, { kind: 'request', outcome: 'finished', ...saved.safe, durationMs: elapsed(saved.started) });
+  });
   page.on('requestfailed', request => {
     const saved = requests.get(request);
     if (saved) appendTrace(page, { kind: 'request', outcome: 'failed', ...saved.safe, durationMs: elapsed(saved.started), failure: 'network-failure' });
   });
   await page.exposeFunction('__youtraceInitializationDiagnostic', value => {
+    if (value?.kind === 'storage-progress') {
+      const safe = projectStorageProgress(value.event);
+      if (safe) {
+        const target = tracedPages.get(page);
+        storageChronology.push({ elapsedMs: elapsed(traceStarted), page: target.id, document: target.document, event: safe });
+        if (storageChronology.length > storageLimit) { storageDropped += storageChronology.length - storageLimit; storageChronology.splice(0, storageChronology.length - storageLimit); }
+      }
+      return;
+    }
     if (value?.kind === 'document-start') {
       tracedPages.get(page).document += 1;
       const route = value.route;
@@ -124,9 +140,10 @@ async function observeInitialization(page) {
       } catch { /* Observation only. */ }
     });
   }, traceSchema, traceFlags, traceRoutes);
+  await page.evaluateOnNewDocument(installStorageProgress, storageProgressSchema);
 }
 function firstFailureTrace(error) {
-  return { version: 1, syntheticOnly: true, failureName: safeExceptionName(error), limit: traceLimit, dropped: traceDropped, pageErrorNames: [...errors], chronology: chronology.map(row => ({ ...row, ...(row.event ? { event: { ...row.event } } : {}) })) };
+  return { version: 1, syntheticOnly: true, failureName: safeExceptionName(error), limit: traceLimit, dropped: traceDropped, storageLimit, storageDropped, storageChronology: storageChronology.map(row => ({ ...row, event: { ...row.event, stores: [...row.event.stores] } })), pageErrorNames: [...errors], chronology: chronology.map(row => ({ ...row, ...(row.event ? { event: { ...row.event } } : {}) })) };
 }
 // END safe initialization capture.
 

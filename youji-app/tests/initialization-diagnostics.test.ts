@@ -1,3 +1,4 @@
+import { installStorageProgress, projectStorageProgress, storageProgressSchema } from '../scripts/audit-storage-progress.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
@@ -145,7 +146,7 @@ const captureSource = await readFile(new URL('../scripts/e2e-recovery.mjs', impo
 function captureDriver() {
   const section = captureSource.split('// BEGIN safe initialization capture')[1].split('// END safe initialization capture.')[0];
   // The marker's trailing comment belongs to the first line and is excluded.
-  return runInNewContext(section.slice(section.indexOf('\n')) + '\n({ traceSchema, traceFlags, traceLimit, projectTrace, safeRoute, safeEndpoint, safeExceptionName, boundary, observeInitialization, firstFailureTrace })', { performance, URL });
+  return runInNewContext(section.slice(section.indexOf('\n')) + '\n({ traceSchema, traceFlags, traceLimit, projectTrace, safeRoute, safeEndpoint, safeExceptionName, boundary, observeInitialization, firstFailureTrace })', { performance, URL, installStorageProgress, projectStorageProgress, storageProgressSchema });
 }
 class FakePage {
   handlers = new Map<string, (event: unknown) => void>();
@@ -155,7 +156,7 @@ class FakePage {
   on(name: string, callback: (event: unknown) => void) { this.handlers.set(name, callback); }
   url() { return `http://synthetic.invalid/todo?owner=${secret}`; }
   async exposeFunction(_name: string, callback: (value: unknown) => void) { this.binding = callback; }
-  async evaluateOnNewDocument(callback: (...args: unknown[]) => void, ...args: unknown[]) { this.install = callback; this.installArgs = args; }
+  async evaluateOnNewDocument(callback: (...args: unknown[]) => void, ...args: unknown[]) { if (!this.install) { this.install = callback; this.installArgs = args; } }
 }
 
 function alternatingField(key: string, allowed: unknown) {
@@ -277,6 +278,7 @@ test('pre-navigation capture projects both browser and Node inputs and retains b
   page.binding({ ...safeEvent, sequence: 2, errorName: 'SubTransactionError', message: secret });
   page.handlers.get('pageerror')!({ name: secret, message: secret });
   page.handlers.get('response')!({ request: () => request, status: () => 401 });
+  page.handlers.get('requestfinished')!(request);
   page.handlers.get('requestfailed')!(request);
   const first = capture.firstFailureTrace({ name: 'TimeoutError', message: secret });
   assert.equal(JSON.stringify(sent).includes(secret), false);
@@ -284,6 +286,7 @@ test('pre-navigation capture projects both browser and Node inputs and retains b
   assert.equal(first.chronology.find((row: { kind: string }) => row.kind === 'initialization').document, 1);
   assert.equal(first.chronology.find((row: { event?: { sequence: number } }) => row.event?.sequence === 2).document, 2);
   assert.ok(first.chronology.some((row: { status: number; endpoint: string; document: number; documentAtRequestStart: number }) => row.status === 401 && row.endpoint === 'auth-me' && row.document === 2 && row.documentAtRequestStart === 1));
+  assert.ok(first.chronology.some((row: { kind: string; outcome: string; request: number }) => row.kind === 'request' && row.outcome === 'finished' && row.request === 1));
   assert.deepEqual(clone(first.pageErrorNames), ['unknown']);
   const frozenLength = first.chronology.length;
   for (let index = 0; index < capture.traceLimit + 20; index++) page.binding(safeEvent);
