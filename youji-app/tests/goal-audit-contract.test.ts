@@ -35,3 +35,9 @@ test('Goal canonical versions remain bounded positive decimal sequences', () => 
   for (const value of ['1', '9223372036854775807']) assert.equal(checks.validVersion(value), true);
   for (const value of ['0', '01', '-1', '1.5', '9223372036854775808', 1, null]) assert.equal(checks.validVersion(value), false);
 });
+
+test('ordinary Goal feedback cannot pass with the archived false refresh-needed instruction', () => {
+  assert.equal(checks.normalFeedback([{ role: 'status', text: '本机写入已完成，但列表暂未刷新。请刷新核对，无需重复提交' }]), false);
+  assert.equal(checks.normalFeedback([{ role: 'alert', text: '暂时无法读取目标' }]), false);
+  assert.equal(checks.normalFeedback([{ role: 'status', text: '进度已保存，可随时调整' }]), true);
+});

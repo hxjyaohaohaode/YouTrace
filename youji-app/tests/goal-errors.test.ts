@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { goalFailureMessage, goalLoadingMessage, goalSummaryLabel } from '../src/components/goal/goalErrors';
+import { goalFailureMessage, goalLoadingMessage, goalSummaryLabel, goalNeedsRefresh } from '../src/components/goal/goalErrors';
 
 test('Goal quota write failure explains cause, unchanged source, retained input and retry', () => {
   const error = new Error('Injected storage fault'); error.name = 'QuotaExceededError';
@@ -33,4 +33,20 @@ test('unread Goal statistics do not turn a read failure into a known zero collec
   assert.equal(goalSummaryLabel(false, true, null, 0, 0, 0), '正在读取目标统计…');
   assert.equal(goalSummaryLabel(true, false, null, 0, 0, 0), '0/0 完成 · 平均进度 0%');
   assert.equal(goalSummaryLabel(true, false, '读取失败', 1, 2, 75), '上次读取：1/2 完成 · 平均进度 75%');
+});
+
+
+test('Goal display-read notice retires only after a sufficiently recent published view', () => {
+  assert.equal(goalNeedsRefresh(undefined, 0, true, null), false);
+  assert.equal(goalNeedsRefresh(8, 7, true, null), true);
+  assert.equal(goalNeedsRefresh(8, 8, true, null), false);
+  assert.equal(goalNeedsRefresh(8, 9, true, null), false);
+  assert.equal(goalNeedsRefresh(8, 0, true, null), true);
+});
+
+
+test('a replacement Goal read is not a failure, but its later error exposes recovery until covered', () => {
+  assert.equal(goalNeedsRefresh(8, 7, false, null), false);
+  assert.equal(goalNeedsRefresh(8, 7, false, '读取失败'), true);
+  assert.equal(goalNeedsRefresh(8, 9, false, '旧错误'), false);
 });

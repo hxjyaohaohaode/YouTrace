@@ -465,3 +465,78 @@ test('goal integrity: shared observation survives one consumer closing and unsub
     assert.equal(store.getState().statuses[source.id], '已同步', 'no new observer publication after every consumer closes');
   } finally { stopPage(); stopRecovery(); }
 });
+
+function holdSnapshotReads(failFirstDelivery = false) {
+  const gates = [barrier(), barrier()], database = storage.db, original = database.transaction; let count = 0;
+  database.transaction = function (...args: Parameters<typeof original>) {
+    const result = Reflect.apply(original, this, args);
+    if (args[0] === 'r' && Array.isArray(args[1]) && args[1].includes(database.goalRecords) && count < 2) {
+      const index = count++, gate = gates[index];
+      return result.then(value => Dexie.ignoreTransaction(async () => { gate.entered(); await gate.waiting; if (failFirstDelivery && index === 0) throw new Error('Synthetic earlier read delivery error'); return value; }));
+    }
+    return result;
+  } as typeof original;
+  return { gates, restore: () => { database.transaction = original; for (const gate of gates) gate.release(); } };
+}
+
+for (const failEarlierRead of [false, true]) test(`goal integrity: newer successful publication resolves superseded ${failEarlierRead ? 'failed' : 'successful'} commit refresh`, async () => {
+  const source = await seed(), held = holdSnapshotReads(failEarlierRead);
+  try {
+    const saving = store.getState().updateGoal(source.id, { progress: 75 }, source); await held.gates[0].started;
+    const newer = store.getState().loadFromDB(); await held.gates[1].started; held.gates[1].release(); await newer;
+    held.gates[0].release(); const result = await saving;
+    assert.equal(result.committed, true); assert.equal(result.view, 'current');
+    assert.ok(store.getState().publishedRevision >= result.refreshRevision); assert.equal(store.getState().readError, null); assert.equal(store.getState().items[0].progress, 75);
+  } finally { held.restore(); }
+});
+
+test('goal integrity: a newer read still in flight is refreshing, not a failed-read recovery request', async () => {
+  const source = await seed(), held = holdSnapshotReads();
+  try {
+    const saving = store.getState().updateGoal(source.id, { progress: 75 }, source); await held.gates[0].started;
+    const newer = store.getState().loadFromDB(); await held.gates[1].started; held.gates[0].release(); const result = await saving;
+    assert.equal(result.committed, true); assert.equal(result.view, 'refreshing'); assert.equal(store.getState().readError, null);
+    assert.ok(store.getState().publishedRevision < result.refreshRevision);
+    held.gates[1].release(); await newer;
+    assert.ok(store.getState().publishedRevision >= result.refreshRevision); assert.equal(store.getState().items[0].progress, 75);
+  } finally { held.restore(); }
+});
+
+test('goal integrity: a failed newer read keeps a real recoverable notice until successful publication', async () => {
+  const source = await seed(), held = holdSnapshotReads(), original = storage.db.goalRecords.toArray;
+  try {
+    const saving = store.getState().updateGoal(source.id, { progress: 75 }, source); await held.gates[0].started;
+    storage.db.goalRecords.toArray = () => Promise.reject(new Error('Synthetic newer read failure'));
+    await assert.rejects(store.getState().loadFromDB(), /newer read failure/);
+    storage.db.goalRecords.toArray = original; held.gates[0].release(); const result = await saving;
+    assert.equal(result.committed, true); assert.equal(result.view, 'refresh-needed'); assert.ok(store.getState().readError);
+    assert.ok(store.getState().publishedRevision < result.refreshRevision);
+    await store.getState().loadFromDB(); assert.equal(store.getState().readError, null);
+    assert.ok(store.getState().publishedRevision >= result.refreshRevision); assert.equal(store.getState().items[0].progress, 75);
+  } finally { held.restore(); storage.db.goalRecords.toArray = original; }
+});
+
+test('goal integrity: a postcommit observation before delayed write delivery remains current if the redundant reread fails', async () => {
+  const source = await seed(), held = holdTransaction('rw'), original = storage.db.goalRecords.toArray;
+  try {
+    const saving = store.getState().updateGoal(source.id, { progress: 75 }, source); await held.started;
+    await store.getState().loadFromDB(); assert.equal(store.getState().items[0].progress, 75);
+    storage.db.goalRecords.toArray = () => Promise.reject(new Error('Synthetic redundant reread failed'));
+    held.release(); const result = await saving;
+    assert.equal(result.committed, true); assert.equal(result.view, 'current'); assert.equal(store.getState().readError, null);
+    assert.equal(store.getState().items[0].progress, 75);
+  } finally { held.restore(); storage.db.goalRecords.toArray = original; }
+});
+
+test('goal integrity: a later rejected write is not evidence that a replacement read is still running', async () => {
+  const source = await seed(), held = holdSnapshotReads();
+  try {
+    const saving = store.getState().updateGoal(source.id, { progress: 75 }, source); await held.gates[0].started;
+    await assert.rejects(store.getState().updateGoal(source.id, { progress: 100 }, source), /刚刚/);
+    held.gates[0].release(); const result = await saving;
+    assert.equal(result.committed, true); assert.equal(result.view, 'refresh-needed');
+    assert.ok(store.getState().publishedRevision < result.refreshRevision);
+    const refreshing = store.getState().loadFromDB(); await held.gates[1].started; held.gates[1].release(); await refreshing;
+    assert.ok(store.getState().publishedRevision >= result.refreshRevision); assert.equal(store.getState().items[0].progress, 75);
+  } finally { held.restore(); }
+});

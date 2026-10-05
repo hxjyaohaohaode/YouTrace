@@ -14,6 +14,7 @@ const DATE = `${EDITOR} input[type=date]`;
 const validVersion = value => typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 const version = (facts, id) => facts.local.settings.find(row => row.key === `sync-version:goals:${id}`)?.value;
 const goalSettings = local => local.settings.filter(row => /^(?:sync-(?:version|conflict):goals:|goal-)/.test(row.key));
+const normalFeedback = messages => !messages.some(row => row.role === 'alert' || /列表暂未刷新|请刷新核对|无需重复提交/.test(row.text));
 const sameRows = (left, right) => isDeepStrictEqual([...left].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))), [...right].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))));
 function preserved(before, after) {
   return sameRows(before.local.goalRecords, after.local.goalRecords) && sameRows(before.server, after.server) &&
@@ -42,7 +43,7 @@ function goalRowsFromLedger(events) {
   }
   return [...current.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
-export const goalOutcomeChecks = { validVersion, version, preserved, onlyChanges, neighborUnchanged, sameInputs, goalRowsFromLedger };
+export const goalOutcomeChecks = { validVersion, version, preserved, onlyChanges, neighborUnchanged, sameInputs, goalRowsFromLedger, normalFeedback };
 
 export async function runGoalOutcomes(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Y6 is hosted-CI only; never retry a restricted local listener/browser');
@@ -52,7 +53,7 @@ export async function runGoalOutcomes(h) {
     '9a9 has no GET /goals route. Current server Goal rows are reconstructed from the complete GET-only sync/pull ledger; raw events and tombstones are retained',
     'No legacy migration/enrollment/recovery fixture: a fresh account is not evidence of old-user recovery',
     'No native second-tab stale-dialog race: supplied isolated helper records one page only; module actor/race contracts remain separate',
-    'No postcommit display-read fault: native quota here fails the exact goal write/delete before commit, not a saved-but-refresh-failed outcome',
+    'Postcommit display read failure is a bounded exact-account/exact-target committed-put then four-table readonly fixture; native legacy enrollment/copy read-failure recovery is not covered',
     'No signout/clear/account-generation race, arbitrary scale, real mobile OS, screen reader, live model/provider or production claim',
     '100% is only a reversible user-entered progress value; a future plan date is not proof of work performed',
   ];
@@ -238,6 +239,7 @@ export async function runGoalOutcomes(h) {
     const matches = candidate => candidate && candidate.title === values.title && candidate.description === values.description && candidate.targetDate === values.targetDate && candidate.level === values.level && candidate.domain === values.domain && candidate.priority === values.priority && candidate.progress === 0;
     await observe(page, `${label}-native-created-fields-zero-manual-progress-cloud-ack`, newServer.length === 1 && newServer[0].id === row.id && matches(row) && matches(newServer[0]) && row.syncScope === 'account' && after.local.outbox.length === 0 && validVersion(version(after, row.id)) && version(after, row.id) === after.serverVersions[row.id], JSON.stringify({ actualInput: actual, localId: row.id, serverIds: newServer.map(item => item.id), expected: values, note: 'A future planned date starts at zero and does not assert an actual accomplishment' }));
     await saveRecordEvidence(`${label}-created-exact-id`, after.local, { goals: after.server }, { goals: [row.id] });
+    await normalReaderFeedback(page, after, row, label);
     return row;
   }
   async function manualMeaning(page, label) {
@@ -265,6 +267,7 @@ export async function runGoalOutcomes(h) {
     await observe(page, `${label}-actual-visible-manual-value`, reading.visible && reading.text.includes(`${value}%`) && controlState.filter(row => row.pressed === 'true').length === 1 && controlState.some(row => row.text === `${value}%` && row.pressed === 'true'), JSON.stringify({ reading, controlState, manuallyChosen: value }));
     const newer = validVersion(version(before, identity.id)) && validVersion(version(after, identity.id)) && BigInt(version(after, identity.id)) > BigInt(version(before, identity.id)) && version(after, identity.id) === after.serverVersions[identity.id];
     await observe(page, `${label}-exact-id-manual-value-and-server-ack`, a?.progress === value && b?.progress === value && rawLocalUnchanged && rawServerUnchanged && newer && after.local.outbox.length === 0 && before.local.goalRecords.length === after.local.goalRecords.length && before.server.length === after.server.length && (!neighbor || neighborUnchanged(before, after, neighbor.id)), JSON.stringify({ id: identity.id, value, localRawProgress: a?.progress, serverRawProgress: b?.progress, beforeVersion: version(before, identity.id), afterVersion: version(after, identity.id), rawLocalUnchanged, rawServerUnchanged, note: 'Same-ID raw values, complete-field preservation, and cloud ACK; no auto-completion inference' }));
+    await normalReaderFeedback(page, after, identity, label);
     return after;
   }
   async function summary(page, api, label, filterText = '全部') {
@@ -300,6 +303,7 @@ export async function runGoalOutcomes(h) {
     assert.ok(local, 'Edited target must remain in the canonical local source'); Object.assign(target, local);
     const root = await card(page, target), reading = await read(page, root);
     await observe(page, `${label}-visible-date-agrees-with-raw-null-or-date`, reading.visible && (expectedDate ? reading.text.includes(`计划日期 ${expectedDate}`) : !/计划日期/.test(reading.text)) && local.targetDate === expectedDate && server?.targetDate === expectedDate, JSON.stringify({ reading, localTargetDate: local.targetDate, serverTargetDate: server?.targetDate, note: 'Clearing is a real nullable date, not an empty UI over a retained server date' }));
+    await normalReaderFeedback(page, after, target, label);
     return after;
   }
   async function cancelEditor(page, api, target, neighbor, label) {
@@ -379,6 +383,80 @@ export async function runGoalOutcomes(h) {
     await writeFile(join(artifacts, `${label}-fault.json`), JSON.stringify(fault, null, 2)); actions.push({ kind: 'explicit-release-native-goal-fault', surface: surfaceNames.get(page), ...fault });
     await observe(page, `${label}-explicit-release-before-expiry`, !fault.expired && fault.restored && fault.restoredBy === 'explicit-harness-release' && fault.restoredAt != null, JSON.stringify(fault));
     return fault;
+  }
+  async function normalReaderFeedback(page, current, identity, label) {
+    const local = current.local.goalRecords.find(row => row.id === identity.id), server = current.server.find(row => row.id === identity.id);
+    await page.waitForFunction(expected => [...document.querySelectorAll('[data-component="goal-card"]')].some(el => el.querySelector('h2')?.innerText === expected.title && el.innerText.includes(expected.description) && el.innerText.includes(expected.domain) && el.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === String(expected.progress)), { timeout: 7000 }, local);
+    const root = await card(page, identity);
+    const shownProgress = await page.$eval(`${root} [role=progressbar]`, el => el.getAttribute('aria-valuenow'));
+    const messages = await page.$$eval(`${WORKSPACE} [role=status], ${WORKSPACE} [role=alert]`, nodes => nodes.filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility === 'visible'; }).map(el => ({ role: el.getAttribute('role'), text: el.innerText })));
+    const sourceConfirmed = local && server && shownProgress === String(local.progress) && server.progress === local.progress && current.local.outbox.length === 0 && validVersion(version(current, identity.id)) && version(current, identity.id) === current.serverVersions[identity.id];
+    await observe(page, `${label}-ordinary-save-has-no-false-read-recovery`, Boolean(sourceConfirmed) && normalFeedback(messages), JSON.stringify({ goalId: identity.id, shownProgress, sourceConfirmed, messages, note: 'After the actual source/ACK and visible value agree, ordinary completion must not leave a failed-refresh instruction. No manual refresh, artificial wait or hidden alert deletion is inserted.' }));
+  }
+  async function postcommitReadRecovery(page, api, target, neighbor, label) {
+    let before, afterCommit, saved, fault, message, intended;
+    await segment(page, `${label}-real-commit-then-display-read-failure`, async () => {
+      await closeDialogs(page); before = await facts(page, api, `${label}-before`, [target.id, neighbor.id]); assert.equal(before.local.outbox.length, 0);
+      await edit(page, target); intended = { title: target.title, description: 'Synthetic 已保存等待显示核对', targetDate: target.targetDate ?? '' }; await setEditor(page, intended);
+      await page.evaluate(({ owner, id }) => {
+        const put = IDBObjectStore.prototype.put, getAll = IDBObjectStore.prototype.getAll; let timer;
+        const wanted = ['goalRecords', 'goals', 'outbox', 'settings'].sort().join('|');
+        const audit = window.__goalReadAfterCommitFault = { owner, id, armed: false, writes: [], commits: [], hits: [], expired: false, restored: false, restoredBy: null };
+        window.__releaseGoalReadAfterCommitFault = (reason = 'explicit-harness-release') => {
+          clearTimeout(timer); IDBObjectStore.prototype.put = put; IDBObjectStore.prototype.getAll = getAll;
+          Object.assign(audit, { restored: IDBObjectStore.prototype.put === put && IDBObjectStore.prototype.getAll === getAll, restoredAt: Date.now(), restoredBy: reason });
+        };
+        timer = setTimeout(() => { audit.expired = true; window.__releaseGoalReadAfterCommitFault('safety-timeout'); }, 60000);
+        IDBObjectStore.prototype.put = function(value, ...keys) {
+          if (this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'goalRecords' && this.transaction.mode === 'readwrite' && value?.id === id) {
+            audit.writes.push({ at: Date.now(), source: structuredClone(value) });
+            this.transaction.addEventListener('complete', () => { audit.armed = true; audit.commits.push({ at: Date.now(), id }); }, { once: true });
+          }
+          return put.call(this, value, ...keys);
+        };
+        IDBObjectStore.prototype.getAll = function(...args) {
+          const stores = [...this.transaction.objectStoreNames];
+          if (audit.armed && this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'goalRecords' && this.transaction.mode === 'readonly' && stores.sort().join('|') === wanted) {
+            audit.hits.push({ at: Date.now(), stores, table: this.name, mode: this.transaction.mode });
+            throw new DOMException('Synthetic bounded postcommit Goal display read failure', 'UnknownError');
+          }
+          return getAll.apply(this, args);
+        };
+      }, { owner: api.ownerId, id: target.id });
+      actions.push({ kind: 'synthetic-postcommit-goal-display-read-outage', surface: surfaceNames.get(page), goalId: target.id, safetyTimeoutMs: 60000, scope: 'Arm only after exact target put transaction completes; fail only Goal coherent four-table readonly getAll. Do not block write, ACK, or the separate readonly evidence query.' });
+      try {
+        const previous = await page.evaluateHandle(failureSnapshot);
+        try { await saveEditor(page); message = await failureMessage(page, previous, `${label}-postcommit`); } finally { await previous.dispose(); }
+        afterCommit = await facts(page, api, `${label}-committed-during-read-outage`, [target.id, neighbor.id], { actualFailure: message }); saved = afterCommit.local.goalRecords.find(row => row.id === target.id);
+        fault = await page.evaluate(() => window.__goalReadAfterCommitFault);
+        const server = afterCommit.server.find(row => row.id === target.id), events = afterCommit.events.filter(row => row.entityId === target.id && !before.events.some(old => old.seq === row.seq));
+        await observe(page, `${label}-committed-source-server-neighbor-and-single-event`, saved?.description === intended.description && server?.description === intended.description && onlyChanges(before.local.goalRecords.find(row => row.id === target.id), saved, ['description', 'updatedAt']) && onlyChanges(before.server.find(row => row.id === target.id), server, ['description', 'updatedAt']) && neighborUnchanged(before, afterCommit, neighbor.id) && afterCommit.local.goalRecords.length === before.local.goalRecords.length && afterCommit.server.length === before.server.length && afterCommit.local.outbox.length === 0 && version(afterCommit, target.id) === afterCommit.serverVersions[target.id] && events.length === 1 && events[0].operation === 'upsert', JSON.stringify({ intended, saved, server, events, note: 'A real successful commit plus a later display read failure is different from the earlier put quota rollback.' }));
+        const notices = await page.$$eval(`${WORKSPACE} [role=status], ${WORKSPACE} [role=alert]`, rows => rows.map(el => el.innerText.trim()));
+        let savedReading = message?.reading?.visible && /已保存|写入已完成/.test(message.reading.text) ? message.reading : null;
+        if (!savedReading) {
+          const savedNotices = notices.filter(text => /已保存|写入已完成/.test(text));
+          if (savedNotices.length === 1) savedReading = await read(page, await exactSelector(page, `${WORKSPACE} [role=status], ${WORKSPACE} [role=alert]`, savedNotices[0]));
+        }
+        await capture(page, `${label}-actual-saved-fact-during-read-outage`);
+        const refreshSelector = await exactSelector(page, `${WORKSPACE} button`, '刷新核对'), refreshReading = await read(page, refreshSelector);
+        await observe(page, `${label}-read-fault-after-commit-and-usable-recovery`, fault.writes.length === 1 && fault.commits.length === 1 && fault.hits.length > 0 && !fault.expired && fault.hits.every(hit => hit.at >= fault.commits[0].at) && message?.reading?.visible && savedReading?.visible && /已保存|写入已完成/.test(savedReading.text) && refreshReading.visible && !notices.some(text => /这次操作没有保存/.test(text)), JSON.stringify({ fault, actualFailure: message, notices, savedReading, refreshReading }));
+      } finally {
+        const released = await page.evaluate(() => { window.__releaseGoalReadAfterCommitFault(); return window.__goalReadAfterCommitFault; });
+        await writeFile(join(artifacts, `${label}-read-fault.json`), JSON.stringify(released, null, 2));
+        actions.push({ kind: 'explicit-release-postcommit-goal-read-outage', surface: surfaceNames.get(page), ...released });
+        await observe(page, `${label}-read-fault-explicit-release-before-expiry`, !released.expired && released.restored && released.restoredBy === 'explicit-harness-release', JSON.stringify(released));
+      }
+    });
+    await segment(page, `${label}-real-refresh-no-second-business-write`, async () => {
+      assert.ok(afterCommit && saved?.description === intended.description, 'Need a proven committed same-ID source; no retyping or replacement record');
+      await tap(page, `${WORKSPACE} button`, '刷新核对');
+      await page.waitForFunction(({ workspace, description }) => [...document.querySelectorAll(`${workspace} [data-component="goal-card"]`)].some(el => el.innerText.includes(description)) && ![...document.querySelectorAll(`${workspace} [role=alert]`)].some(el => el.getBoundingClientRect().height > 0), { timeout: 7000 }, { workspace: WORKSPACE, description: intended.description });
+      const after = await facts(page, api, `${label}-refreshed`, [target.id, neighbor.id]);
+      await observe(page, `${label}-refresh-preserves-exact-saved-rows-version-event-ledger`, preserved(afterCommit, after) && after.local.outbox.length === 0, JSON.stringify({ exactId: target.id, note: 'Refresh does not call Save, repeat the business mutation, create a duplicate or change its canonical version.' }));
+      Object.assign(target, saved); const reading = await read(page, await card(page, target));
+      await observe(page, `${label}-saved-content-readable-after-actual-refresh`, reading.visible && reading.text.includes(intended.description), JSON.stringify({ reading, exactId: target.id }));
+      await normalReaderFeedback(page, after, target, `${label}-after-refresh`);
+    });
   }
   async function quotaEdit(page, api, target, neighbor, label) {
     let intended, before, attempted, message, atFailure, fault, retryEligible = false;
@@ -489,6 +567,7 @@ export async function runGoalOutcomes(h) {
     await segment(page, `${label}-exact-record-after-filter-return-reload`, async () => { requirePair(); await reopenAndReload(page, api, target, neighbor, `${label}-return`); });
     if (target && neighbor) {
       await quotaEdit(page, api, target, neighbor, `${label}-storage-write`);
+      await postcommitReadRecovery(page, api, target, neighbor, `${label}-committed-read-recovery`);
       // The quota journey may leave a blocked editor; close via actual Escape,
       // and read the canonical same-ID visible fields before the independent
       // deletion task. This is not a write or a silent source normalization.

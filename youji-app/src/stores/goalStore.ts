@@ -17,7 +17,9 @@ export interface GoalWriteResult {
   committed: true;
   alreadyCommitted: boolean;
   /** A commit to the captured context does not promise visibility after logout/clear. */
-  view: 'current' | 'refresh-needed' | 'context-changed';
+  view: 'current' | 'refreshing' | 'refresh-needed' | 'context-changed';
+  /** A later successful publication at/after this revision resolves the notice. */
+  refreshRevision: number;
 }
 export type GoalCreateResult = GoalRecord & GoalWriteResult;
 type GoalInput = Pick<GoalRecord, 'title' | 'description' | 'level' | 'domain' | 'priority' | 'targetDate'>;
@@ -47,6 +49,7 @@ interface GoalState {
   loaded: boolean;
   loading: boolean;
   readError: string | null;
+  publishedRevision: number;
   loadFromDB: () => Promise<void>;
   addGoal: (goal: GoalInput, intentId?: string) => Promise<GoalCreateResult>;
   updateProgress: (id: string, progress: number) => Promise<GoalWriteResult>;
@@ -66,6 +69,19 @@ const pending = new Set<string>();
 const creationActors = new Map<string, LocalActor>();
 let loadSequence = 0;
 let publishedActor: LocalActor | null = null;
+let publishedRevision = 0;
+let committedRevision = 0;
+let publishedCommitRevision = 0;
+const activeReads = new Map<number, Omit<LocalActor, 'epoch'>>();
+interface CommitCoverage { revision?: number }
+/** In-memory commit coverage only: no schema/outbox/record fields are added.
+ * Register before writing; rollback never fires complete. A reader can therefore
+ * prove visibility even when delivery of the writer promise is delayed. */
+function coverCommittedWrite(coverage: CommitCoverage) {
+  const transaction = Dexie.currentTransaction;
+  if (!transaction) throw new Error('目标写入需要完整事务');
+  transaction.on('complete', () => { coverage.revision = ++committedRevision; });
+}
 class AlreadyCommitted extends Error {}
 
 function bindSource(row: GoalRecord, actor: LocalActor): GoalRecord {
@@ -133,8 +149,8 @@ function clearObsoleteView(actor?: LocalActor) {
   if (publishedActor && actor && (publishedActor.database !== actor.database || publishedActor.owner !== actor.owner || publishedActor.session !== actor.session || publishedActor.sessionGeneration !== actor.sessionGeneration || publishedActor.epoch !== actor.epoch)) {
     try { assertLocalActorNow(publishedActor); return; } catch { /* stale published actor */ }
   }
-  publishedActor = null;
-  useGoalStore.setState({ items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null });
+  publishedActor = null; publishedRevision = 0; publishedCommitRevision = 0;
+  useGoalStore.setState({ items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null, publishedRevision: 0 });
 }
 function deriveStatuses(goals: GoalRecord[], outbox: OutboxRecord[], settings: SettingRecord[]): Record<string, GoalStatus> {
   const pendingIds = new Set<string>(), blocked = new Set<string>();
@@ -161,45 +177,62 @@ async function deriveChanges(sources: GoalRecord[], settings: SettingRecord[], g
 }
 async function refresh(actor: LocalActor, sequence: number): Promise<boolean> {
   const database = actor.database;
-  const snapshot = await database.transaction('r', [database.goalRecords, database.table('goals'), database.outbox, database.settings], async () => {
-    await assertLocalActor(actor);
-    const [goals, sources, outbox, settings] = await Promise.all([database.goalRecords.toArray(), database.table<GoalRecord>('goals').toArray(), database.outbox.toArray(), database.settings.toArray()]);
-    const legacyChanges = await deriveChanges(sources, settings, goals, actor);
-    const order = { short: 0, medium: 1, long: 2 };
-    goals.sort((a, b) => order[a.level] - order[b.level] || b.createdAt - a.createdAt);
-    const items = goals.map(row => bindSource(row, actor));
-    await assertLocalActor(actor);
-    return { items, statuses: deriveStatuses(goals, outbox, settings), legacyChanges };
-  });
-  // The read can finish before its promise is delivered. Re-lock the clear epoch
-  // and recheck the actor after the final await, immediately beside publication.
-  return database.transaction('r', database.settings, async () => {
-    await assertLocalActor(actor);
-    if (sequence !== loadSequence) return false;
-    assertLocalActorNow(actor);
-    publishedActor = actor;
-    useGoalStore.setState({ ...snapshot, loaded: true, loading: false, readError: null });
-    return true;
-  });
+  activeReads.set(sequence, actor);
+  try {
+    const snapshot = await database.transaction('r', [database.goalRecords, database.table('goals'), database.outbox, database.settings], async () => {
+      await assertLocalActor(actor);
+      const [goals, sources, outbox, settings] = await Promise.all([database.goalRecords.toArray(), database.table<GoalRecord>('goals').toArray(), database.outbox.toArray(), database.settings.toArray()]);
+      const legacyChanges = await deriveChanges(sources, settings, goals, actor);
+      const order = { short: 0, medium: 1, long: 2 };
+      goals.sort((a, b) => order[a.level] - order[b.level] || b.createdAt - a.createdAt);
+      const items = goals.map(row => bindSource(row, actor));
+      await assertLocalActor(actor);
+      return { items, statuses: deriveStatuses(goals, outbox, settings), legacyChanges, coveredCommit: committedRevision };
+    });
+    // The read can finish before its promise is delivered. Re-lock the clear epoch
+    // and recheck the actor after the final await, immediately beside publication.
+    return await database.transaction('r', database.settings, async () => {
+      await assertLocalActor(actor);
+      if (sequence !== loadSequence) return false;
+      assertLocalActorNow(actor);
+      publishedActor = actor; publishedRevision = sequence; publishedCommitRevision = snapshot.coveredCommit;
+      const { items, statuses, legacyChanges } = snapshot;
+      useGoalStore.setState({ items, statuses, legacyChanges, loaded: true, loading: false, readError: null, publishedRevision: sequence });
+      return true;
+    });
+  } finally { activeReads.delete(sequence); }
 }
-async function afterCommit(actor: LocalActor, alreadyCommitted = false): Promise<GoalWriteResult> {
+function publicationCovers(actor: LocalActor, sequence: number, coverage: CommitCoverage): boolean {
+  return Boolean(publishedActor && (publishedRevision >= sequence || coverage.revision !== undefined && publishedCommitRevision >= coverage.revision) && publishedActor.database === actor.database && publishedActor.owner === actor.owner && publishedActor.session === actor.session && publishedActor.sessionGeneration === actor.sessionGeneration && publishedActor.epoch === actor.epoch);
+}
+function newerReadPending(actor: LocalActor, sequence: number): boolean {
+  return [...activeReads].some(([revision, reader]) => revision > sequence && reader.database === actor.database && reader.owner === actor.owner && reader.session === actor.session && reader.sessionGeneration === actor.sessionGeneration);
+}
+
+async function afterCommit(actor: LocalActor, alreadyCommitted = false, coverage: CommitCoverage = {}): Promise<GoalWriteResult> {
   const sequence = ++loadSequence;
   try {
     const updated = await refresh(actor, sequence);
     const state = await actorState(actor);
     if (state === 'changed') {
       if (sequence === loadSequence) clearObsoleteView(actor);
-      return { committed: true, alreadyCommitted, view: 'context-changed' };
+      return { committed: true, alreadyCommitted, view: 'context-changed', refreshRevision: sequence };
     }
     assertLocalActorNow(actor);
-    return { committed: true, alreadyCommitted, view: updated && state === 'current' ? 'current' : 'refresh-needed' };
+    return { committed: true, alreadyCommitted, view: state === 'current' && (updated || publicationCovers(actor, sequence, coverage)) ? 'current' : state === 'current' && newerReadPending(actor, sequence) ? 'refreshing' : 'refresh-needed', refreshRevision: sequence };
   } catch {
     const state = await actorState(actor);
     if (state === 'changed') {
       if (sequence === loadSequence) clearObsoleteView(actor);
-      return { committed: true, alreadyCommitted, view: 'context-changed' };
+      return { committed: true, alreadyCommitted, view: 'context-changed', refreshRevision: sequence };
+    }
+    try { assertLocalActorNow(actor); } catch {
+      if (sequence === loadSequence) clearObsoleteView(actor);
+      return { committed: true, alreadyCommitted, view: 'context-changed', refreshRevision: sequence };
     }
     recordDiagnostic('runtime-error', 'goals');
+    if (state === 'current' && publicationCovers(actor, sequence, coverage)) return { committed: true, alreadyCommitted, view: 'current', refreshRevision: sequence };
+    if (state === 'current' && newerReadPending(actor, sequence)) return { committed: true, alreadyCommitted, view: 'refreshing', refreshRevision: sequence };
     if (state === 'current' && sequence === loadSequence) {
       // Publish even the error only under the same final actor/epoch guard.
       try {
@@ -210,12 +243,13 @@ async function afterCommit(actor: LocalActor, alreadyCommitted = false): Promise
         });
       } catch { /* no authority or readable storage to publish */ }
     }
-    return { committed: true, alreadyCommitted, view: 'refresh-needed' };
+    return { committed: true, alreadyCommitted, view: 'refresh-needed', refreshRevision: sequence };
   }
 }
-async function writeGoal(actor: LocalActor, existing: GoalRecord, replacement: GoalRecord | null, viewedActor?: LocalActor) {
-  const database = actor.database;
+async function writeGoal(actor: LocalActor, existing: GoalRecord, replacement: GoalRecord | null, viewedActor?: LocalActor): Promise<CommitCoverage> {
+  const database = actor.database, coverage: CommitCoverage = {};
   const write = async () => {
+    coverCommittedWrite(coverage);
     await assertAuthority(actor, viewedActor);
     await assertSource(actor, existing);
     await assertAuthority(actor, viewedActor);
@@ -229,16 +263,18 @@ async function writeGoal(actor: LocalActor, existing: GoalRecord, replacement: G
   } else {
     await database.transaction('rw', [database.goalRecords, database.settings], write);
   }
+  return coverage;
 }
 
 export const useGoalStore = create<GoalState>((set, get) => ({
-  items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null,
+  items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null, publishedRevision: 0,
   loadFromDB: async () => {
     const sequence = ++loadSequence;
     let actor: LocalActor | undefined;
     let captured: Omit<LocalActor, 'epoch'> | undefined;
     try {
       captured = captureLocalActor();
+      activeReads.set(sequence, captured);
       actor = await readLocalActor();
       if (sequence !== loadSequence) return;
       assertLocalActorNow(actor);
@@ -266,7 +302,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
         if (sequence === loadSequence) set({ loading: false, readError: READ_FAILED });
       }
       throw error;
-    }
+    } finally { activeReads.delete(sequence); }
   },
   addGoal: async (goal, intentId = generateLocalId()) => {
     const readingActor = readLocalActor();
@@ -281,8 +317,10 @@ export const useGoalStore = create<GoalState>((set, get) => ({
     if (pending.has(intentId)) throw new Error('这个目标正在保存，请稍后');
     pending.add(intentId); ++loadSequence;
     let alreadyCommitted = false;
+    const coverage: CommitCoverage = {};
     try {
       await commitLocalMutation('goals', 'upsert', record, async () => {
+        coverCommittedWrite(coverage);
         await assertAuthority(actor, intentActor);
         const existing = await database.goalRecords.get(intentId);
         const key = `goal-create:${intentId}`;
@@ -304,7 +342,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       if (!(error instanceof AlreadyCommitted)) throw error;
       alreadyCommitted = true;
     } finally { pending.delete(intentId); }
-    const result = Object.assign(bindSource(record, actor), await afterCommit(actor, alreadyCommitted));
+    const result = Object.assign(bindSource(record, actor), await afterCommit(actor, alreadyCommitted, coverage));
     return result;
   },
   updateProgress: async (id, progress) => {
@@ -320,8 +358,8 @@ export const useGoalStore = create<GoalState>((set, get) => ({
     if (!frozen || frozen.source.id !== id) throw new Error(SOURCE_MISSING);
     const updated = validateGoal({ ...frozen.source, ...changes, updatedAt: Date.now() });
     ++loadSequence;
-    await writeGoal(actor, frozen.source, updated, frozen.viewedActor);
-    return afterCommit(actor);
+    const coverage = await writeGoal(actor, frozen.source, updated, frozen.viewedActor);
+    return afterCommit(actor, false, coverage);
   },
   removeGoal: async (id, expected) => {
     const readingActor = readLocalActor();
@@ -330,8 +368,8 @@ export const useGoalStore = create<GoalState>((set, get) => ({
     const actor = await readingActor;
     if (!frozen || frozen.source.id !== id) throw new Error(SOURCE_MISSING);
     ++loadSequence;
-    await writeGoal(actor, frozen.source, null, frozen.viewedActor);
-    return afterCommit(actor);
+    const coverage = await writeGoal(actor, frozen.source, null, frozen.viewedActor);
+    return afterCommit(actor, false, coverage);
   },
   enableSync: async (selected, expectedOwner) => {
     const readingActor = readLocalActor();
@@ -340,8 +378,10 @@ export const useGoalStore = create<GoalState>((set, get) => ({
     if (!expectedOwner || actor.owner !== expectedOwner || database.ownerId !== expectedOwner) throw new Error('当前账号已变化，未上传目标');
     if (!frozen.length || new Set(frozen.map(row => row.source.id)).size !== frozen.length) throw new Error('请选择要同步的目标');
     let alreadyCommitted = true;
+    const coverage: CommitCoverage = {};
     ++loadSequence;
     await database.transaction('rw', [database.goalRecords, database.settings, database.outbox], async () => {
+      coverCommittedWrite(coverage);
       for (const { source, viewedActor } of frozen) {
         await assertAuthority(actor, viewedActor);
         const current = await database.goalRecords.get(source.id);
@@ -364,7 +404,7 @@ export const useGoalStore = create<GoalState>((set, get) => ({
       await assertLocalActor(actor);
     });
     void flush().catch(() => recordDiagnostic('runtime-error', 'sync'));
-    return afterCommit(actor, alreadyCommitted);
+    return afterCommit(actor, alreadyCommitted, coverage);
   },
 }));
 
@@ -394,8 +434,10 @@ export async function resolveLegacyGoalChange(preview: LegacyGoalChange, choice:
   if (!expectedOwner || actor.owner !== expectedOwner || database.ownerId !== expectedOwner) throw new Error('账号已变化，旧目标未处理');
   if (!['copy', 'keep'].includes(choice) || !/^[a-zA-Z0-9_-]{8,64}$/.test(intentId)) throw new Error('请重新打开旧目标比较');
   let copyId: string | null = null, alreadyCommitted = false;
+  const coverage: CommitCoverage = {};
   ++loadSequence;
   await database.transaction('rw', [database.table('goals'), database.goalRecords, database.settings], async () => {
+    coverCommittedWrite(coverage);
     await assertAuthority(actor, known?.actor);
     const key = `goal-source-recovery:${intentId}`;
     const receipt = (await database.settings.get(key))?.value as (LegacyGoalChange & { choice: string; copyId: string | null; ownerId: string }) | undefined;
@@ -420,7 +462,7 @@ export async function resolveLegacyGoalChange(preview: LegacyGoalChange, choice:
     await database.settings.put({ key: `goal-source-snapshot:${frozen.id}`, value: source });
     await assertAuthority(actor, known?.actor);
   });
-  return { ...await afterCommit(actor, alreadyCommitted), copyId };
+  return { ...await afterCommit(actor, alreadyCommitted, coverage), copyId };
 }
 
 let observation: { unsubscribe: () => void } | null = null;

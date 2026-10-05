@@ -10,7 +10,7 @@ import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { LegacyGoalRecovery } from '../components/settings/LegacyGoalRecovery';
-import { goalFailureMessage, goalLoadingMessage, goalSummaryLabel } from '../components/goal/goalErrors';
+import { goalFailureMessage, goalLoadingMessage, goalSummaryLabel, goalNeedsRefresh } from '../components/goal/goalErrors';
 import { GoalErrorAlert } from '../components/goal/GoalErrorAlert';
 import { recordDiagnostic } from '../services/diagnostics';
 
@@ -64,7 +64,9 @@ export default function Goal() {
   const [priority, setPriority] = useState<GoalPriority>('medium');
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const [feedback, setFeedback] = useState({ error: false, text: '' });
+  const [feedback, setFeedback] = useState<{ error: boolean; text: string; refreshRevision?: number; readFailed?: boolean }>({ error: false, text: '' });
+  const publishedRevision = useGoalStore(state => state.publishedRevision);
+  const needsRefresh = goalNeedsRefresh(feedback.refreshRevision, publishedRevision, feedback.readFailed === true, readError);
   const [enrollment, setEnrollment] = useState<GoalRecord[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -88,13 +90,13 @@ export default function Goal() {
       const result = await action();
       if (!mounted.current || current !== operation.current || result.view === 'context-changed') return;
       onCommitted?.();
-      setFeedback({ error: false, text: result.view === 'refresh-needed' ? '本机写入已完成，但列表暂未刷新。请刷新核对，无需重复提交' : success });
+      setFeedback({ error: false, text: success, ...(['refresh-needed', 'refreshing'].includes(result.view) ? { refreshRevision: result.refreshRevision, readFailed: result.view === 'refresh-needed' } : {}) });
     } catch (cause) {
       if (!mounted.current || current !== operation.current) return;
       setFeedback({ error: true, text: goalFailureMessage(cause) }); recordDiagnostic('runtime-error', 'goals');
     } finally { if (mounted.current && current === operation.current) { busyRef.current = false; setBusy(false); } }
   };
-  const refresh = async () => { try { await useGoalStore.getState().loadFromDB(); if (mounted.current) setFeedback({ error: false, text: '' }); } catch { /* guarded store keeps a visible read error, not a false write failure */ } };
+  const refresh = async () => { try { await useGoalStore.getState().loadFromDB(); } catch { /* guarded store keeps a visible read error, not a false write failure */ } };
   const openEditor = (goal?: GoalRecord) => {
     if (busyRef.current) return;
     setFeedback({ error: false, text: '' });
@@ -117,8 +119,8 @@ export default function Goal() {
     <LegacyGoalRecovery />
     {localGoals.length > 0 && <aside className="mb-4 rounded-xl border border-[var(--warning)]/30 p-3 text-xs leading-6" data-component="goal-enrollment"><p>{localGoals.length} 个旧目标仍仅保存在本机。由你选择是否上传，未选择的不会自动同步。</p><Button variant="ghost" size="sm" disabled={busy || !user} onClick={() => { setFeedback({ error: false, text: '' }); setEnrollment(localGoals.map(cloneGoalSnapshot)); setSelected([]); }}><CloudUpload size={14} aria-hidden />选择同步旧目标</Button></aside>}
     <div className="mb-4 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="目标类型筛选">{levelFilters.map((option) => <button key={option.key} type="button" onClick={() => setFilter(option.key)} aria-pressed={filter === option.key} className={`min-h-10 shrink-0 rounded-full px-3.5 text-xs font-semibold ${filter === option.key ? 'bg-[var(--primary-soft)] text-[var(--primary)]' : 'bg-[var(--surface-2)] text-[var(--text-2)]'}`}>{option.label}</button>)}</div>
-    {readError && !showModal && !deleteGoal && !enrollment && <div className="mb-3 space-y-2"><GoalErrorAlert text={readError} /><Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => void refresh()}>刷新核对</Button></div>}
-    {feedback.text && !readError && !showModal && !deleteGoal && !enrollment && (feedback.error ? <GoalErrorAlert text={feedback.text} /> : <p className="mb-3 text-sm text-[var(--text-2)]" role="status">{feedback.text}</p>)}
+    {readError && !showModal && !deleteGoal && !enrollment && <div className="mb-3 space-y-2">{feedback.text && !feedback.error && <p role="status" className="text-sm">{feedback.text}</p>}<GoalErrorAlert text={readError} /><Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => void refresh()}>刷新核对</Button></div>}
+    {feedback.text && !readError && !showModal && !deleteGoal && !enrollment && (feedback.error ? <GoalErrorAlert text={feedback.text} /> : <div className="mb-3 space-y-2"><p className="text-sm text-[var(--text-2)]" role="status">{needsRefresh ? '本机写入已完成，但列表暂未刷新。请刷新核对，无需重复提交' : feedback.text}</p>{needsRefresh && <Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => void refresh()}>刷新核对</Button>}</div>)}
     {!loaded ? <p role="status" className="py-8 text-center text-sm">{goalLoadingMessage(loading, readError)}</p> : filtered.length === 0 ? <div className="py-12 text-center"><Target size={32} className="mx-auto mb-4 text-[var(--text-3)]" aria-hidden /><p className="text-sm">{items.length ? '这个分类还没有目标' : '还没有目标'}</p><p className="mt-2 text-xs text-[var(--text-3)]">从一个可完成的小目标开始，进度按你的实际情况调整</p><Button className="mt-5" onClick={() => openEditor()}>{items.length ? '新建目标' : '创建第一个目标'}</Button></div> : <div className="space-y-3"><AnimatePresence mode="popLayout">{filtered.map((goal) => <GoalCard key={goal.id} goal={goal} status={readError ? '暂无法核对' : statuses[goal.id] ?? (goal.syncScope === 'account' ? '待同步' : '仅本机')} busy={busy} onProgress={(value) => void run(() => useGoalStore.getState().updateProgress(goal.id, value), '进度已保存，可随时调整')} onDelete={() => { setFeedback({ error: false, text: '' }); setDeleteGoal(cloneGoalSnapshot(goal)); }} onEdit={() => openEditor(goal)} />)}</AnimatePresence></div>}
     <Modal className="max-h-[85vh] overflow-y-auto" open={deleteGoal !== null} onClose={() => { if (!busy) setDeleteGoal(null); }} title="删除这个目标？" footer={<><Button variant="ghost" disabled={busy} onClick={() => setDeleteGoal(null)}>保留目标</Button><Button variant="danger" disabled={busy} onClick={() => { if (deleteGoal) void run(() => useGoalStore.getState().removeGoal(deleteGoal.id, deleteGoal), '目标已移除，账号目标的删除会继续同步', () => setDeleteGoal(null)); }}>{busy ? '删除中…' : '确认删除'}</Button></>}><div className="space-y-4"><p className="whitespace-pre-wrap break-words text-sm leading-6"><strong>{deleteGoal?.title}</strong><br />{deleteGoal?.description || '无描述'}<br />{deleteGoal && goalLevelLabels[deleteGoal.level]} · {deleteGoal?.domain} · {deleteGoal?.priority === 'high' ? '高优先级' : deleteGoal?.priority === 'medium' ? '中优先级' : '低优先级'} · 手动进度 {deleteGoal?.progress}%<br />计划日期 {deleteGoal?.targetDate || '未设置'}<br />这个目标及其手动进度会移除。已同步目标也会从当前账号的其他设备移除；其他记录不会受影响，可先在设置导出备份。</p>{feedback.error && <GoalErrorAlert text={feedback.text} />}</div></Modal>
     <Modal className="max-h-[85vh] overflow-y-auto" open={showModal} onClose={() => { if (!busy) setShowModal(false); }} title={editing ? '编辑目标' : '新建目标'} footer={<><Button variant="ghost" size="sm" disabled={busy} onClick={() => setShowModal(false)}>取消</Button><Button size="sm" onClick={() => void save()} disabled={!title.trim() || busy}>{busy ? '保存中…' : editing ? '保存修改' : '创建'}</Button></>}>

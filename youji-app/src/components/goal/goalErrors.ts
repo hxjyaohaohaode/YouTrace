@@ -15,3 +15,8 @@ export function goalSummaryLabel(loaded: boolean, loading: boolean, readError: s
   if (!loaded) return loading ? '正在读取目标统计…' : '目标统计暂未读取';
   return `${readError ? '上次读取：' : ''}${done}/${total} 完成 · 平均进度 ${average}%`;
 }
+
+/** A confirmed later snapshot retires an old display-read recovery notice. */
+export function goalNeedsRefresh(refreshRevision: number | undefined, publishedRevision: number, readFailed: boolean, readError: string | null): boolean {
+  return refreshRevision !== undefined && publishedRevision < refreshRevision && (readFailed || Boolean(readError));
+}
