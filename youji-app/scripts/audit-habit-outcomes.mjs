@@ -278,7 +278,7 @@ export async function runHabitOutcomes(h) {
     });
     await segment(page, `${label}-actual-successful-delete-exact-id`, async () => {
       let before;
-      const retryPresent = recoveryRetry && await page.$$eval(recoveryRetry.selector, rows => rows.filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled; }).length) === 1;
+      const retryPresent = recoveryRetry && await page.$$eval(recoveryRetry.selector, (rows, text) => rows.filter(el => { const r = el.getBoundingClientRect(); return (!text || el.textContent.trim() === text) && r.width > 0 && r.height > 0 && !el.disabled; }).length, recoveryRetry.text) === 1;
       if (retryPresent) {
         before = await facts(page, api, `${label}-before-visible-retry`, [target.id, neighbor.id]); assert.equal(before.local.outbox.length, 0); assert.ok(before.local.habits.find(row => row.id === target.id));
         await pointer(page, recoveryRetry.selector, recoveryRetry.text); actions.push({ kind: 'native-failure-region-delete-retry', habitId: target.id, ...recoveryRetry });
