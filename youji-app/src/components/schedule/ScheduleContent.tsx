@@ -140,7 +140,7 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurr
 
   return (
     <div className="relative overflow-x-auto">
-      <div className="flex min-w-[320px]">
+      <div className="flex w-full min-w-0">
         <div className="w-14 shrink-0">
           {hours.map((h) => (
             <div key={h} className="h-14 border-b border-[var(--border)]/30 pr-2 text-right text-xs text-[var(--text-3)]">
