@@ -11,10 +11,10 @@ import { installStartupReadFault } from './audit-startup-read-fault.mjs';
 import { assertStartupChronology, assertStartupViewWitness } from './audit-startup-chronology.mjs';
 export const STARTUP_RECOVERY_PATH = '/todo?view=all';
 export const STARTUP_RECOVERY_CASES = [
-  { branch: 'late-recovery', width: 1280, height: 900, phone: '13900008701' },
-  { branch: 'both-fail', width: 1280, height: 900, phone: '13900008702' },
-  { branch: 'late-recovery', width: 360, height: 800, phone: '13900008703' },
-  { branch: 'both-fail', width: 360, height: 800, phone: '13900008704' },
+  { branch: 'late-recovery', width: 1280, height: 900, phone: '13900008701', nickname: 'Synthetic 迟到1280' },
+  { branch: 'both-fail', width: 1280, height: 900, phone: '13900008702', nickname: 'Synthetic 双败1280' },
+  { branch: 'late-recovery', width: 360, height: 800, phone: '13900008703', nickname: 'Synthetic 迟到360' },
+  { branch: 'both-fail', width: 360, height: 800, phone: '13900008704', nickname: 'Synthetic 双败360' },
 ];
 const { acknowledged, retained, todoRowsFromLedger } = initialSessionChecks;
 const table = (snapshot, name) => snapshot.tables.find(row => row.name === name);
@@ -118,7 +118,10 @@ export async function runStartupRecoveryOutcomes(h) {
         if (existing) return;
         const verified = await verification.json();
         assert.equal(verified.needRegister, true, 'Fresh synthetic account must require registration');
-        await fill('#login-nickname', `Synthetic ${config.branch}`); await submit('button', '开始使用', '/auth/register');
+        await read('#login-nickname');
+        const nicknameLimit = await page.$eval('#login-nickname', el => el.maxLength);
+        assert.ok(nicknameLimit < 0 || config.nickname.length <= nicknameLimit, 'Declared synthetic nickname must fit the visible registration limit');
+        await fill('#login-nickname', config.nickname); await submit('button', '开始使用', '/auth/register');
       };
       const navigate = async (destination, labelText) => {
         if (config.width === 360) { await tap('nav[aria-label="主导航"] button[aria-label="全部功能"]'); await path('/more'); await tap(`nav[aria-label="全部功能"] a[href="${destination}"]`); }

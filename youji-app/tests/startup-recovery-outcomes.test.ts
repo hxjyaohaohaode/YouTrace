@@ -33,6 +33,8 @@ test('four isolated branches at both widths have a separate synthetic phone rang
   assert.equal(new Set(STARTUP_RECOVERY_CASES.map(row => row.phone)).size, 4);
   assert.ok(STARTUP_RECOVERY_CASES.every(row => /^1390000870[1-4]$/.test(row.phone)));
   assert.equal(STARTUP_RECOVERY_PATH, '/todo?view=all');
+  assert.ok(STARTUP_RECOVERY_CASES.every(row => row.nickname.length > 0 && row.nickname.length <= 20), 'Synthetic registration names respect the existing 20-character product limit');
+  assert.equal(new Set(STARTUP_RECOVERY_CASES.map(row => row.nickname)).size, 4);
 });
 test('visible original-row witness binds the actual unique editor to the original rendered ID', () => {
   const { visible } = chronology();

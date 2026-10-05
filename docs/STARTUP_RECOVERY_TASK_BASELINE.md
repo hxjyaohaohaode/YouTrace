@@ -48,3 +48,11 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 ## 集成门禁（原生运行前）
 
 测试基线合入e723应用树后，本地前端575项、后端55项及双端lint、类型/构建通过。应用、服务端和schema未改；`useAppInit`仍为原实现，后续v4候选未合入。新增8项包含实际DOM原ID见证的正反oracle及两次真实模块的12秒持续机制试验，仍不等于应用定时器/原生界面通过。新精确SHA的实际浏览器结果与独立读者结论将另列，不覆盖原失败。
+
+## 32e86首轮原生结果与昵称夹具修正
+
+[`32e86b5`](https://github.com/hxjyaohaohaode/YouTrace/commit/32e86b57cf916fdfd5d2d227b4e9dbff77fd33e7) / [CI37355698513](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37355698513)原十项成功，startup-recovery分片失败。官方ZIP、三分片、完整归档与93份原件已独立核验。两条late-recovery都停在原生注册昵称：23字符合成值超过原登录框20字符上限，实际只输入`Synthetic late-recov`，精确输入断言正确拒绝。它们没有点击注册、安装故障或进入重叠读取，不能把该setup失败当产品启动竞态红证。
+
+两条both-fail已独立限定验收：关键原图显示可读错误与重试，实际点击后返回原待办；手机录像片段一致。真实初始deadline分别为12000.5/12000.6ms，初始与恢复的expenses/settings只读事务都实际abort，未有整体success；明确释放故障后仅一次原生Retry，新文档验证同账号、完整原路径。全Todo（含原dueDate字段缺失的精确表示）、整个outbox、schema、版本回执及完整ledger与原ACK逐值相同，分别仅有自身seq1/2，没有新业务写入。这不授予尚未到达的迟到恢复链或v4修复通过。
+
+窄修只给四个profile声明各自不超过20字符的合成昵称，并在实际昵称框渲染后读取其maxLength校验夹具；正常键入和完整值断言保留。应用、原限制、故障预算、12秒定时器、后续用户步骤及结果断言均未改。575项前端复验通过；两条晚到失败链仍须下一精确SHA真正执行。
