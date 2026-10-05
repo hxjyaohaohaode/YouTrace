@@ -106,7 +106,8 @@ test('fake IndexedDB: stale visible todo cannot overwrite newly pulled text unde
 });
 
 test('fake IndexedDB: capture confirmation is atomic, idempotent and appends diary without replacing originals', async () => {
-  api.clearSession();
+  // A paused sync is not a signed-out actor; account writes require verified identity.
+  api.setSessionActive('synthetic-account-a');
   sync.pauseSync();
   const { applyCaptureDraft } = await import('../src/services/quickNoteIntegration.ts');
   const { getToday } = await import('../src/utils/date.ts');
@@ -185,6 +186,8 @@ test('fake IndexedDB: delayed settings hydration cannot undo a newer choice or c
 });
 
 test('fake IndexedDB: same capture ID with edited content cannot falsely replay success', async () => {
+  api.setSessionActive('synthetic-account-a'); sync.pauseSync();
+  globalThis.fetch = async () => { throw new Error('Synthetic offline capture refresh'); };
   const { applyCaptureDraft, saveCaptureDraft, loadCaptureDraft, CaptureChangedError } = await import('../src/services/quickNoteIntegration.ts');
   const original = { id: 'same-id-different-content', input: 'version A', expenses: [], habits: [], todos: [], diary: null, mood: null, moodScore: 5 };
   await applyCaptureDraft(original);

@@ -62,7 +62,7 @@ export function BottomNav() {
             <button
               key={item.path}
               onClick={() => { if (location.pathname !== item.path) navigate(item.path, item.path === '/more' ? { state: directoryEntry(location.pathname + location.search, ownerId) } : { state: staticPageEntry(item.path, ownerId) }); }}
-              className="relative flex flex-col items-center gap-1 px-4 py-2"
+              className="relative flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-1"
               aria-label={item.label}
               aria-current={location.pathname === item.path ? 'page' : undefined}
             >

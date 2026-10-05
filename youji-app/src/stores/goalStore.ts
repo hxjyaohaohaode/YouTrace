@@ -1,154 +1,452 @@
+import { liveQuery } from 'dexie';
 import { create } from 'zustand';
-import { db, generateLocalId, type GoalRecord } from '../db';
+import { generateLocalId, LOCAL_DATA_EPOCH_KEY, type GoalRecord, type OutboxRecord, type SettingRecord } from '../db';
 import { commitLocalMutation } from '../services/localMutation';
+import { readLocalActor, captureLocalActor, assertLocalActor, assertLocalActorNow, type LocalActor } from '../services/localActor';
+import { sameGoalSource } from '../services/goalSource';
+import { isSequence } from '../services/syncIdentity';
+import { recordDiagnostic } from '../services/diagnostics';
+import { UNAUTHORIZED_EVENT } from '../services/apiClient';
 import { enqueueSync, flush } from '../services/syncEngine';
 
 export type GoalLevel = 'short' | 'medium' | 'long';
 export type GoalPriority = 'low' | 'medium' | 'high';
-
 export type GoalView = GoalRecord;
+export type GoalStatus = '仅本机' | '待同步' | '需要比较版本' | '需要检查' | '已同步';
+export interface GoalWriteResult {
+  committed: true;
+  alreadyCommitted: boolean;
+  /** A commit to the captured context does not promise visibility after logout/clear. */
+  view: 'current' | 'refresh-needed' | 'context-changed';
+}
+export type GoalCreateResult = GoalRecord & GoalWriteResult;
+type GoalInput = Pick<GoalRecord, 'title' | 'description' | 'level' | 'domain' | 'priority' | 'targetDate'>;
+type GoalUpdates = Partial<GoalInput & Pick<GoalRecord, 'progress'>>;
+export interface LegacyGoalChange {
+  id: string;
+  source: GoalRecord | null;
+  previousSource: GoalRecord | null;
+  current: GoalRecord | null;
+  /** One opened review has one durable decision, even if its display refresh fails. */
+  intentId?: string;
+}
+export type GoalRecoveryResult = GoalWriteResult & { copyId: string | null };
 
-const levelLabels: Record<GoalLevel, string> = {
-  short: '短期',
-  medium: '中期',
-  long: '长期',
-};
-
+const levelLabels: Record<GoalLevel, string> = { short: '短期', medium: '中期', long: '长期' };
 const priorityColors: Record<GoalPriority, string> = {
   low: 'bg-[var(--primary-soft)] text-[var(--primary)]',
   medium: 'bg-[var(--warning)]/10 text-[var(--warning)]',
   high: 'bg-[var(--danger)]/10 text-[var(--danger)]',
 };
-
 export { levelLabels as goalLevelLabels, priorityColors as goalPriorityColors };
 
 interface GoalState {
   items: GoalView[];
+  statuses: Record<string, GoalStatus>;
+  legacyChanges: LegacyGoalChange[];
   loaded: boolean;
-
+  loading: boolean;
+  readError: string | null;
   loadFromDB: () => Promise<void>;
-  addGoal: (goal: Omit<GoalRecord, 'id' | 'createdAt' | 'updatedAt' | 'progress' | 'syncScope'>) => Promise<GoalRecord>;
-  updateProgress: (id: string, progress: number) => Promise<void>;
-  updateGoal: (id: string, updates: Partial<Omit<GoalRecord, 'id' | 'createdAt' | 'syncScope'>>, expected?: GoalRecord) => Promise<void>;
-  removeGoal: (id: string, expected?: GoalRecord) => Promise<void>;
-  enableSync: (selected: GoalRecord[], expectedOwner: string) => Promise<void>;
+  addGoal: (goal: GoalInput, intentId?: string) => Promise<GoalCreateResult>;
+  updateProgress: (id: string, progress: number) => Promise<GoalWriteResult>;
+  updateGoal: (id: string, updates: GoalUpdates, expected?: GoalRecord) => Promise<GoalWriteResult>;
+  removeGoal: (id: string, expected?: GoalRecord) => Promise<GoalWriteResult>;
+  enableSync: (selected: GoalRecord[], expectedOwner: string) => Promise<GoalWriteResult>;
 }
 
+const SOURCE_CHANGED = '目标刚刚更新，已保留输入。请核对最新版本后重试';
+const SOURCE_MISSING = '原目标已不存在，未恢复或删除其他目标。请刷新核对';
+const RECOVERY_CHANGED = '旧窗口或当前目标刚刚变化，请重新比较';
+const REFRESH_FAILED = '修改已保存在本机，列表暂未刷新，请刷新核对；无需重复提交';
+const READ_FAILED = '暂时无法读取目标，原稿仍保留，请稍后刷新';
+const sourceAuthority = new WeakMap<GoalRecord, { source: GoalRecord; actor: LocalActor }>();
+const reviewAuthority = new WeakMap<LegacyGoalChange, { source: LegacyGoalChange; actor: LocalActor }>();
+const pending = new Set<string>();
+const creationActors = new Map<string, LocalActor>();
+let loadSequence = 0;
+let publishedActor: LocalActor | null = null;
+class AlreadyCommitted extends Error {}
+
+function bindSource(row: GoalRecord, actor: LocalActor): GoalRecord {
+  const result = structuredClone(row);
+  sourceAuthority.set(result, { source: structuredClone(row), actor });
+  return result;
+}
+/** Use for opened edit/delete/enrollment dialogs; a spread loses the viewed actor. */
+export function cloneGoalSnapshot(row: GoalRecord): GoalRecord {
+  const known = sourceAuthority.get(row);
+  return known ? bindSource(known.source, known.actor) : structuredClone(row);
+}
+function bindReview(row: LegacyGoalChange, actor: LocalActor): LegacyGoalChange {
+  const result = structuredClone(row);
+  reviewAuthority.set(result, { source: structuredClone(row), actor });
+  return result;
+}
+/** Use instead of structuredClone when opening a legacy comparison. */
+export function cloneLegacyGoalChange(row: LegacyGoalChange): LegacyGoalChange {
+  const known = reviewAuthority.get(row);
+  return known ? bindReview(known.source, known.actor) : structuredClone(row);
+}
+function freezeSource(row: GoalRecord) {
+  const known = sourceAuthority.get(row);
+  return { source: structuredClone(known?.source ?? row), viewedActor: known?.actor };
+}
 function validateGoal(goal: GoalRecord): GoalRecord {
   if (!Number.isFinite(goal.progress) || goal.progress < 0 || goal.progress > 100) throw new Error('目标进度须在 0 到 100 之间');
-  if (!goal.title.trim() || goal.title.length > 100 || goal.description.length > 2000 || !goal.domain.trim() || goal.domain.length > 50) throw new Error('请检查目标标题、描述与领域');
+  if (typeof goal.title !== 'string' || typeof goal.description !== 'string' || typeof goal.domain !== 'string' || !goal.title.trim() || goal.title.length > 100 || goal.description.length > 2000 || !goal.domain.trim() || goal.domain.length > 50) throw new Error('请检查目标标题、描述与领域');
   if (!['short', 'medium', 'long'].includes(goal.level) || !['low', 'medium', 'high'].includes(goal.priority)) throw new Error('目标类型或优先级无效');
-  if (goal.targetDate && (!/^\d{4}-\d{2}-\d{2}$/.test(goal.targetDate) || Number.isNaN(Date.parse(goal.targetDate + 'T00:00:00Z')) || new Date(goal.targetDate + 'T00:00:00Z').toISOString().slice(0, 10) !== goal.targetDate)) throw new Error('请填写有效的目标日期');
+  if (goal.targetDate != null && goal.targetDate !== '' && (typeof goal.targetDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(goal.targetDate) || Number.isNaN(Date.parse(goal.targetDate + 'T00:00:00Z')) || new Date(goal.targetDate + 'T00:00:00Z').toISOString().slice(0, 10) !== goal.targetDate)) throw new Error('请填写有效的目标日期');
   return { ...goal, title: goal.title.trim(), description: goal.description.trim(), domain: goal.domain.trim(), progress: Math.round(goal.progress) };
 }
-
-const sameGoal = (left: GoalRecord | undefined, right: GoalRecord) => left && [...new Set([...Object.keys(left), ...Object.keys(right)])].every((key) => JSON.stringify(left[key as keyof GoalRecord]) === JSON.stringify(right[key as keyof GoalRecord]));
-
-async function writeGoal(existing: GoalRecord, replacement: GoalRecord | null) {
-  const database = db;
-  const write = () => replacement ? database.goalRecords.put(replacement) : database.goalRecords.delete(existing.id);
+function inputFields(input: GoalInput): GoalInput {
+  const { title, description, level, domain, priority, targetDate } = input;
+  return { title, description, level, domain, priority, targetDate };
+}
+function updateFields(updates: GoalUpdates): GoalUpdates {
+  const result: GoalUpdates = {};
+  for (const key of ['title', 'description', 'level', 'domain', 'priority', 'targetDate', 'progress'] as const) {
+    if (Object.prototype.hasOwnProperty.call(updates, key)) Object.assign(result, { [key]: updates[key] });
+  }
+  return structuredClone(result);
+}
+async function assertAuthority(actor: LocalActor, viewedActor?: LocalActor): Promise<void> {
+  await assertLocalActor(actor);
+  if (viewedActor) await assertLocalActor(viewedActor);
+  // The last read above is itself an asynchronous actor boundary.
+  assertLocalActorNow(actor);
+}
+async function assertSource(actor: LocalActor, source: GoalRecord) {
+  const current = await actor.database.goalRecords.get(source.id);
+  if (!current) throw new Error(SOURCE_MISSING);
+  if (!await sameGoalSource(current, source)) throw new Error(SOURCE_CHANGED);
+}
+async function actorState(actor: LocalActor): Promise<'current' | 'changed' | 'unknown'> {
+  try { assertLocalActorNow(actor); } catch { return 'changed'; }
+  try {
+    const epoch = (await actor.database.settings.get(LOCAL_DATA_EPOCH_KEY))?.value;
+    try { assertLocalActorNow(actor); } catch { return 'changed'; }
+    return epoch === actor.epoch ? 'current' : 'changed';
+  } catch { return 'unknown'; }
+}
+function clearObsoleteView(actor?: LocalActor) {
+  if (publishedActor && actor && (publishedActor.database !== actor.database || publishedActor.owner !== actor.owner || publishedActor.session !== actor.session || publishedActor.sessionGeneration !== actor.sessionGeneration || publishedActor.epoch !== actor.epoch)) {
+    try { assertLocalActorNow(publishedActor); return; } catch { /* stale published actor */ }
+  }
+  publishedActor = null;
+  useGoalStore.setState({ items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null });
+}
+function deriveStatuses(goals: GoalRecord[], outbox: OutboxRecord[], settings: SettingRecord[]): Record<string, GoalStatus> {
+  const pendingIds = new Set<string>(), blocked = new Set<string>();
+  for (const row of outbox) if (row.entity === 'goals') {
+    const id = row.op === 'delete' ? String(row.payload) : (row.payload as { id: string }).id;
+    pendingIds.add(id); if (row.status === 'blocked') blocked.add(id);
+  }
+  const metadata = new Map(settings.map(row => [row.key, row.value]));
+  return Object.fromEntries(goals.map(goal => {
+    const version = metadata.get(`sync-version:goals:${goal.id}`);
+    return [goal.id, metadata.has(`sync-conflict:goals:${goal.id}`) ? '需要比较版本' : blocked.has(goal.id) ? '需要检查' : goal.syncScope !== 'account' ? '仅本机' : pendingIds.has(goal.id) || version === undefined || version === '0' ? '待同步' : isSequence(version) ? '已同步' : '需要检查'];
+  }));
+}
+async function deriveChanges(sources: GoalRecord[], settings: SettingRecord[], goals: GoalRecord[], actor: LocalActor): Promise<LegacyGoalChange[]> {
+  const sourceMap = new Map(sources.map(row => [row.id, row]));
+  const previousMap = new Map(settings.filter(row => row.key.startsWith('goal-source-snapshot:')).map(row => [row.key.slice('goal-source-snapshot:'.length), row.value as GoalRecord | null]));
+  const currentMap = new Map(goals.map(row => [row.id, row]));
+  const changes: LegacyGoalChange[] = [];
+  for (const id of new Set([...sourceMap.keys(), ...previousMap.keys()])) {
+    const source = sourceMap.get(id) ?? null, previousSource = previousMap.get(id) ?? null;
+    if (!await sameGoalSource(source, previousSource)) changes.push(bindReview({ id, source, previousSource, current: currentMap.get(id) ?? null, intentId: generateLocalId() }, actor));
+  }
+  return changes;
+}
+async function refresh(actor: LocalActor, sequence: number): Promise<boolean> {
+  const database = actor.database;
+  const snapshot = await database.transaction('r', [database.goalRecords, database.table('goals'), database.outbox, database.settings], async () => {
+    await assertLocalActor(actor);
+    const [goals, sources, outbox, settings] = await Promise.all([database.goalRecords.toArray(), database.table<GoalRecord>('goals').toArray(), database.outbox.toArray(), database.settings.toArray()]);
+    const legacyChanges = await deriveChanges(sources, settings, goals, actor);
+    const order = { short: 0, medium: 1, long: 2 };
+    goals.sort((a, b) => order[a.level] - order[b.level] || b.createdAt - a.createdAt);
+    const items = goals.map(row => bindSource(row, actor));
+    await assertLocalActor(actor);
+    return { items, statuses: deriveStatuses(goals, outbox, settings), legacyChanges };
+  });
+  // The read can finish before its promise is delivered. Re-lock the clear epoch
+  // and recheck the actor after the final await, immediately beside publication.
+  return database.transaction('r', database.settings, async () => {
+    await assertLocalActor(actor);
+    if (sequence !== loadSequence) return false;
+    assertLocalActorNow(actor);
+    publishedActor = actor;
+    useGoalStore.setState({ ...snapshot, loaded: true, loading: false, readError: null });
+    return true;
+  });
+}
+async function afterCommit(actor: LocalActor, alreadyCommitted = false): Promise<GoalWriteResult> {
+  const sequence = ++loadSequence;
+  try {
+    const updated = await refresh(actor, sequence);
+    const state = await actorState(actor);
+    if (state === 'changed') {
+      if (sequence === loadSequence) clearObsoleteView(actor);
+      return { committed: true, alreadyCommitted, view: 'context-changed' };
+    }
+    assertLocalActorNow(actor);
+    return { committed: true, alreadyCommitted, view: updated && state === 'current' ? 'current' : 'refresh-needed' };
+  } catch {
+    const state = await actorState(actor);
+    if (state === 'changed') {
+      if (sequence === loadSequence) clearObsoleteView(actor);
+      return { committed: true, alreadyCommitted, view: 'context-changed' };
+    }
+    recordDiagnostic('runtime-error', 'goals');
+    if (state === 'current' && sequence === loadSequence) {
+      // Publish even the error only under the same final actor/epoch guard.
+      try {
+        await actor.database.transaction('r', actor.database.settings, async () => {
+          await assertLocalActor(actor);
+          assertLocalActorNow(actor);
+          if (sequence === loadSequence) useGoalStore.setState({ loading: false, readError: REFRESH_FAILED });
+        });
+      } catch { /* no authority or readable storage to publish */ }
+    }
+    return { committed: true, alreadyCommitted, view: 'refresh-needed' };
+  }
+}
+async function writeGoal(actor: LocalActor, existing: GoalRecord, replacement: GoalRecord | null, viewedActor?: LocalActor) {
+  const database = actor.database;
+  const write = async () => {
+    await assertAuthority(actor, viewedActor);
+    await assertSource(actor, existing);
+    await assertAuthority(actor, viewedActor);
+    if (replacement) await database.goalRecords.put(replacement);
+    else await database.goalRecords.delete(existing.id);
+    await assertAuthority(actor, viewedActor);
+  };
   if (existing.syncScope === 'account') {
-    await commitLocalMutation('goals', replacement ? 'upsert' : 'delete', replacement ?? existing.id, write, [database.goalRecords], existing);
+    // Full-source CAS belongs in write, not the shared helper's JSON comparator.
+    await commitLocalMutation('goals', replacement ? 'upsert' : 'delete', replacement ?? existing.id, write, [database.goalRecords], undefined, actor);
   } else {
-    await database.transaction('rw', database.goalRecords, async () => {
-      if (!sameGoal(await database.goalRecords.get(existing.id), existing)) throw new Error('目标刚刚更新，已保留输入。请核对最新版本后重试');
-      await write();
-    });
+    await database.transaction('rw', [database.goalRecords, database.settings], write);
   }
 }
 
 export const useGoalStore = create<GoalState>((set, get) => ({
-  items: [],
-  loaded: false,
-
+  items: [], statuses: {}, legacyChanges: [], loaded: false, loading: false, readError: null,
   loadFromDB: async () => {
-    const items = await db.goalRecords.toArray();
-    items.sort((a, b) => {
-      const levelOrder = { short: 0, medium: 1, long: 2 };
-      return levelOrder[a.level] - levelOrder[b.level] || b.createdAt - a.createdAt;
-    });
-    set({ items, loaded: true });
+    const sequence = ++loadSequence;
+    let actor: LocalActor | undefined;
+    let captured: Omit<LocalActor, 'epoch'> | undefined;
+    try {
+      captured = captureLocalActor();
+      actor = await readLocalActor();
+      if (sequence !== loadSequence) return;
+      assertLocalActorNow(actor);
+      set({ loading: true });
+      await refresh(actor, sequence);
+      if (sequence === loadSequence && await actorState(actor) === 'changed') clearObsoleteView(actor);
+    } catch (error) {
+      if (sequence !== loadSequence) return;
+      let changed = !captured;
+      if (captured) { try { assertLocalActorNow(captured); } catch { changed = true; } }
+      if (changed || actor && await actorState(actor) === 'changed') { clearObsoleteView(actor); return; }
+      if (sequence !== loadSequence) return;
+      if (actor) {
+        try {
+          await actor.database.transaction('r', actor.database.settings, async () => {
+            await assertLocalActor(actor!);
+            assertLocalActorNow(actor!);
+            if (sequence === loadSequence) set({ loading: false, readError: READ_FAILED });
+          });
+        } catch { /* no readable current context in which to publish an error */ }
+      } else if (captured) {
+        // If even the initial epoch read failed, retain the last good snapshot.
+        // Only a generic storage error can be shown without a readable epoch.
+        assertLocalActorNow(captured);
+        if (sequence === loadSequence) set({ loading: false, readError: READ_FAILED });
+      }
+      throw error;
+    }
   },
-
-  addGoal: async (goal) => {
-    const database = db;
+  addGoal: async (goal, intentId = generateLocalId()) => {
+    const readingActor = readLocalActor();
+    const input = structuredClone(inputFields(goal));
+    const actor = await readingActor, database = actor.database;
+    const intentActor = creationActors.get(intentId) ?? actor;
+    creationActors.set(intentId, intentActor);
+    await assertAuthority(actor, intentActor);
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(intentId)) throw new Error('目标编号无效，请重新新建');
     const now = Date.now();
-    const record = validateGoal({ ...goal, id: generateLocalId(), progress: 0, createdAt: now, updatedAt: now, syncScope: database.ownerId ? 'account' : 'local' });
-    await commitLocalMutation('goals', 'upsert', record, () => database.goalRecords.add(record), [database.goalRecords], null);
-    set((state) => ({ items: state.items.some((goal) => goal.id === record.id) ? state.items : [...state.items, record] }));
-    return record;
+    let record = validateGoal({ ...input, id: intentId, progress: 0, createdAt: now, updatedAt: now, syncScope: actor.owner ? 'account' : 'local' });
+    if (pending.has(intentId)) throw new Error('这个目标正在保存，请稍后');
+    pending.add(intentId); ++loadSequence;
+    let alreadyCommitted = false;
+    try {
+      await commitLocalMutation('goals', 'upsert', record, async () => {
+        await assertAuthority(actor, intentActor);
+        const existing = await database.goalRecords.get(intentId);
+        const key = `goal-create:${intentId}`;
+        const receipt = (await database.settings.get(key))?.value as { input: GoalInput; original: GoalRecord } | undefined;
+        if (receipt) {
+          if (!existing) throw new Error('这次创建的目标已删除，未重复创建。请关闭后重新新建');
+          if (!await sameGoalSource(receipt.input, input) || !await sameGoalSource(existing, receipt.original)) throw new Error(SOURCE_CHANGED);
+          record = existing;
+          await assertLocalActor(actor);
+          throw new AlreadyCommitted();
+        }
+        if (existing) throw new Error('这个目标编号已存在，未覆盖原记录');
+        await assertLocalActor(actor);
+        await database.goalRecords.add(record);
+        await database.settings.put({ key, value: { input, original: record } });
+        await assertLocalActor(actor);
+      }, [database.goalRecords], undefined, actor);
+    } catch (error) {
+      if (!(error instanceof AlreadyCommitted)) throw error;
+      alreadyCommitted = true;
+    } finally { pending.delete(intentId); }
+    const result = Object.assign(bindSource(record, actor), await afterCommit(actor, alreadyCommitted));
+    return result;
   },
-
   updateProgress: async (id, progress) => {
     if (!Number.isFinite(progress)) throw new Error('目标进度无效，请重新选择');
-    await get().updateGoal(id, { progress: Math.max(0, Math.min(100, Math.round(progress))) });
+    return get().updateGoal(id, { progress: Math.max(0, Math.min(100, Math.round(progress))) });
   },
-
   updateGoal: async (id, updates, expected) => {
-    const existing = expected ?? get().items.find((goal) => goal.id === id);
-    if (!existing) throw new Error('目标已变化，请刷新后重试');
-    const updated = validateGoal({ ...existing, ...updates, id: existing.id, createdAt: existing.createdAt, syncScope: existing.syncScope, updatedAt: Date.now() });
-    await writeGoal(existing, updated);
-    set((state) => ({ items: state.items.map((goal) => goal.id === id && sameGoal(goal, existing) ? updated : goal) }));
+    const readingActor = readLocalActor();
+    const original = expected ?? get().items.find(goal => goal.id === id);
+    const frozen = original && freezeSource(original);
+    const changes = updateFields(updates);
+    const actor = await readingActor;
+    if (!frozen || frozen.source.id !== id) throw new Error(SOURCE_MISSING);
+    const updated = validateGoal({ ...frozen.source, ...changes, updatedAt: Date.now() });
+    ++loadSequence;
+    await writeGoal(actor, frozen.source, updated, frozen.viewedActor);
+    return afterCommit(actor);
   },
-
   removeGoal: async (id, expected) => {
-    const existing = expected ?? get().items.find((goal) => goal.id === id);
-    if (!existing) throw new Error('目标已变化，请刷新后重试');
-    await writeGoal(existing, null);
-    set((state) => ({ items: state.items.filter((goal) => goal.id !== id || !sameGoal(goal, existing)) }));
+    const readingActor = readLocalActor();
+    const original = expected ?? get().items.find(goal => goal.id === id);
+    const frozen = original && freezeSource(original);
+    const actor = await readingActor;
+    if (!frozen || frozen.source.id !== id) throw new Error(SOURCE_MISSING);
+    ++loadSequence;
+    await writeGoal(actor, frozen.source, null, frozen.viewedActor);
+    return afterCommit(actor);
   },
-
   enableSync: async (selected, expectedOwner) => {
-    const database = db;
-    if (!expectedOwner || database.ownerId !== expectedOwner) throw new Error('当前账号已变化，未上传目标');
-    if (!selected.length || new Set(selected.map((goal) => goal.id)).size !== selected.length) throw new Error('请选择要同步的目标');
-    await database.transaction('rw', database.goalRecords, database.settings, database.outbox, async () => {
-      for (const snapshot of selected) {
-        const current = await database.goalRecords.get(snapshot.id);
-        if (current?.syncScope === 'account' && sameGoal({ ...current, syncScope: snapshot.syncScope }, snapshot)) continue;
-        if (!sameGoal(current, snapshot) || current?.syncScope === 'account') throw new Error('目标刚刚更新，请重新检查所选内容；尚未上传');
-        const record = validateGoal({ ...snapshot, syncScope: 'account' });
-        // Original account-local copy survives adoption and is included in export.
-        await database.settings.put({ key: `goal-local-copy:${snapshot.id}`, value: { ownerId: expectedOwner, original: snapshot, enrolledAt: Date.now() } });
+    const readingActor = readLocalActor();
+    const frozen = selected.map(freezeSource);
+    const actor = await readingActor, database = actor.database;
+    if (!expectedOwner || actor.owner !== expectedOwner || database.ownerId !== expectedOwner) throw new Error('当前账号已变化，未上传目标');
+    if (!frozen.length || new Set(frozen.map(row => row.source.id)).size !== frozen.length) throw new Error('请选择要同步的目标');
+    let alreadyCommitted = true;
+    ++loadSequence;
+    await database.transaction('rw', [database.goalRecords, database.settings, database.outbox], async () => {
+      for (const { source, viewedActor } of frozen) {
+        await assertAuthority(actor, viewedActor);
+        const current = await database.goalRecords.get(source.id);
+        const key = `goal-local-copy:${source.id}`;
+        const backup = (await database.settings.get(key))?.value as { ownerId: string; original: GoalRecord; enrolled?: GoalRecord } | undefined;
+        if (current?.syncScope === 'account' && backup?.ownerId === expectedOwner && await sameGoalSource(backup.original, source) && await sameGoalSource(current, backup.enrolled ?? validateGoal({ ...backup.original, syncScope: 'account' }))) {
+          await assertAuthority(actor, viewedActor);
+          continue;
+        }
+        if (!current || current.syncScope === 'account' || backup || !await sameGoalSource(current, source)) throw new Error('目标刚刚更新，请重新检查所选内容；尚未上传');
+        const record = validateGoal({ ...source, syncScope: 'account' });
+        await assertAuthority(actor, viewedActor);
+        await database.settings.put({ key, value: { ownerId: expectedOwner, original: source, enrolled: record, enrolledAt: Date.now() } });
         await database.goalRecords.put(record);
+        await assertAuthority(actor, viewedActor);
         await enqueueSync('goals', 'upsert', record);
+        await assertAuthority(actor, viewedActor);
+        alreadyCommitted = false;
       }
+      await assertLocalActor(actor);
     });
-    await get().loadFromDB();
-    void flush();
+    void flush().catch(() => recordDiagnostic('runtime-error', 'sync'));
+    return afterCommit(actor, alreadyCommitted);
   },
 }));
 
-
-export interface LegacyGoalChange { id: string; source: GoalRecord | null; previousSource: GoalRecord | null; current: GoalRecord | null }
-
-/** Current-account old-table changes are quarantined, not silently merged. */
+/** Guarded standalone reader, useful outside the observed Goal workspace. */
 export async function legacyGoalChanges(): Promise<LegacyGoalChange[]> {
-  const database = db;
-  return database.transaction('r', database.table('goals'), database.goalRecords, database.settings, async () => {
-    const sources = new Map((await database.table<GoalRecord>('goals').toArray()).map((row) => [row.id, row]));
-    const snapshots = new Map((await database.settings.where('key').startsWith('goal-source-snapshot:').toArray()).map((row) => [row.key.slice('goal-source-snapshot:'.length), row.value as GoalRecord | null]));
-    const changes: LegacyGoalChange[] = [];
-    for (const id of new Set([...sources.keys(), ...snapshots.keys()])) {
-      const source = sources.get(id) ?? null, previousSource = snapshots.get(id) ?? null;
-      if (JSON.stringify(source) !== JSON.stringify(previousSource)) changes.push({ id, source, previousSource, current: await database.goalRecords.get(id) ?? null });
-    }
-    return changes;
+  const actor = await readLocalActor(), database = actor.database;
+  const changes = await database.transaction('r', [database.table('goals'), database.goalRecords, database.settings], async () => {
+    await assertLocalActor(actor);
+    const [sources, goals, settings] = await Promise.all([database.table<GoalRecord>('goals').toArray(), database.goalRecords.toArray(), database.settings.toArray()]);
+    const result = await deriveChanges(sources, settings, goals, actor);
+    await assertLocalActor(actor);
+    return result;
   });
+  return database.transaction('r', database.settings, async () => { await assertLocalActor(actor); return changes; });
 }
 
-export async function resolveLegacyGoalChange(preview: LegacyGoalChange, choice: 'copy' | 'keep', expectedOwner: string) {
-  const database = db;
-  if (!expectedOwner || database.ownerId !== expectedOwner) throw new Error('账号已变化，旧目标未处理');
-  await database.transaction('rw', database.table('goals'), database.goalRecords, database.settings, async () => {
-    const current = (await legacyGoalChanges()).find((row) => row.id === preview.id);
-    if (!current || JSON.stringify(current) !== JSON.stringify(preview)) throw new Error('旧窗口或当前目标刚刚变化，请重新比较');
-    const copy = choice === 'copy' && current.source ? validateGoal({ ...current.source, id: generateLocalId(), syncScope: 'local' }) : null;
+export async function resolveLegacyGoalChange(preview: LegacyGoalChange, choice: 'copy' | 'keep', expectedOwner: string): Promise<GoalRecoveryResult> {
+  const readingActor = readLocalActor();
+  const known = reviewAuthority.get(preview);
+  const frozen = structuredClone(known?.source ?? preview);
+  const intentId = frozen.intentId ?? generateLocalId();
+  // Also bind a caller-owned original preview so an immediate same-object retry
+  // retains its intent; published previews already carry a serializable intent ID.
+  frozen.intentId = intentId;
+  const actor = await readingActor, database = actor.database;
+  if (!known) reviewAuthority.set(preview, { source: structuredClone(frozen), actor });
+  if (!expectedOwner || actor.owner !== expectedOwner || database.ownerId !== expectedOwner) throw new Error('账号已变化，旧目标未处理');
+  if (!['copy', 'keep'].includes(choice) || !/^[a-zA-Z0-9_-]{8,64}$/.test(intentId)) throw new Error('请重新打开旧目标比较');
+  let copyId: string | null = null, alreadyCommitted = false;
+  ++loadSequence;
+  await database.transaction('rw', [database.table('goals'), database.goalRecords, database.settings], async () => {
+    await assertAuthority(actor, known?.actor);
+    const key = `goal-source-recovery:${intentId}`;
+    const receipt = (await database.settings.get(key))?.value as (LegacyGoalChange & { choice: string; copyId: string | null; ownerId: string }) | undefined;
+    if (receipt) {
+      const { id, source, previousSource, current, intentId: receiptIntent } = receipt;
+      if (receipt.ownerId !== expectedOwner || receipt.choice !== choice || !await sameGoalSource({ id, source, previousSource, current, intentId: receiptIntent }, frozen)) throw new Error(RECOVERY_CHANGED);
+      copyId = receipt.copyId;
+      alreadyCommitted = true;
+      await assertAuthority(actor, known?.actor);
+      return;
+    }
+    const source = await database.table<GoalRecord>('goals').get(frozen.id) ?? null;
+    const previousSource = (await database.settings.get(`goal-source-snapshot:${frozen.id}`))?.value as GoalRecord | null | undefined ?? null;
+    const current = await database.goalRecords.get(frozen.id) ?? null;
+    if (await sameGoalSource(source, previousSource) || !await sameGoalSource({ id: frozen.id, source, previousSource, current, intentId }, frozen)) throw new Error(RECOVERY_CHANGED);
+    const copy = choice === 'copy' && source ? validateGoal({ ...structuredClone(source), id: generateLocalId(), syncScope: 'local' }) : null;
     if (choice === 'copy' && !copy) throw new Error('旧窗口已删除这份目标，没有新内容可以复制');
-    await database.settings.put({ key: `goal-source-recovery:${generateLocalId()}`, value: { ...current, choice, copyId: copy?.id ?? null, resolvedAt: Date.now() } });
+    await assertAuthority(actor, known?.actor);
+    copyId = copy?.id ?? null;
+    await database.settings.put({ key, value: { ...frozen, ownerId: expectedOwner, choice, copyId, resolvedAt: Date.now() } });
     if (copy) await database.goalRecords.add(copy);
-    await database.settings.put({ key: `goal-source-snapshot:${current.id}`, value: current.source });
+    await database.settings.put({ key: `goal-source-snapshot:${frozen.id}`, value: source });
+    await assertAuthority(actor, known?.actor);
   });
-  await useGoalStore.getState().loadFromDB();
+  return { ...await afterCommit(actor, alreadyCommitted), copyId };
+}
+
+let observation: { unsubscribe: () => void } | null = null;
+let observers = 0;
+function requestRefresh() { void useGoalStore.getState().loadFromDB().catch(() => undefined); }
+/** Both Goal and Settings recovery use this one coherent, actor-guarded reader.
+ * A read fault keeps the existing snapshot/error visible and does not terminate
+ * observation, so an explicit retry or later real DB change can recover it.
+ */
+export function startGoalObservation(): () => void {
+  observers += 1;
+  if (!observation) {
+    observation = liveQuery(async () => { await useGoalStore.getState().loadFromDB().catch(() => undefined); }).subscribe({ error: () => recordDiagnostic('runtime-error', 'goals') });
+    window.addEventListener('storage', requestRefresh);
+    window.addEventListener(UNAUTHORIZED_EVENT, requestRefresh);
+    window.addEventListener('youtrace:data-updated', requestRefresh);
+  }
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true; observers -= 1;
+    if (observers === 0) {
+      observation?.unsubscribe(); observation = null;
+      window.removeEventListener('storage', requestRefresh);
+      window.removeEventListener(UNAUTHORIZED_EVENT, requestRefresh);
+      window.removeEventListener('youtrace:data-updated', requestRefresh);
+    }
+  };
 }

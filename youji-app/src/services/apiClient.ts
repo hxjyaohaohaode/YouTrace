@@ -53,11 +53,23 @@ function accountHeaders(): Record<string, string> {
   return activeOwner ? { 'X-YouTrace-Account': activeOwner } : {}
 }
 
+interface RequestAuthority { owner: string | null; generation: number; revision: string | null; signedOut: string | null }
+function requestAuthority(): RequestAuthority {
+  return { owner: activeOwner, generation: sessionGeneration, revision: localStorage.getItem(SESSION_REVISION_KEY), signedOut: localStorage.getItem(SIGNED_OUT_KEY) }
+}
+/** A late rejection belongs to the request's session, never a later login. */
+function revokeRequestAuthority(authority: RequestAuthority): void {
+  if (authority.owner !== activeOwner || authority.generation !== sessionGeneration || authority.revision !== localStorage.getItem(SESSION_REVISION_KEY) || authority.signedOut !== localStorage.getItem(SIGNED_OUT_KEY)) return
+  clearSession()
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  const authority = requestAuthority()
   if (!path.startsWith('/auth/') && !activeOwner) throw new AuthError('请先确认登录身份')
   const headers: Record<string, string> = {
     ...(!path.startsWith('/auth/') ? accountHeaders() : {}),
@@ -77,8 +89,7 @@ async function request<T>(
   recordDiagnostic(res.ok ? 'request-ok' : 'request-failed', requestArea(path), performance.now() - startedAt, res.status)
 
   if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
-    clearSession()
-    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    revokeRequestAuthority(authority)
     throw new AuthError('登录已过期')
   }
 
@@ -154,6 +165,7 @@ export async function streamChat(
   onActions?: (actions: CoachActionPayload[]) => void,
   signal?: AbortSignal,
 ): Promise<{ sessionId: string; content: string }> {
+  const authority = requestAuthority()
   if (!activeOwner) throw new AuthError('请先确认登录身份')
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
@@ -167,8 +179,7 @@ export async function streamChat(
   })
 
   if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
-    clearSession()
-    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    revokeRequestAuthority(authority)
     throw new AuthError('登录已过期')
   }
 

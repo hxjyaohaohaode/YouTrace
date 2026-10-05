@@ -57,7 +57,8 @@ if (taskSet.startsWith('habits')) {
   metadata.untested = ['Real calendar transition or midnight', 'Real mobile device/OS accessibility or screen reader', 'Live SMS/model/notification delivery', 'Arbitrary habit scales, all component states and all account/multi-device concurrency', 'Human-operated task execution'];
 }
 if (taskSet === 'goals') {
-  metadata.kind = 'goal-user-outcome-red-baseline';
+  metadata.kind = 'goal-user-outcome-implementation-candidate';
+  metadata.goalRedEvidenceCommit = '0f77be644dbd1fc45becbc7223acd8e078cadfa4';
   metadata.applicationBaseline = '9a9fdc12818e9ba03a3768c34155ce036b76a439';
   metadata.scenarioScope = ['native Goal discovery and distinguishable same-name creation', 'manual progress reversal, counts and filtered denominator meaning', 'exact source edit/cancel/clear optional date', 'bounded native quota, retained input, actual retry/delete/reload'];
   metadata.untested = ['Native multi-tab stale goal dialog and account-transition timing', 'Legacy local goal enrollment/recovery fixtures', 'All-component accessibility/zoom/reduced-motion', 'Manual human interaction or real provider calls'];

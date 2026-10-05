@@ -1,4 +1,4 @@
-// Y6 native RED baseline on the unchanged 9a9 application. Hosted CI only.
+// Y6 native Goal outcomes; original unchanged-9a9 RED remains at 0f77be6. Hosted CI only.
 // Business records originate exclusively in rendered controls. IndexedDB reads
 // and GET-only HTTP snapshots observe the full canonical sources; bounded native
 // put/delete fault injection never seeds a record or touches an app/auth store.
@@ -56,7 +56,7 @@ export async function runGoalOutcomes(h) {
     'No signout/clear/account-generation race, arbitrary scale, real mobile OS, screen reader, live model/provider or production claim',
     '100% is only a reversible user-entered progress value; a future plan date is not proof of work performed',
   ];
-  await writeFile(join(artifacts, 'Y6-scope.json'), JSON.stringify({ kind: 'native-goal-user-result-red-baseline', applicationBaseline: '9a9fdc12818e9ba03a3768c34155ce036b76a439', syntheticOnly: true, widths: [1280, 360], limitations }, null, 2));
+  await writeFile(join(artifacts, 'Y6-scope.json'), JSON.stringify({ kind: 'native-goal-user-result-candidate', redEvidenceCommit: '0f77be644dbd1fc45becbc7223acd8e078cadfa4', applicationBaseline: '9a9fdc12818e9ba03a3768c34155ce036b76a439', syntheticOnly: true, widths: [1280, 360], limitations }, null, 2));
 
   // This function is evaluated in Chromium only. It observes actual ancestor
   // clipping, painted opacity, fixed bottom navigation and foreground hit tests.
