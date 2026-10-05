@@ -176,6 +176,9 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     await page.waitForSelector('#login-phone'); await fill(page, '#login-phone', phone);
     const sent = page.waitForResponse(response => response.url().endsWith('/api/auth/send-code') && response.request().method() === 'POST');
     await tap(page, 'button', '获取验证码'); const challenge = await (await sent).json(); assert.ok(challenge.devCode);
+    // Receipt of HTTP bytes can precede React's rendered next step. Wait for
+    // the real control, then retain the original painted/clip/hit checks.
+    await page.waitForSelector('#login-code', { visible: true, timeout: 7000 });
     await fill(page, '#login-code', challenge.devCode); await tap(page, 'button', '验证');
     await page.waitForFunction(() => location.pathname === '/onboarding' || location.pathname === '/' && Boolean(document.querySelector('aside nav,nav[aria-label="主导航"]')), { timeout: 15000 });
     if (new URL(page.url()).pathname === '/onboarding') {
@@ -504,7 +507,8 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
         else await ambiguousSourceScenario(page, readOnly, originals, label);
       } finally {
         await writeFile(join(artifacts, `${label}-actual-wire.json`), JSON.stringify(wire.requests, null, 2));
-        await observe(page, `${label}-no-privateMemo-ever-transmitted`, wireSafe(wire.requests, originals), 'All actual non-auth write request bodies from existing-account login onward were retained and scanned for unknown field names and exact private sentinels'); wire.stop();
+        const safeWire = wireSafe(wire.requests, originals), goalFieldsExercised = wire.requests.some(row => { try { return row.path === '/api/sync/push' && JSON.parse(row.body)?.goals?.length > 0; } catch { return false; } });
+        await observe(page, `${label}-no-privateMemo-ever-transmitted`, safeWire ? goalFieldsExercised ? true : null : false, goalFieldsExercised ? 'Actual Goal request bodies from main and recorded peer surfaces were retained and checked against allowed fields and private sentinels' : 'No Goal upsert body was observed; this is context only, not exercised field-filter or recovery acceptance. Any captured private-field transmission still fails.'); wire.stop();
       }
     });
   }
