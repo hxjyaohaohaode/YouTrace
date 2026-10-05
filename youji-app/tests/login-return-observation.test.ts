@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EventEmitter } from 'node:events';
-import { observeExistingLoginReturn } from '../scripts/audit-login-return.mjs';
+import { runInNewContext } from 'node:vm';
+import { observeExistingLoginReturn, readExistingLoginDocument } from '../scripts/audit-login-return.mjs';
 
 const origin = 'http://127.0.0.1:4173';
 const old = { origin, path: '/login', timeOrigin: 1000, shell: false, ready: false };
 const arrived = { origin, path: '/onboarding', timeOrigin: 2000, shell: false, ready: true };
-function fixture({ target = arrived, responses = true, navigation = true, replaced = false, late = false, status = 200, forever = false, earlyDocument = false } = {}) {
+function fixture({ target = arrived, responses = true, navigation = true, replaced = false, late = false, status = 200, forever = false, earlyDocument = false, transientShell = false } = {}) {
   let time = 0, reads = 0, clicks = 0;
   const frame = { url: () => origin + '/' };
   const page = Object.assign(new EventEmitter(), {
@@ -14,6 +15,7 @@ function fixture({ target = arrived, responses = true, navigation = true, replac
     evaluate: async () => {
       if (++reads === 1) return old;
       if (replaced && reads === 2) throw new Error('Execution context was destroyed, most likely because of a navigation.');
+      if (transientShell && reads === 2) return { ...arrived, path: '/', shell: true, homeContent: false, ready: false };
       if (late) time = 15001;
       return forever ? old : target;
     },
@@ -52,4 +54,26 @@ test('a ready observation after the deadline is rejected, and a real failed veri
     await assert.rejects(observeExistingLoginReturn(f.page, f.click, f.options), /deadline|HTTP200/);
     assert.equal(f.facts().clicks, 1); assert.equal(f.page.listenerCount('response'), 0);
   }
+});
+
+test('a transient navigation shell is observed through to actual onboarding without another verification', async () => {
+  const f = fixture({ transientShell: true }); const receipt = await observeExistingLoginReturn(f.page, f.click, f.options);
+  assert.equal(receipt.probes.length, 2); assert.equal(receipt.probes[0].ready, false); assert.equal(receipt.probes[1].path, '/onboarding');
+  assert.equal(receipt.elapsedMs, 100); assert.equal(f.facts().clicks, 1);
+});
+
+test('browser landing observation requires actual painted destination content, not just the shell or pathname', () => {
+  const node = (textContent = '') => ({ textContent, disabled: false, parentElement: null, getBoundingClientRect: () => ({ width: 100, height: 30 }) });
+  const home = node(), heading = node(), next = node('下一步');
+  const check = (path: string, shell: boolean, homeNodes: unknown[], headings: unknown[], buttons: unknown[], opacity = '1') => runInNewContext(`(${readExistingLoginDocument.toString()})()`, {
+    location: { origin, pathname: path }, performance: { timeOrigin: 2000 },
+    getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity }),
+    document: { querySelector: () => shell ? node() : null, querySelectorAll: (selector: string) => selector === '[data-page-route="/"] h1' ? homeNodes : selector === 'h1' ? headings : selector === 'button' ? buttons : [] },
+  });
+  assert.equal(check('/', true, [], [], []).ready, false);
+  assert.equal(check('/', true, [home], [home], []).ready, true);
+  assert.equal(check('/', true, [home], [home], [], '0').ready, false);
+  assert.equal(check('/onboarding', false, [], [heading], [next]).ready, true);
+  assert.equal(check('/onboarding', false, [], [heading], []).ready, false);
+  assert.equal(check('/onboarding', false, [], [heading], [next, node('下一步')]).ready, false);
 });

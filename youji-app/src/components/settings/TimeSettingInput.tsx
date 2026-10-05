@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Button } from '../ui/Button';
+import { preferenceSaveError } from '../../lib/preferenceErrors';
 
 /** Native time segments edit synchronously; persistence never rewinds a keystroke. */
 export function TimeSettingInput({ id, label, value, onSave }: { id: string; label: string; value: string; onSave: (value: string, expected: string) => Promise<void> }) {
@@ -15,7 +16,7 @@ export function TimeSettingInput({ id, label, value, onSave }: { id: string; lab
     if (!draft || !valid || guard.current) return;
     guard.current = true; setSaving(true); setError(''); setFeedback('');
     try { await onSave(draft.value, draft.baseline); setDraft(null); setFeedback('时间已保存在本机，账号同步状态见上方'); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '时间未保存，输入仍保留，请重试'); }
+    catch (cause) { setError(preferenceSaveError(cause)); }
     finally { guard.current = false; setSaving(false); }
   };
   return <div className="min-w-0 flex-1" data-component="time-preference">

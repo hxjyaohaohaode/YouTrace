@@ -128,3 +128,12 @@
 随后仅对未执行的planning单独重跑一次，attempt 3 的111962918224于20:24:25排队、20:39:26再次以runner 0和空steps取消。原有成功七项未重跑；当时另外三个未执行项尚未追加，暂停追加重试并核对[GitHub Actions官方事故](https://stspg.io/c11dc9nb1zdq)，整体CI仍不能计通过。此平台状态不改变上段已经取得原件的旧来源任务限定结论，也不证明每项取消的具体原因。
 
 官方21:32更新说明已缓解、队列清理中及新任务不再延迟后，余下三个从未重跑的取消项按顺序各补一次：enrollment（attempt 4，111995399823，21:53:58–21:57:38）、habits-frequency（attempt 5，111997260030，21:58:38–22:02:02）、coach（attempt 6，111999101899，22:03:24–22:05:59）均获得真实runner并完成脚本与打包。最终为十项执行成功和planning原取消，整体结论仍为cancelled；没有再补planning或重跑已成功项目。enrollment小summary经独立hash核对，46条observed-pass、无infrastructure报告，但本次没有重新独审其大媒体。629的已审enrollment结果继续按原件范围引用；其Goal/旧来源业务和服务端至d542未变，但中间启动/会话的四个应用文件有变，不能声称整个应用字节相同或转授新全量通过。
+
+
+## b956手机新设备准备分支未完成
+
+[`b9564b4`](https://github.com/hxjyaohaohaode/YouTrace/commit/b9564b44e3fbeb5ab9220b143bacf4382e65ba88)的[CI37383521362](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37383521362)最终十项成功、五项失败，旧来源分片的新增失败在`Y6L-ambiguous-360`准备阶段。该包380份成员已独立hash核验；154/155原图及录像末帧均为正常、可读的新设备onboarding第一页，没有看到Goal或初始化错误页。原trace只有一次send-code200及一次verify200，没有业务写；既有登录观察曾在209ms看到新document的根路径导航shell，随后实际转入引导。
+
+现脚本只检查一次pathname，误把尚无首页内容的shell当作已经到达首页，没有执行四个真实引导按钮，最后等待根路径十五秒超时。这不是“未登录”或已证明旧目标损坏。同名旧源选择任务在这个profile尚未到达；原d542已验结果继续引用其当时原件，不用另一profile或后续绿色补成此次通过。
+
+窄观察候选保留原一次验证、真实verify/document200与新timeOrigin，以及原十五秒截止；根路径还必须实际绘制首页容器内h1，onboarding必须有实际标题和唯一可用“下一步”。它不读写onboarded标志，不改登录、路由、Splash或应用实现。随后仍实际操作四页引导并核首页、同owner及原完整旧源任务；只有新精确原件能证明这段尾项完成。共享登录观察也供偏好第二profile使用，不扩大为权限边界验收。

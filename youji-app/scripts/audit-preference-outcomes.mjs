@@ -4,9 +4,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
-import { waitForStableModalTarget, legacyGoalOutcomeChecks } from './audit-legacy-goal-outcomes.mjs';
+import { legacyGoalOutcomeChecks } from './audit-legacy-goal-outcomes.mjs';
 import { observeExistingLoginReturn } from './audit-login-return.mjs';
 import { installPreferenceFault } from './audit-preference-faults.mjs';
+import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { preferenceEvidenceErrorName, preferenceSetupStatus, PREFERENCE_STATE_KEY, preferenceRows, preferenceState, desiredPreferences, validSnapshot, acknowledgedPreferences, unchangedPreferences, validPreferenceWire, validPreferenceAck, retainedPreferenceIntent, savedPreferenceMutation, frozenPreferenceRequestMatches, resolutionPreservesSource, wirePreferences, comparisonRows, comparisonTextMatches } from './audit-preference-contract.mjs';
 
 const PANEL = '[data-component="preference-sync"]';
@@ -57,10 +58,12 @@ export async function runPreferenceOutcomes(h, { branch }) {
       const tap = async (target, selector, text) => {
         active(); await target.bringToFront(); const initial = await read(target, selector, text), resolved = initial.selector;
         await target.mouse.move(initial.box.rect.x + initial.box.rect.width / 2, initial.box.rect.y + initial.box.rect.height / 2);
-        const stability = await target.evaluate(waitForStableModalTarget, resolved, 2500), box = await target.evaluate(initialSessionGeometry, resolved);
-        assert.ok(box.visible && Object.keys(stability.box).every(key => box.rect[key] === stability.box[key])); assert.equal(await target.$eval(resolved, el => el.matches(':disabled')), false);
-        const x = box.rect.x + box.rect.width / 2, y = box.rect.y + box.rect.height / 2; await target.mouse.move(x, y); const final = await target.evaluate(initialSessionGeometry, resolved); assert.ok(final.visible && Object.keys(stability.box).every(key => final.rect[key] === stability.box[key])); active(); await target.mouse.click(x, y);
-        actions.push({ kind: 'native-pointer-preference', surface: surfaceNames.get(target), selector, text, x, y, stability });
+        const observations = [];
+        let ready;
+        try { ready = await preparePreferencePointer(target, resolved, selector, text, observations); }
+        finally { actions.push({ kind: 'preference-preclick-observations', surface: surfaceNames.get(target), selector, text, observations }); }
+        active(); await target.mouse.click(ready.x, ready.y);
+        actions.push({ kind: 'native-pointer-preference', surface: surfaceNames.get(target), selector, text, ...ready });
       };
       const fill = async (target, selector, text) => { await tap(target, selector); for (const [method, key] of [['down', 'Control'], ['press', 'A'], ['up', 'Control'], ['press', 'Backspace'], ['sendCharacter', text]]) { active(); await target.keyboard[method](key); } assert.equal(await target.$eval(selector, el => el.value), text); actions.push({ kind: 'native-text-preference', surface: surfaceNames.get(target), selector, ...(selector === '#login-code' ? { syntheticOTP: true } : { syntheticText: text }) }); };
       const path = async (target, expected) => { active(); await target.waitForFunction(expected => location.pathname === expected, { timeout: 15000 }, expected); };
@@ -115,7 +118,12 @@ export async function runPreferenceOutcomes(h, { branch }) {
         const cancelBefore = await facts(page), writesBefore = requests.length; await tap(page, `${TIME} button`, '取消修改'); const cancelAfter = await facts(page); await save('time-cancel-sources', { cancelBefore, cancelAfter, writesBefore, writesAfter: requests.length }); await pass('cancel-only-time-draft', unchangedPreferences(cancelBefore, cancelAfter) && requests.length === writesBefore && await page.$eval('#evening-review-time', el => el.value) === cancelBefore.remote.settings.eveningReviewTime, 'Cancel adds no write and preserves already acknowledged switches; it does not undo those saved choices');
         await step('save-complete-native-time-fields'); const savedTime = await incrementTime(page, '#evening-review-time'); await field(page, `${TIME} button`, { eveningReviewTime: savedTime }, '保存晚间复盘时间');
         const quietStart = await incrementTime(page, '#quiet-start'); await field(page, '[data-component="time-preference"]:has(#quiet-start) button', { quietStart }, '保存免打扰开始'); const quietEnd = await incrementTime(page, '#quiet-end'); await field(page, '[data-component="time-preference"]:has(#quiet-end) button', { quietEnd }, '保存免打扰结束'); await field(page, '[role=switch][aria-label="免打扰时段"]', { quietEnabled: false });
-        await step('device-budget-and-appearance'); await fill(page, '#budget-input', '4321'); await tap(page, 'section[aria-label="预算"] button', '保存'); await read(page, '#budget-feedback', '已保存 ¥4,321 预算'); await tap(page, '[role=radiogroup][aria-label="主题"] button', '深色'); assert.equal(await page.$eval('html', el => el.getAttribute('data-theme')), 'dark'); const saved = await settled(page); await save('all-original-profile-values', saved); await readableSettings(page, saved.remote.settings, 'all-saved-values');
+        await step('device-budget-and-appearance'); const beforeDeviceChoices = await settled(page); await fill(page, '#budget-input', '4321'); await tap(page, 'section[aria-label="预算"] button', '保存'); await read(page, '#budget-feedback', '已保存 ¥4,321 预算'); await tap(page, '[role=radiogroup][aria-label="主题"] button', '深色');
+        await page.waitForFunction(() => {
+          const selected = [...document.querySelectorAll('[role=radiogroup][aria-label="主题"] button[aria-checked="true"]')];
+          return document.documentElement.dataset.theme === 'dark' && selected.length === 1 && selected[0].textContent.trim() === '深色';
+        }, { polling: 'raf', timeout: 5000 });
+        const saved = await settled(page); assert.equal(preferenceRows(saved.local).find(row => row.key === 'theme')?.value, 'dark'); assert.deepEqual(saved.remote, beforeDeviceChoices.remote, 'Device budget and appearance must not change the account policy'); await save('device-theme-visible-and-stored', { observedTheme: await page.$eval('html', el => el.getAttribute('data-theme')), beforeDeviceChoices, saved }); await save('all-original-profile-values', saved); await readableSettings(page, saved.remote.settings, 'all-saved-values');
         await reload(page); const reopened = await settled(page); await pass('reload-same-full-account-values', unchangedPreferences(saved, reopened), 'Full account state/revision remains identical after actual reload'); await read(page, '#budget-input'); assert.equal(await page.$eval('#budget-input', el => el.value), '4321'); assert.equal(await page.$eval('html', el => el.getAttribute('data-theme')), 'dark'); await shot(page, 'same-device-budget-and-theme');
         await step('native-second-device-retrieval'); const second = await createPeer(); peerSnapshots.push(second); await readableSettings(peer, saved.remote.settings, 'second-device-account-values'); await pass('same-account-second-profile', isDeepStrictEqual(second.remote, saved.remote) && acknowledgedPreferences(second.local, saved.remote), 'Two independent native OTP profiles show the same canonical account policy, including explicit 0'); await read(peer, '#budget-input'); assert.equal(await peer.$eval('#budget-input', el => el.value), ''); await read(peer, '[role=radiogroup][aria-label="主题"] button', '跟随系统'); assert.equal(await peer.$eval('[role=radiogroup][aria-label="主题"] [aria-checked=true]', el => el.textContent.trim()), '跟随系统'); await shot(peer, 'second-device-budget-theme-unchanged');
         await save('normal-final', { original: await facts(page), second: await facts(peer) });
