@@ -22,10 +22,12 @@ const actor = await import('../../src/services/localActor.ts');
 const owner = 'synthetic-initial-owner-a', newerOwner = 'synthetic-initial-owner-b';
 const user = { id: owner, phone: '13900009902', nickname: 'Synthetic A', avatar: '', identity: 'other', city: '', coachStyle: 'gentle', quietStart: '23:00', quietEnd: '07:00', pushLimit: 2 };
 const requests: string[] = [], loads: string[] = [];
+const heldRecovery = deferred<void>();
+let raceExpenseReads = 0;
 const imports: Record<string, unknown> = {
   dexie: { default: Dexie }, '../db': storage, '../services/apiClient': session,
   '../services/diagnostics': diagnostics, '../services/initializationDiagnostics': initialization,
-  '../services/syncEngine': sync, '../stores/settingsStore': settings,
+  '../services/syncEngine': sync, '../stores/settingsStore': settings, '../services/localActor': actor,
 };
 for (const name of ['Expense', 'Todo', 'Habit', 'QuickNote', 'Schedule', 'Diary', 'Coach', 'Goal']) {
   const file = `${name[0].toLowerCase()}${name.slice(1)}Store`;
@@ -34,11 +36,12 @@ for (const name of ['Expense', 'Todo', 'Habit', 'QuickNote', 'Schedule', 'Diary'
   const store = module[`use${name}Store`], original = store.getState().loadFromDB;
   store.setState({ loadFromDB: async () => {
     loads.push(name);
+    if (scenario.startsWith('initial-race-') && name === 'Expense' && ++raceExpenseReads === 1) await heldRecovery.promise;
     if (scenario === 'store-failure' && name === 'Habit') throw Object.assign(new Error('Synthetic retained storage failure'), { name: 'DatabaseClosedError' });
     await original();
   } });
 }
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; }
+function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 async function until(predicate: () => boolean) {
   const deadline = Date.now() + 5000;
@@ -70,13 +73,18 @@ type Element = { type: unknown; props: Record<string, unknown> };
 function driver() {
   const frames = new Map<string, Frame>(), pending: Array<() => void> = [];
   const timers = new Map<number, { delay: number; callback: () => void }>();
-  let current!: Frame, stateIndex = 0, effectIndex = 0, timer = 0;
+  let current!: Frame, stateIndex = 0, effectIndex = 0, timer = 0, rendering = false, renderAgain = false;
   const hooks = {
     ...React,
     useState: (initial: unknown) => {
       const frame = current, index = stateIndex++;
       if (!(index in frame.state)) frame.state[index] = typeof initial === 'function' ? initial() : initial;
-      return [frame.state[index], (value: unknown) => { frame.state[index] = value; }];
+      return [frame.state[index], (value: unknown) => {
+        const next = typeof value === 'function' ? value(frame.state[index]) : value;
+        if (Object.is(next, frame.state[index])) return;
+        frame.state[index] = next;
+        if (rendering) renderAgain = true;
+      }];
     },
     useEffect: (callback: () => (() => void) | undefined, deps: unknown[]) => {
       const frame = current, index = effectIndex++, previous = frame.effects[index];
@@ -102,23 +110,32 @@ function driver() {
   const router = { BrowserRouter: placeholder, Routes: placeholder, Route: placeholder, Navigate: 'SyntheticNavigate', useLocation: () => ({ pathname: '/todo', search: '?view=all' }), useNavigate: () => placeholder };
   async function setup() {
     const hook = compile(await readFile(new URL('../../src/hooks/useAppInit.ts', import.meta.url), 'utf8'), { ...common, ...imports, '../stores/authStore': authShim });
+    let initializationState = { ready: false, failed: false };
+    const observedHook = { useAppInit: (enabled: boolean) => { initializationState = Reflect.apply(hook.useAppInit, undefined, [enabled]) as typeof initializationState; return initializationState; } };
     const routes = compile(await readFile(new URL('../../src/routes/index.tsx', import.meta.url), 'utf8'), { ...common, 'react-router-dom': router, '../stores/authStore': authShim, '../components/layout/StaticPageEntry': { StaticPageEntry: placeholder }, '../components/layout/AppLayout': { AppLayout: placeholder } });
     const app = compile((await readFile(new URL('../../src/App.tsx', import.meta.url), 'utf8')) + '\nexports.ReadyRoutes = ReadyRoutes;', {
       ...common, 'react-router-dom': router, 'framer-motion': { MotionConfig: placeholder }, './routes': routes,
-      './hooks/useAppInit': hook, './stores/authStore': authShim, './db': storage,
+      './hooks/useAppInit': observedHook, './stores/authStore': authShim, './db': storage,
       './components/ui/SplashScreen': { default: placeholder }, './components/ui/Toast': { ToastHost: placeholder },
       './components/ui/ErrorBoundary': { ErrorBoundary: placeholder }, './components/layout/RuntimeObserver': { RuntimeObserver: placeholder },
     });
     function render<T>(name: string, operation: () => T): T {
-      current = frames.get(name) ?? { state: [], effects: [] }; frames.set(name, current); stateIndex = 0; effectIndex = 0;
-      const value = operation(); for (const effect of pending.splice(0)) effect(); return value;
+      current = frames.get(name) ?? { state: [], effects: [] }; frames.set(name, current);
+      let value!: T, renders = 0;
+      do {
+        assert.ok(++renders < 20, 'render-phase update must converge');
+        stateIndex = 0; effectIndex = 0; pending.length = 0; renderAgain = false; rendering = true;
+        value = operation(); rendering = false;
+      } while (renderAgain);
+      for (const effect of pending.splice(0)) effect(); return value;
     }
     return {
       timers,
       render: () => render('App', () => app.default()),
-      state: () => ({ ready: frames.get('App')?.state[0], failed: frames.get('App')?.state[1] }),
+      state: () => { render('App', () => app.default()); return { ...initializationState }; },
       route: () => {
-        const gate = render('ReadyRoutes', () => Reflect.apply(app.ReadyRoutes, undefined, [{ ready: frames.get('App')?.state[0], failed: frames.get('App')?.state[1] }])) as Element;
+        render('App', () => app.default());
+        const gate = render('ReadyRoutes', () => Reflect.apply(app.ReadyRoutes, undefined, [initializationState])) as Element;
         if (gate.type !== routes.AppRoutes) return { gate: 'loading-or-error', tree: gate };
         const routeTree = routes.AppRoutes() as Element;
         const entries = (routeTree.props.children as Element).props.children as Element[];
@@ -182,6 +199,10 @@ try {
     if (scenario === 'signed-out') localStorage.setItem(session.SIGNED_OUT_KEY, 'true');
     const heldSettings = deferred<void>();
     if (scenario === 'timeout') settings.useSettingsStore.setState({ loadSettings: () => heldSettings.promise });
+    if (scenario.startsWith('initial-race-')) {
+      const original = settings.useSettingsStore.getState().loadSettings;
+      settings.useSettingsStore.setState({ loadSettings: async () => { await heldSettings.promise; await original(); } });
+    }
     app = await driver(); app.render();
     await auth.useAuthStore.getState().loadUser();
     const offlineTodo = { id: 'synthetic-retained-todo', text: 'Synthetic saved offline work', priority: 'medium' as const, done: false };
@@ -189,6 +210,7 @@ try {
       await storage.db.todos.put(offlineTodo);
       await storage.db.outbox.add({ entity: 'todos', op: 'upsert', payload: offlineTodo, baseVersion: '0', queuedAt: 1, status: 'pending', attempts: 0 });
     }
+    if (scenario === 'initialization-closed-db') storage.db.close();
     app.render();
     if (scenario === 'signed-out' || scenario === 'unauthorized') {
       assert.equal(auth.useAuthStore.getState().authChecked, true);
@@ -210,6 +232,35 @@ try {
       assert.equal(auth.useAuthStore.getState().identityUnavailable, true);
       assert.equal(app.route().gate, 'loading-or-error'); assert.deepEqual(loads, []);
       assert.equal(storage.db.ownerId, null); assert.equal(session.getVerifiedSessionOwner(), null);
+    } else if (scenario === 'initialization-closed-db') {
+      await until(() => app!.state().failed === true);
+      await until(() => initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === 'error'));
+      assert.deepEqual(app.state(), { ready: false, failed: true });
+      assert.equal(app.route().gate, 'loading-or-error');
+      assert.equal(storage.db.isOpen(), false);
+      assert.ok(initialization.initializationSnapshot().some(row => row.phase === 'initial' && row.errorName === 'DatabaseClosedError'));
+      assert.ok(initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.errorName === 'DatabaseClosedError'));
+    } else if (scenario.startsWith('initial-race-')) {
+      const deadline = [...app.timers.values()][0]; assert.equal(deadline.delay, 12_000); deadline.callback();
+      assert.deepEqual(app.state(), { ready: false, failed: true });
+      await until(() => raceExpenseReads === 1);
+      const failRecovery = () => heldRecovery.reject(Object.assign(new Error('Synthetic held recovery read failure'), { name: 'DatabaseClosedError' }));
+      if (scenario === 'initial-race-success-first') {
+        heldSettings.resolve(); await until(() => app!.state().ready === true);
+        failRecovery();
+      } else {
+        failRecovery(); await until(() => initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === 'error'));
+        assert.deepEqual(app.state(), { ready: false, failed: true });
+        heldSettings.resolve(); await until(() => app!.state().ready === true);
+      }
+      await until(() => initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === 'error'));
+      await tick();
+      assert.deepEqual(app.state(), { ready: true, failed: true });
+      assert.equal(app.route().gate, 'protected');
+      // Real bootstrapSync emits data-updated in addition to initial/recovery.
+      assert.equal(raceExpenseReads, 3);
+      assert.deepEqual(initialization.initializationSnapshot().filter(row => row.stage === 'expense' && row.outcome === 'start').map(row => row.phase).sort(), ['data-updated', 'initial', 'recovery']);
+      assert.equal(storage.db.ownerId, owner); assert.equal(session.getVerifiedSessionOwner(), owner);
     } else if (scenario === 'timeout') {
       const deadline = [...app.timers.values()][0]; assert.equal(deadline.delay, 12_000); deadline.callback();
       assert.deepEqual(app.state(), { ready: false, failed: true });

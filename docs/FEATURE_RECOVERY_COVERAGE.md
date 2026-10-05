@@ -38,7 +38,7 @@
 | Coach / ChatInput / MessageList | 真实SSE规则源、导航动作、取消流/迟到响应隔离；阅读旧消息不强滚 | 多提供方实际失败边界、长对话键盘/性能、逐动作结果与证据链 |
 | Insights / coach卡片 | 反馈先ACK、删除墓碑、迟到并发保全；过期证据不伪称今日 | 跨设备版本化删除feed尚未实现；有限分页缓存不等于完整收件箱同步 |
 | Settings / SyncConflict / Diagnostics | 预算内联无覆盖、恢复队列、完整导出；当前新增偏好比较/回执状态 | 偏好多设备浏览器、共享旧库归属恢复；诊断只能内存且逐组件待实现 |
-| Login / Onboarding / DataInfo | 真实OTP-Cookie合成注册登录/A-B-A/注销；成人默认、真实能力说明。e723两宽首次401→注册→原路径、待办ACK→退出→保护页重入→同账号OTP→原路径/完整同ID记录与ledger均独立验收；5cce/d732原红保留，见INITIAL_SESSION_TASK_BASELINE | 既有初始/恢复读竞态、旧b5b8根因、旧凭据全面撤销的本包原生证据、真实短信服务和无障碍专项仍未完成 |
+| Login / Onboarding / DataInfo | 真实OTP-Cookie合成注册登录/A-B-A/注销；成人默认、真实能力说明。e723两宽首次401→注册→原路径、待办ACK→退出→保护页重入→同账号OTP→原路径/完整同ID记录与ledger均独立验收；5cce/d732原红保留，见INITIAL_SESSION_TASK_BASELINE | 525f两宽另实证初始成功被晚到恢复失败撤回；useAppInit修复候选待同合同新原生验收，见STARTUP_RECOVERY_TASK_BASELINE。旧b5b8根因、旧凭据全面撤销的本包原生证据、真实短信服务和无障碍专项仍未完成 |
 | Modal / Button / Input / Chip / Card / ProgressBar / MiniChart / Toast | Modal焦点/取消，Checkbox真实命中，部分reduced-motion、文字token对比 | 通用按钮/点击Card语义、图表替代文本、焦点恢复、宽高动画中断、prefers-reduced-motion逐组件；全站WCAG未认证 |
 | AppLayout / BottomNav / sidebars / headers | 修复CSS层级导致侧栏覆盖；360/768/1280布局、沉浸式入口隐藏焦点；e723独立实证响应式1280侧栏就绪后唯一点击Goal、自然页首/标题焦点，见NAVIGATION_TASK_PACKAGE | 自然空间过渡与返回连续性、各导航键盘与组件级耗时；不能统一套弹跳动画 |
 

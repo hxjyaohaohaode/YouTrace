@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { test } from 'node:test';
-import ts from 'typescript';
+import { initializationHookDriver as hookDriver } from './helpers/initializationHookDriver.ts';
 import * as diagnostics from '../src/services/initializationDiagnostics.ts';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -88,52 +88,6 @@ test('detached Coach failure is still unhandled with the original rejection reas
   assert.equal(result.status, 0, result.stderr);
 });
 
-// Execute the actual hook with a minimal effect/timer driver. This is a unit
-// observation test, not React mounting or a substitute for native Chromium QA.
-const hookSource = await readFile(new URL('../src/hooks/useAppInit.ts', import.meta.url), 'utf8');
-function hookDriver(offline = false) {
-  const calls: string[] = [], state = [false, false], effects: Array<{ deps: unknown[]; cleanup?: () => void }> = [];
-  const pendingEffects: Array<() => void> = [], timers = new Map<number, { delay: number; callback: () => void }>();
-  const loaders = new Map<string, () => Promise<void>>(), events = new EventTarget();
-  let stateIndex = 0, effectIndex = 0, timer = 0, generation = 1, revision = secret;
-  const load = (name: string) => { calls.push(name); return loaders.get(name)?.() ?? Promise.resolve(); };
-  const imports: Record<string, unknown> = {
-    react: {
-      useState: () => { const index = stateIndex++; return [state[index], (value: boolean) => { state[index] = value; }]; },
-      useEffect: (callback: () => (() => void) | undefined, deps: unknown[]) => {
-        const index = effectIndex++, previous = effects[index];
-        if (previous && deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return;
-        pendingEffects.push(() => { previous?.cleanup?.(); effects[index] = { deps, cleanup: callback() }; });
-      },
-    },
-    dexie: { default: { currentTransaction: undefined } },
-    '../services/initializationDiagnostics': diagnostics,
-    '../services/diagnostics': { recordDiagnostic: () => undefined },
-    '../services/syncEngine': { bootstrapSync: () => { calls.push('sync'); return Promise.resolve({ offline }); } },
-    '../db': { db: { ownerId: secret, isOpen: () => true }, getDatabaseRecoveryError: () => null, isDatabaseUpgradeBlocked: () => false },
-    '../services/apiClient': { getSessionGeneration: () => generation, getVerifiedSessionOwner: () => secret, SESSION_REVISION_KEY: 'revision', SIGNED_OUT_KEY: 'signed-out' },
-    '../stores/authStore': { useAuthStore: { getState: () => ({ authChecked: true, isAuthenticated: true, identityUnavailable: false }) } },
-    '../stores/settingsStore': { useSettingsStore: { getState: () => ({ loadSettings: () => load('settings') }) } },
-  };
-  for (const [module, name] of [['Expense', 'expense'], ['Todo', 'todo'], ['Habit', 'habit'], ['QuickNote', 'quick-note'], ['Schedule', 'schedule'], ['Diary', 'diary'], ['Coach', 'coach'], ['Goal', 'goal']]) {
-    imports[`../stores/${module[0].toLowerCase()}${module.slice(1)}Store`] = { [`use${module}Store`]: { getState: () => ({ loadFromDB: () => load(name) }) } };
-  }
-  const exports = {} as { useAppInit: (enabled: boolean) => { ready: boolean; failed: boolean }; loadAllStores: (trace?: diagnostics.InitializationTrace) => Promise<void> };
-  const compiled = ts.transpileModule(hookSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023 } }).outputText;
-  runInNewContext(compiled, {
-    exports, require: (key: string) => { assert.ok(key in imports, key); return imports[key]; }, window: events,
-    localStorage: { getItem: (key: string) => key === 'revision' ? revision : null },
-    setTimeout: (callback: () => void, delay: number) => { const id = ++timer; timers.set(id, { callback, delay }); return id; },
-    clearTimeout: (id: number) => { timers.delete(id); },
-  });
-  return {
-    calls, state, timers, loaders, events, exports,
-    changeSession: () => { generation++; revision = 'synthetic-new-revision'; },
-    render: (enabled: boolean) => { stateIndex = 0; effectIndex = 0; const value = exports.useAppInit(enabled); for (const effect of pendingEffects.splice(0)) effect(); return value; },
-    cleanup: () => { for (const effect of effects) effect.cleanup?.(); },
-  };
-}
-
 for (const offline of [false, true]) test(`actual hook keeps ${offline ? 'offline' : 'online'} store order and readiness`, async () => {
   const app = hookDriver(offline);
   app.render(true);
@@ -141,15 +95,15 @@ for (const offline of [false, true]) test(`actual hook keeps ${offline ? 'offlin
   assert.deepEqual([...app.timers.values()].map(timer => timer.delay), [12_000]);
   await tick();
   assert.deepEqual(app.calls, ['settings', 'sync', 'expense', 'todo', 'habit', 'quick-note', 'schedule', 'diary', ...(offline ? ['coach', 'goal'] : ['goal', 'coach'])]);
-  assert.deepEqual(app.state, [true, false]);
+  assert.deepEqual(app.render(true), { ready: true, failed: false });
   assert.equal(app.timers.size, 0);
   app.events.dispatchEvent(new Event('youtrace:data-updated')); await tick();
   assert.deepEqual(app.calls.slice(-8), ['expense', 'todo', 'habit', 'quick-note', 'schedule', 'diary', 'coach', 'goal']);
   assert.ok(diagnostics.initializationSnapshot().some(row => row.phase === 'data-updated' && row.stage === 'initialization' && row.outcome === 'success'));
-  app.cleanup();
+  app.unmount();
 });
 
-test('original timeout/recovery race remains visible without changing readiness or retry behavior', async () => {
+test('timeout and recovery errors remain visible without replacing a successful current load', async () => {
   const app = hookDriver(), settings = deferred<void>(), recovery = deferred<void>();
   app.loaders.set('settings', () => settings.promise);
   let reads = 0;
@@ -157,34 +111,34 @@ test('original timeout/recovery race remains visible without changing readiness 
   app.render(true);
   const deadline = [...app.timers.values()][0];
   assert.equal(deadline.delay, 12_000); deadline.callback();
-  assert.deepEqual(app.state, [false, true]);
+  assert.deepEqual(app.render(true), { ready: false, failed: true });
   app.render(true); await tick();
   assert.equal(reads, 1);
   settings.resolve(); await tick();
-  assert.deepEqual(app.state, [true, true]);
+  assert.deepEqual(app.render(true), { ready: true, failed: true });
   const reason = Object.assign(new Error(secret), { name: 'DatabaseClosedError' });
   recovery.reject(reason); await tick();
-  assert.deepEqual(app.state, [false, true]);
+  assert.deepEqual(app.render(true), { ready: true, failed: true });
   assert.equal(reads, 2);
   const rows = diagnostics.initializationSnapshot();
   assert.ok(rows.some(row => row.phase === 'initial' && row.outcome === 'timeout'));
   assert.ok(rows.some(row => row.phase === 'recovery' && row.stage === 'expense' && row.errorName === 'DatabaseClosedError'));
   assert.equal(JSON.stringify(rows).includes(secret), false);
-  app.cleanup();
+  app.unmount();
 });
 
 test('effect cancellation preserves unfinished work and suppresses its readiness update', async () => {
   const app = hookDriver(), settings = deferred<void>();
   app.loaders.set('settings', () => settings.promise);
-  app.render(true); app.changeSession(); app.render(false);
+  app.render(true); app.authority.generation++; app.authority.revision = 'synthetic-new-revision'; app.render(false);
   assert.equal(app.timers.size, 0);
   settings.resolve(); await tick();
-  assert.deepEqual(app.state, [false, false]);
+  assert.deepEqual(app.render(false), { ready: false, failed: false });
   assert.equal(app.calls.length, 10);
   const cancelled = diagnostics.initializationSnapshot().findLast(row => row.phase === 'initial' && row.outcome === 'cancel');
   assert.equal(cancelled?.generationChanged, true);
   assert.equal(cancelled?.revisionChanged, true);
-  app.cleanup();
+  app.unmount();
 });
 
 const captureSource = await readFile(new URL('../scripts/e2e-recovery.mjs', import.meta.url), 'utf8');
