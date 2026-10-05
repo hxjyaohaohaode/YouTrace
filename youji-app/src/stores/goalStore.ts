@@ -392,7 +392,9 @@ export const useGoalStore = create<GoalState>((set, get) => ({
           continue;
         }
         if (!current || current.syncScope === 'account' || backup || !await sameGoalSource(current, source)) throw new Error('目标刚刚更新，请重新检查所选内容；尚未上传');
-        const record = validateGoal({ ...source, syncScope: 'account' });
+        // Convert only this confirmed upload after the full raw-source CAS.
+        // The original below keeps its exact date field presence and value.
+        const record = validateGoal({ ...source, targetDate: source.targetDate == null || source.targetDate === '' ? null : source.targetDate, syncScope: 'account' });
         await assertAuthority(actor, viewedActor);
         await database.settings.put({ key, value: { ownerId: expectedOwner, original: source, enrolled: record, enrolledAt: Date.now() } });
         await database.goalRecords.put(record);

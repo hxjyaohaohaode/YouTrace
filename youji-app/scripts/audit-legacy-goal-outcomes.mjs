@@ -362,22 +362,39 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
       if (initialAck) {
         await observe(page, `${label}-B-explicit-no-date-confirmation-keeps-original`, preview.noDateMeaning && goalOutcomeChecks.onlyChanges(currentGoal(beforeB, b.id), currentGoal(attempted, b.id), ['syncScope', 'targetDate']) && isDeepStrictEqual(sourceGoal(attempted, b.id), b) && isDeepStrictEqual(setting(attempted, `goal-local-copy:${b.id}`)?.original, { ...b, syncScope: 'local' }) && neighborUnchanged(beforeB, attempted, a.id), JSON.stringify({ original: b, current: currentGoal(attempted, b.id), server: attempted.server.find(row => row.id === b.id) }));
       } else {
-      const instructions = await page.$$eval(`${WORKSPACE} p,${WORKSPACE} [role=alert],${WORKSPACE} a`, rows => {
+      const collectInstructions = async (selector, scope) => page.$$eval(selector, (rows, scope) => {
         const candidates = rows.filter(el => !el.closest('[data-component="goal-card"]'));
         return candidates.filter(el => !candidates.some(child => child !== el && el.contains(child) && child.innerText === el.innerText)).map(el => {
           const parts = [];
           for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(row => row.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); }
-          return { text: el.innerText, selector: 'body > ' + parts.join(' > ') };
-        }).filter(row => /日期|同步|检查|修改/.test(row.text));
-      });
-      const correctiveText = instructions.filter(row => /日期/.test(row.text) && /重新|修改|校正|清空|设置|编辑/.test(row.text));
-      const correctionReadings = [];
-      for (const { text, selector } of correctiveText) {
-        if (await page.$eval(selector, el => el.innerText).catch(() => null) !== text) continue;
-        const reading = await read(page, selector); correctionReadings.push(reading);
-        await capture(page, `${label}-date-correction-guidance-read`);
-      }
-      await observe(page, `${label}-B-failed-date-has-understandable-correction-guidance`, correctionReadings.some(row => row.visible), JSON.stringify({ instructions, correctionReadings, note: 'The following explicit editor experiment does not manufacture missing instructions for an ordinary reader' }));
+          return { scope, text: el.innerText, selector: 'body > ' + parts.join(' > ') };
+        }).filter(row => /日期|同步|检查|修改|待确认|备份/.test(row.text));
+      }, scope);
+      const instructions = [], correctionReadings = [];
+      const inspectInstructions = async (rows, readAll = false) => {
+        instructions.push(...rows);
+        for (const { text, selector, scope } of rows) {
+          const corrective = /日期/.test(text) && /重新|修改|校正|清空|设置|编辑/.test(text);
+          if (!readAll && !corrective) continue;
+          if (await page.$eval(selector, el => el.innerText).catch(() => null) !== text) continue;
+          const reading = { scope, ...(await read(page, selector)) };
+          if (corrective) correctionReadings.push(reading);
+          await observe(page, `${label}-date-help-${scope}-actual-reading`, reading.visible, JSON.stringify(reading));
+        }
+      };
+      await inspectInstructions(await collectInstructions(`${WORKSPACE} p,${WORKSPACE} [role=alert],${WORKSPACE} a`, 'goal-page'));
+      // Follow the product's actual help entry before judging its recovery guidance.
+      // This reads the existing page and controls; it does not retry or change data.
+      const blockedCard = await visibleIdentity(page, '[data-component="goal-card"]', b);
+      const help = `${blockedCard} a[href="/settings"]`;
+      if (await page.$(help)) {
+        await tap(page, help, '检查同步状态与备份'); await waitPath(page, '/settings');
+        await page.waitForSelector('section[aria-label="同步状态"]');
+        await page.waitForFunction(() => /条待确认|没有待上传修改|暂时无法读取/.test(document.querySelector('section[aria-label="同步状态"]')?.innerText ?? ''), { polling: 100, timeout: 7000 });
+        await inspectInstructions(await collectInstructions('section[aria-label="同步状态"] p,section[aria-label="同步状态"] button', 'settings-sync'), true);
+        await navigate(page, '/goal');
+      } else await observe(page, `${label}-date-help-entry-absent`, null, 'No actual Settings help link on the selected blocked card; no guessed route used');
+      await observe(page, `${label}-B-failed-date-has-understandable-correction-guidance`, correctionReadings.some(row => row.visible), JSON.stringify({ instructions, correctionReadings, note: 'The actual Goal page and its available Settings help entry were inspected first. The following mechanical editor experiment cannot manufacture missing user guidance.' }));
       const card = await visibleIdentity(page, '[data-component="goal-card"]', b); await tap(page, `${card} button[aria-label=${JSON.stringify(`编辑目标 ${b.title}`)}]`); await page.waitForSelector(DATE);
       assert.equal(await page.$eval(DATE, el => el.value), '');
       await tap(page, DATE); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.press('Tab');
@@ -403,15 +420,16 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     actions.push({ kind: physical ? 'declared-synthetic-actual-old-physical-late-write' : 'declared-synthetic-current-generation-retained-source-fixture', surface: surfaceNames.get(page), label, database: `youtrace:user:${owner}${physical ? '' : ':schedule-v1'}`, store: 'goals', rows, scope: physical ? 'Old physical source only; current content must remain unchanged' : 'Test source fixture only; no claim that old JavaScript accesses this generation' });
   }
   async function openComparison(page, changed, current, label, account) {
-    await tap(page, `${RECOVERY} button`, `比较旧窗口目标：${changed.title}`); await page.waitForSelector('[role=dialog]');
-    const destination = await readableText(page, '[role=dialog] p', `当前账号：${account.nickname}`);
+    const choice = await visibleIdentity(page, `${RECOVERY} button`, changed);
+    await tap(page, choice); await page.waitForSelector('[role=dialog]');
+    const destination = await readableText(page, '[role=dialog] p', `当前账号：${account.nickname}（${account.phone.slice(0, 3)}****${account.phone.slice(-4)}）`);
     const meaningTexts = await page.$$eval('[role=dialog] p', rows => rows.map(el => el.innerText).filter(text => /生成副本|保留当前目标/.test(text))), meanings = [];
     for (const text of meaningTexts) meanings.push(await readableText(page, '[role=dialog] p', text));
     const meaning = meanings.filter(row => row.visible).map(row => row.text).join('\n');
     await observe(page, `${label}-verified-account-copy-keep-meaning-readable`, destination.visible && meanings.length > 0 && meanings.every(row => row.visible) && /新的本机目标/.test(meaning) && /不上传/.test(meaning) && /不改云端/.test(meaning) && /保留当前目标.*归档/.test(meaning) && /保留原稿和处理记录/.test(meaning), JSON.stringify({ destination, meanings, verifiedOwner: account.owner, note: 'Visible unique synthetic nickname is bound by actual OTP verification; no hidden ID is used to choose the source' }));
     const source = await visibleIdentity(page, '[role=dialog] section', changed), sourceReading = await read(page, source); await capture(page, `${label}-source-section-readable`);
     const currentSection = await visibleIdentity(page, '[role=dialog] section', current), currentReading = await read(page, currentSection); await capture(page, `${label}-current-section-readable`);
-    await observe(page, `${label}-source-current-comparison-readable`, sourceReading.visible && currentReading.visible && sourceReading.text.includes('旧窗口原稿') && currentReading.text.includes('当前目标'), JSON.stringify({ sourceReading, currentReading }));
+    await observe(page, `${label}-source-current-comparison-readable`, sourceReading.visible && currentReading.visible && sourceReading.text.includes('旧来源原稿') && currentReading.text.includes('当前目标'), JSON.stringify({ sourceReading, currentReading }));
   }
   async function retainedSourceScenario(page, api, originals, account, label, wire) {
     const [a, b] = originals, before = await baseline(page, api, originals, label);
@@ -441,7 +459,15 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
         peerRecorder = await peer.screencast({ path: join(artifacts, `${peerName}.webm`), fps: 12, quality: 35 }); recordings.push(peerRecorder);
         // A real browser new tab of an already authenticated profile. This has
         // no cookie copy/injection and no replacement account/store mutation.
-        await peer.goto(`${origin}/`, { waitUntil: 'networkidle0' }); actions.push({ kind: 'native-profile-peer-entry', surface: peerName, path: '/', auth: 'Existing browser profile session, no injected cookies' }); await navigate(peer, '/goal'); await openComparison(peer, changed, a, peerName, account);
+        await peer.goto(`${origin}/`, { waitUntil: 'networkidle0' }); actions.push({ kind: 'native-profile-peer-entry', surface: peerName, path: '/', auth: 'Existing browser profile session, no injected cookies' });
+        // A quiet network does not prove the authenticated app shell has rendered.
+        // Retain the real loading frames and wait for the actual navigation only.
+        await peer.waitForFunction(width => width === 360
+          ? Boolean(document.querySelector('nav[aria-label="主导航"] button[aria-label="全部功能"]'))
+          : [...document.querySelectorAll('aside nav button')].some(button => button.textContent.trim() === '目标'),
+        { polling: 100, timeout: 15000 }, page.viewport().width);
+        await capture(peer, `${peerName}-actual-shell-ready`);
+        await navigate(peer, '/goal'); await openComparison(peer, changed, a, peerName, account);
         const targets = [];
         for (const item of [page, peer]) { const session = await item.createCDPSession(), { targetInfo } = await session.send('Target.getTargetInfo'); targets.push({ surface: surfaceNames.get(item), targetId: targetInfo.targetId, url: item.url() }); await session.detach(); }
         await writeFile(join(artifacts, `${label}-peer-targets.json`), JSON.stringify({ targets, trace: `${label}-trace.json`, note: 'One existing browser-wide trace includes both targets; peer has continuous video. Separately opened comparison is a stale view, not a same-intent replay claim.' }, null, 2));

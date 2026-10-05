@@ -45,13 +45,23 @@ export function LegacyGoalRecovery() {
   };
   if (!changes.length && !selected && !error && !notice.text) return null;
   return <aside className="mb-4 space-y-3 rounded-xl border border-[var(--warning)]/30 p-4" data-component="goal-source-recovery">
-    <p className="text-sm font-semibold">发现 {changes.length} 份旧窗口目标变动</p>
-    <p className="text-xs leading-6 text-[var(--text-2)]">旧窗口的修改、新增或删除没有自动覆盖当前目标，也没有自动上传。请关闭旧版有迹标签页，再逐项比较；原稿始终保留在本机备份中。</p>
-    {changes.map((change) => <Button key={change.id} variant="ghost" size="sm" disabled={busy} onClick={() => { setSelected(cloneLegacyGoalChange(change)); setError(''); setNotice({ text: '' }); }}>比较旧窗口目标：{change.source?.title ?? change.previousSource?.title ?? '未命名'}</Button>)}
+    <p className="text-sm font-semibold">发现 {changes.length} 份待核对的旧目标来源</p>
+    <p className="text-xs leading-6 text-[var(--text-2)]">本机保留的旧目标来源与上次核对不同，没有覆盖当前目标，也没有上传。请逐项比较；可以保留当前目标或生成本机副本，原稿和处理记录会随备份保留。</p>
+    {changes.map((change) => {
+      const source = change.source ?? change.previousSource;
+      return <Button key={change.id} variant="ghost" size="sm" className="w-full border border-[var(--border-light)] py-3 text-left" disabled={busy} onClick={() => { setSelected(cloneLegacyGoalChange(change)); setError(''); setNotice({ text: '' }); }}>
+        <span className="block w-full min-w-0 space-y-1 whitespace-pre-wrap break-words">
+          <span className="block">比较旧目标来源：{source?.title ?? '未命名'}</span>
+          <span className="block text-xs font-normal leading-5">{source?.description || '无描述'}</span>
+          {source && <span className="block text-xs font-normal leading-5">{goalLevelLabels[source.level] ?? source.level} · {source.domain} · {source.progress}% · 计划日期 {source.targetDate || '未设置'}</span>}
+          {!change.source && <span className="block text-xs font-normal leading-5">旧来源已删除；请核对当前目标</span>}
+        </span>
+      </Button>;
+    })}
     {error && !selected && <GoalErrorAlert text={error} />}
     {notice.text && !selected && <div className="space-y-2"><p className="text-sm leading-6" role="status">{needsRefresh ? '处理已保存在本机，列表暂未刷新。请刷新核对，无需重复处理' : notice.text}</p>{needsRefresh && <Button variant="ghost" size="sm" disabled={busy || loading} onClick={() => void useGoalStore.getState().loadFromDB().catch(() => undefined)}>刷新核对</Button>}</div>}
-    <Modal className="max-h-[85vh] overflow-y-auto" open={Boolean(selected)} onClose={() => { if (!busy) setSelected(null); }} title="比较旧窗口目标变动" footer={<><Button variant="ghost" disabled={busy} onClick={() => void resolve('keep')}>保留当前目标</Button>{selected?.source && <Button disabled={busy} onClick={() => void resolve('copy')}>生成本机副本</Button>}</>}>
-      <div className="space-y-4 text-sm"><p>当前账号：{user?.nickname}</p><section><h4 className="mb-2 font-semibold">旧窗口原稿</h4><GoalPreview goal={selected?.source ?? null} empty="旧窗口已删除目标；当前记录不会跟随删除" /></section><section><h4 className="mb-2 font-semibold">当前目标</h4><GoalPreview goal={selected?.current ?? null} empty="当前列表没有这个目标" /></section><p className="text-xs leading-6 text-[var(--text-2)]">生成副本会创建新的本机目标，不上传、不改云端。保留当前目标会归档这次旧窗口变动；两个选项都保留原稿和处理记录，可随备份导出。</p>{error && <GoalErrorAlert text={error} />}</div>
+    <Modal className="max-h-[85vh] overflow-y-auto" open={Boolean(selected)} onClose={() => { if (!busy) setSelected(null); }} title="比较旧目标来源" footer={<><Button variant="ghost" disabled={busy} onClick={() => void resolve('keep')}>保留当前目标</Button>{selected?.source && <Button disabled={busy} onClick={() => void resolve('copy')}>生成本机副本</Button>}</>}>
+      <div className="space-y-4 text-sm"><p>当前账号：{user?.nickname}（{user?.phone ? user.phone.slice(0, 3) + '****' + user.phone.slice(-4) : '当前已验证账号'}）</p><section><h4 className="mb-2 font-semibold">旧来源原稿</h4><GoalPreview goal={selected?.source ?? null} empty="旧来源已删除目标；当前记录不会跟随删除" /></section><section><h4 className="mb-2 font-semibold">当前目标</h4><GoalPreview goal={selected?.current ?? null} empty="当前列表没有这个目标" /></section><p className="text-xs leading-6 text-[var(--text-2)]">生成副本会创建新的本机目标，不上传、不改云端。保留当前目标会归档这次来源变动；两个选项都保留原稿和处理记录，可随备份导出。</p>{error && <GoalErrorAlert text={error} />}</div>
     </Modal>
   </aside>;
 }

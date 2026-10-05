@@ -196,22 +196,121 @@ test('goal integrity: old full source rejects Map and Blob peer changes without 
   await assert.rejects(store.getState().removeGoal(original.id, opened), /不存在/);
 });
 
-test('goal integrity: selected enrollment preserves all cloneable originals and excludes unknown wire fields', async () => {
+for (const dateForm of ['empty', 'absent', 'undefined', 'null'] as const) test(`goal integrity: selected enrollment canonicalizes ${dateForm} date and preserves exact originals and neighbors`, async () => {
   const original = { ...row(), privateMap: new Map([['note', 'first']]), privateBlob: new Blob(['bytes']), privateBigInt: 99999999999999999999n, privateSet: new Set([1, 2]), committed: 'real-legacy-value', view: 'also-real', alreadyCommitted: 'retain-me' };
-  const unselected = row('synthetic-unselected');
-  await storage.db.goalRecords.bulkPut([original, unselected]); await store.getState().loadFromDB();
-  const opened = cloneGoalSnapshot(store.getState().items.find(item => item.id === original.id)!);
-  const first = await store.getState().enableSync([opened], owner);
+  if (dateForm === 'absent') Reflect.deleteProperty(original, 'targetDate');
+  else Reflect.set(original, 'targetDate', dateForm === 'empty' ? '' : dateForm === 'undefined' ? undefined : null);
+  const dated = { ...row('synthetic-dated'), targetDate: '2026-10-31' };
+  const unselected = { ...row('synthetic-unselected'), targetDate: '', privateMap: new Map([['unselected', 'exact']]) };
+  const originals = [dated, original, unselected];
+  await storage.db.goalRecords.bulkPut(originals);
+  await storage.db.table('goals').bulkPut(originals);
+  await store.getState().loadFromDB();
+  const selected = [dated, original].map(source => cloneGoalSnapshot(store.getState().items.find(item => item.id === source.id)!));
+  const first = await store.getState().enableSync(selected, owner);
   assert.equal(first.alreadyCommitted, false); assert.equal(first.view, 'current');
-  const backup = (await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value as { original: typeof original };
+  const backup = (await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value as { original: typeof original; enrolled: typeof original };
   assert.ok(await sameGoalSource(backup.original, original));
-  const payload = (await storage.db.outbox.toArray())[0].payload;
-  assert.deepEqual(Object.keys(payload as object).sort(), ['id', 'title', 'description', 'level', 'domain', 'priority', 'progress', 'targetDate', 'createdAt'].sort());
-  assert.equal((await storage.db.goalRecords.get(unselected.id))?.syncScope, 'local');
+  assert.equal(Object.hasOwn(backup.original, 'targetDate'), dateForm !== 'absent');
+  const canonical = { ...original, targetDate: null, syncScope: 'account' };
+  assert.ok(await sameGoalSource(await storage.db.goalRecords.get(original.id), canonical));
+  assert.ok(await sameGoalSource(backup.enrolled, canonical));
+  assert.deepEqual(await storage.db.goalRecords.get(dated.id), { ...dated, syncScope: 'account' });
+  const queue = await storage.db.outbox.toArray();
+  assert.equal(queue.length, 2);
+  for (const { payload } of queue) assert.deepEqual(Object.keys(payload as object).sort(), ['id', 'title', 'description', 'level', 'domain', 'priority', 'progress', 'targetDate', 'createdAt'].sort());
+  const payloads = queue.map(entry => entry.payload as { id: string; targetDate: string | null });
+  assert.equal(payloads.find(payload => payload.id === original.id)?.targetDate, null);
+  assert.equal(payloads.find(payload => payload.id === dated.id)?.targetDate, dated.targetDate);
+  assert.ok(await sameGoalSource(await storage.db.goalRecords.get(unselected.id), unselected));
+  assert.equal(await storage.db.settings.get(`goal-local-copy:${unselected.id}`), undefined);
+  for (const source of originals) assert.ok(await sameGoalSource(await storage.db.table('goals').get(source.id), source));
   assert.equal((cloneGoalSnapshot(store.getState().items.find(item => item.id === original.id)!) as typeof original).view, 'also-real');
-  const repeated = await store.getState().enableSync([opened], owner);
-  assert.equal(repeated.alreadyCommitted, true); assert.equal(await storage.db.outbox.count(), 1);
-  assert.ok(await sameGoalSource((await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value, (await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value));
+  const repeated = await store.getState().enableSync(selected, owner);
+  assert.equal(repeated.alreadyCommitted, true); assert.deepEqual(await storage.db.outbox.toArray(), queue);
+  assert.ok(await sameGoalSource((await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value, backup));
+  await store.getState().removeGoal(original.id, cloneGoalSnapshot(store.getState().items.find(item => item.id === original.id)!));
+  const afterDelete = await storage.db.outbox.toArray();
+  await assert.rejects(store.getState().enableSync(selected, owner), /刚刚更新/);
+  assert.equal(await storage.db.goalRecords.get(original.id), undefined);
+  assert.deepEqual(await storage.db.outbox.toArray(), afterDelete);
+  assert.ok(await sameGoalSource((await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value, backup));
+});
+
+for (const drift of ['equivalent-date', 'unknown-field'] as const) test(`goal integrity: enrollment refuses ${drift} source drift before canonicalizing`, async () => {
+  const original = { ...row(), targetDate: '', privateMap: new Map([['note', 'first']]) };
+  const opened = await seed(original);
+  const changed = drift === 'equivalent-date' ? { ...original, targetDate: null } : { ...original, privateMap: new Map([['note', 'newer']]) };
+  await storage.db.goalRecords.put(changed);
+  await assert.rejects(store.getState().enableSync([opened], owner), /刚刚更新/);
+  assert.ok(await sameGoalSource(await storage.db.goalRecords.get(original.id), changed));
+  assert.equal(await storage.db.outbox.count(), 0);
+  assert.equal(await storage.db.settings.get(`goal-local-copy:${original.id}`), undefined);
+});
+
+for (const targetDate of [' ', 'not-a-date', '2026-02-30']) test(`goal integrity: invalid nonempty enrollment date ${JSON.stringify(targetDate)} rolls back the full selection`, async () => {
+  const originals = [{ ...row('synthetic-valid-first'), targetDate: '' }, { ...row('synthetic-invalid-second'), targetDate }];
+  await storage.db.goalRecords.bulkPut(originals); await storage.db.table('goals').bulkPut(originals);
+  await assert.rejects(store.getState().enableSync(originals, owner), /有效的目标日期/);
+  for (const original of originals) {
+    assert.deepEqual(await storage.db.goalRecords.get(original.id), original);
+    assert.deepEqual(await storage.db.table('goals').get(original.id), original);
+    assert.equal(await storage.db.settings.get(`goal-local-copy:${original.id}`), undefined);
+  }
+  assert.equal(await storage.db.outbox.count(), 0);
+});
+
+test('goal integrity: second normalized enrollment queue quota failure rolls back every record and original backup', async () => {
+  const originals = [{ ...row('synthetic-quota-first'), targetDate: '2026-10-31' }, { ...row('synthetic-quota-second'), targetDate: '' }];
+  await storage.db.goalRecords.bulkPut(originals); await storage.db.table('goals').bulkPut(originals);
+  let attempts = 0;
+  const failSecond = () => { if (++attempts === 2) throw new DOMException('Synthetic second goal quota', 'QuotaExceededError'); };
+  storage.db.outbox.hook('creating', failSecond);
+  try { await assert.rejects(store.getState().enableSync(originals, owner), /quota/); }
+  finally { storage.db.outbox.hook('creating').unsubscribe(failSecond); }
+  assert.equal(attempts, 2);
+  for (const original of originals) {
+    assert.deepEqual(await storage.db.goalRecords.get(original.id), original);
+    assert.deepEqual(await storage.db.table('goals').get(original.id), original);
+    assert.equal(await storage.db.settings.get(`goal-local-copy:${original.id}`), undefined);
+  }
+  assert.equal(await storage.db.outbox.count(), 0);
+});
+
+test('goal integrity: final enrollment epoch read rejects reauthentication after canonical queue writes', async () => {
+  const original = { ...row(), targetDate: '' }, opened = await seed(original);
+  const get = storage.db.settings.get;
+  let queued = false, finalReads = 0;
+  const markQueued = () => { queued = true; };
+  storage.db.outbox.hook('creating', markQueued);
+  storage.db.settings.get = async function (...args: Parameters<typeof get>) {
+    const value = await get.apply(this, args);
+    // Enqueue's actor read, the two viewed/current authority reads, then the
+    // enrollment transaction's final awaited epoch read.
+    if (queued && args[0] === storage.LOCAL_DATA_EPOCH_KEY && ++finalReads === 4) { api.clearSession(); api.setSessionActive(owner); }
+    return value;
+  } as typeof get;
+  try { await assert.rejects(store.getState().enableSync([opened], owner), /账号/); }
+  finally { storage.db.settings.get = get; storage.db.outbox.hook('creating').unsubscribe(markQueued); }
+  assert.equal(finalReads, 4);
+  assert.deepEqual(await storage.db.goalRecords.get(original.id), original);
+  assert.equal(await storage.db.outbox.count(), 0);
+  assert.equal(await storage.db.settings.get(`goal-local-copy:${original.id}`), undefined);
+});
+
+for (const hasEnrolledSnapshot of [false, true]) test(`goal integrity: prior blocked account enrollment with ${hasEnrolledSnapshot ? 'stored' : 'legacy'} receipt remains unchanged`, async () => {
+  const original = { ...row(), targetDate: '' }, enrolled = { ...original, syncScope: 'account' as const };
+  await storage.db.goalRecords.put(enrolled);
+  const backup = { ownerId: owner, original, ...(hasEnrolledSnapshot ? { enrolled } : {}), enrolledAt: 1 };
+  await storage.db.settings.put({ key: `goal-local-copy:${original.id}`, value: backup });
+  await storage.db.outbox.add({ entity: 'goals', op: 'upsert', payload: enrolled, queuedAt: 1, status: 'blocked', lastStatus: 400 });
+  const queue = await storage.db.outbox.toArray();
+  assert.equal((await store.getState().enableSync([original], owner)).alreadyCommitted, true);
+  await assert.rejects(store.getState().enableSync([cloneGoalSnapshot(store.getState().items[0])], owner), /刚刚更新/);
+  assert.deepEqual(await storage.db.goalRecords.get(original.id), enrolled);
+  assert.deepEqual((await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value, backup);
+  assert.deepEqual(await storage.db.outbox.toArray(), queue);
+  assert.equal(store.getState().statuses[original.id], '需要检查');
 });
 
 for (const operation of ['create', 'edit', 'delete', 'enroll', 'copy', 'keep'] as const) {
@@ -330,7 +429,7 @@ test('goal integrity: real frozen queue is unchanged while a later account edit 
   assert.deepEqual(rows[0], first);
 });
 
-test('goal integrity: missing legacy date survives local edit, enrollment and source copy without field invention', async () => {
+test('goal integrity: missing legacy date stays raw in local edit and source copy while enrollment becomes canonical', async () => {
   const original = row(); Reflect.deleteProperty(original, 'targetDate');
   const opened = await seed(original);
   await store.getState().updateGoal(original.id, { progress: 50 }, opened);
@@ -339,6 +438,7 @@ test('goal integrity: missing legacy date survives local edit, enrollment and so
   await store.getState().enableSync([edited], owner);
   const backup = (await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value as { original: object };
   assert.equal(Object.hasOwn(backup.original, 'targetDate'), false);
+  assert.equal((await storage.db.goalRecords.get(original.id))?.targetDate, null);
   await storage.db.table('goals').put(original);
   const recovery = await resolveLegacyGoalChange((await legacyGoalChanges())[0], 'copy', owner);
   assert.equal(Object.hasOwn((await storage.db.goalRecords.get(recovery.copyId!))!, 'targetDate'), false);
@@ -363,19 +463,24 @@ test('goal integrity: original create intent rejects same-owner new session even
   assert.equal(await storage.db.goalRecords.count(), 1); assert.equal(await storage.db.outbox.count(), 1);
 });
 
-test('goal integrity: unchanged empty-string legacy date stays exact locally and in queued payload', async () => {
+test('goal integrity: empty-string legacy date stays raw locally but explicit enrollment queues null despite a failed display read', async () => {
   const original = { ...row(), targetDate: '' };
   const opened = await seed(original);
   await store.getState().updateGoal(original.id, { progress: 50 }, opened);
   assert.equal((await storage.db.goalRecords.get(original.id))?.targetDate, '');
-  await store.getState().enableSync([cloneGoalSnapshot(store.getState().items[0])], owner);
-  assert.equal(((await storage.db.outbox.toArray())[0].payload as { targetDate: string }).targetDate, '');
+  const selected = cloneGoalSnapshot(store.getState().items[0]), read = storage.db.goalRecords.toArray;
+  storage.db.goalRecords.toArray = () => Promise.reject(new Error('Synthetic enrollment display read failure'));
+  try {
+    const result = await store.getState().enableSync([selected], owner);
+    assert.equal(result.committed, true); assert.equal(result.view, 'refresh-needed');
+  } finally { storage.db.goalRecords.toArray = read; }
+  assert.equal(((await storage.db.outbox.toArray())[0].payload as { targetDate: null }).targetDate, null);
   assert.equal(((await storage.db.settings.get(`goal-local-copy:${original.id}`))!.value as { original: { targetDate: string } }).original.targetDate, '');
+  assert.equal((await store.getState().enableSync([selected], owner)).alreadyCommitted, true);
+  assert.equal(await storage.db.outbox.count(), 1);
   await storage.db.table('goals').put(original);
   const result = await resolveLegacyGoalChange((await legacyGoalChanges())[0], 'copy', owner);
   assert.equal((await storage.db.goalRecords.get(result.copyId!))?.targetDate, '');
-  // This asserts local compatibility only: the server's date schema can block
-  // the unchanged historical representation; no cloud ACK is fabricated here.
 });
 
 test('goal integrity: final publication promise delivery cannot claim current visibility after clear', async () => {

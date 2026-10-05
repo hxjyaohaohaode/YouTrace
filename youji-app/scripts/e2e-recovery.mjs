@@ -609,7 +609,7 @@ async function businessRegressions(page) {
     }, ownerId);
     await reloadPage(legacyPage);
     await expectText(legacyPage, '0/1 完成 · 平均进度 25%');
-    await clickButton(legacyPage, '比较旧窗口目标：Synthetic 旧窗口目标');
+    await clickButton(legacyPage, '比较旧目标来源：Synthetic 旧窗口目标', 'body', true);
     await legacyPage.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('75%') && document.querySelector('[role=dialog]')?.textContent.includes('25%'));
     await clickButton(legacyPage, '生成本机副本', '[role=dialog]'); await modalClosed(legacyPage);
     await expectText(legacyPage, '0/2 完成 · 平均进度 50%');
