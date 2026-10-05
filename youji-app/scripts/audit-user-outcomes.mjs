@@ -11,12 +11,13 @@ import puppeteer from 'puppeteer-core';
 import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
 import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
 import { runHabitOutcomes } from './audit-habit-outcomes.mjs';
+import { runGoalOutcomes } from './audit-goal-outcomes.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -54,6 +55,12 @@ if (taskSet.startsWith('habits')) {
   metadata.scenarioScope = ['native adult weekly habit choice/discovery', 'explicit Wednesday test Date in browser and disposable API', 'Tuesday backfill/dated undo/weekly versus today meaning', 'same-name exact-ID deletion, cancel and bounded native quota attempt'];
   if (taskSet === 'habits-frequency') metadata.scenarioScope = ['native same-name weekly creation and dated facts', 'immediate daily current-progress preview, cancel without writes', 'native quota preserves original and chosen new frequency, visible retry and ACK', 'same-ID facts/version/neighbor checks, Home/current history/reopen/reload'];
   metadata.untested = ['Real calendar transition or midnight', 'Real mobile device/OS accessibility or screen reader', 'Live SMS/model/notification delivery', 'Arbitrary habit scales, all component states and all account/multi-device concurrency', 'Human-operated task execution'];
+}
+if (taskSet === 'goals') {
+  metadata.kind = 'goal-user-outcome-red-baseline';
+  metadata.applicationBaseline = '9a9fdc12818e9ba03a3768c34155ce036b76a439';
+  metadata.scenarioScope = ['native Goal discovery and distinguishable same-name creation', 'manual progress reversal, counts and filtered denominator meaning', 'exact source edit/cancel/clear optional date', 'bounded native quota, retained input, actual retry/delete/reload'];
+  metadata.untested = ['Native multi-tab stale goal dialog and account-transition timing', 'Legacy local goal enrollment/recovery fixtures', 'All-component accessibility/zoom/reduced-motion', 'Manual human interaction or real provider calls'];
 }
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
@@ -127,7 +134,7 @@ async function localRows(page, owner) {
     const request = indexedDB.open(`youtrace:user:${owner}:schedule-v1`);
     request.onupgradeneeded = () => { request.transaction.abort(); reject(new Error('Expected account DB must already exist')); };
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'schedules', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
+    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'schedules', 'goalRecords', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
       for (const name of names) { const read = transaction.objectStore(name).getAll(); read.onsuccess = () => { rows[name] = read.result; }; }
       transaction.oncomplete = () => { database.close(); resolve(rows); }; transaction.onerror = () => { database.close(); reject(transaction.error); };
     };
@@ -136,11 +143,11 @@ async function localRows(page, owner) {
 async function saveRecordEvidence(name, local, remote, selected, extra = {}) {
   const snapshots = [];
   for (const [entity, ids] of Object.entries(selected)) for (const id of ids) {
-    const table = entity === 'diaries' ? 'diary' : entity, key = `${entity}:${id}`;
+    const table = entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity, key = `${entity}:${id}`;
     const pending = local.outbox.filter(row => row.entity === entity && (row.payload === id || row.payload?.id === id)).map(row => ({ seq: row.seq, op: row.op, entity: row.entity, recordId: id, status: row.status ?? 'pending', baseVersion: row.baseVersion, predecessorSeq: row.predecessorSeq, attempts: row.attempts, lastStatus: row.lastStatus }));
     snapshots.push({ entity, id, local: local[table]?.find(row => row.id === id) ?? null, server: remote[entity]?.find(row => row.id === id) ?? null, version: local.settings.find(row => row.key === `sync-version:${key}`) ?? null, conflict: local.settings.find(row => row.key === `sync-conflict:${key}`) ?? null, pending });
   }
-  await writeFile(join(artifacts, `${name}-record-state.json`), JSON.stringify({ syntheticOnly: true, capturedAt: new Date().toISOString(), totalOutbox: local.outbox.length, localCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, local[entity === 'diaries' ? 'diary' : entity]?.length])), serverCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, remote[entity]?.length])), snapshots, ...extra }, null, 2));
+  await writeFile(join(artifacts, `${name}-record-state.json`), JSON.stringify({ syntheticOnly: true, capturedAt: new Date().toISOString(), totalOutbox: local.outbox.length, localCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, local[entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity]?.length])), serverCounts: Object.fromEntries(Object.keys(selected).map(entity => [entity, remote[entity]?.length])), snapshots, ...extra }, null, 2));
 }
 async function selectedDetail(page, expected) {
   return page.evaluate(expected => [...document.querySelectorAll('[role=dialog], [aria-selected=true], [aria-current=true], [data-record-detail], form')].some(el => {
@@ -558,6 +565,9 @@ try {
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
   if (taskSet.startsWith('habits')) {
     const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock }, { frequencyOnly: taskSet === 'habits-frequency' });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet === 'goals') {
+    const media = await runGoalOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet === 'planning') {
     const peerMedia = await runPlanningOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames, infrastructure, traffic, checkpoint });
