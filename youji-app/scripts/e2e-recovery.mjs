@@ -500,7 +500,7 @@ async function businessRegressions(page, errors) {
       };
     }), ownerId);
     await reloadPage(legacyPage); await expectText(legacyPage, '0/2 完成 · 平均进度 50%'); await expectText(legacyPage, 'Synthetic old window late change', false);
-    await route(legacyPage, '/settings'); await clickButton(legacyPage, '检查旧窗口修改'); await expectText(legacyPage, '类旧版资料与升级时不同', true, '[role=status]');
+    await route(legacyPage, '/settings'); await clickButton(legacyPage, '检查旧窗口修改'); await legacyPage.waitForFunction(() => [...document.querySelectorAll('[role=status]')].some(el => /^发现 \d+ 类旧版资料与升级时不同，可能包含尚未转入的修改$/.test(el.textContent.trim())));
     await legacyPage.screenshot({ path: join(artifactDir, 'generation-late-source-disclosure.png'), fullPage: false });
     const downloadPath = join(artifactDir, 'generation-export'); await mkdir(downloadPath, { recursive: true }); await legacyPage.browserContext().setDownloadBehavior({ policy: 'allow', downloadPath });
     await clickButton(legacyPage, '导出升级前保留资料');

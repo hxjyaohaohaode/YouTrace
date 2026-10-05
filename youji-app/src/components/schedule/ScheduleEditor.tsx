@@ -6,6 +6,7 @@ import { generateLocalId, type ScheduleRecord } from '../../db';
 import { sameScheduleSnapshot, useScheduleStore, type ScheduleOccurrence, type ScheduleScope } from '../../stores/scheduleStore';
 import { useScheduleEditorDraft } from './useScheduleEditorDraft';
 import { toast } from '../../services/toastBus';
+import { scheduleFailureMessage } from './scheduleErrors';
 
 interface ScheduleForm { id: string; title: string; date: string; startTime: string; endTime: string; location: string; type: ScheduleRecord['type']; repeat: ScheduleRecord['repeat']; remind: number; scope: ScheduleScope; occurrenceDate: string; base: ScheduleRecord | null }
 export function ScheduleEditor({ item, selectedDate, onClose }: { item?: ScheduleOccurrence; selectedDate: string; onClose: () => void }) {
@@ -14,8 +15,14 @@ export function ScheduleEditor({ item, selectedDate, onClose }: { item?: Schedul
   });
   const form = draft.value, current = useScheduleStore(state => state.items.find(row => row.id === item?.id));
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmDelete, setConfirmDelete] = useState(false);
-  const guard = useRef(false), first = useRef<HTMLInputElement>(null);
+  const guard = useRef(false), first = useRef<HTMLInputElement>(null), errorRegion = useRef<HTMLDivElement>(null);
   useEffect(() => { if (draft.ready) first.current?.focus(); }, [draft.ready]);
+  const visibleError = error || (draft.error ? scheduleFailureMessage(new Error(draft.error)) : '');
+  useEffect(() => {
+    if (!visibleError) return;
+    const frame = requestAnimationFrame(() => { errorRegion.current?.focus(); errorRegion.current?.scrollIntoView({ block: 'center' }); });
+    return () => cancelAnimationFrame(frame);
+  }, [visibleError]);
   const stale = Boolean(item && (!form.base || !sameScheduleSnapshot(current, form.base)));
   const recurring = form.base?.repeat === 'weekly';
   const timeValid = /^([01]\d|2[0-3]):[0-5]\d$/.test(form.startTime) && /^([01]\d|2[0-3]):[0-5]\d$/.test(form.endTime) && form.startTime < form.endTime;
@@ -38,7 +45,7 @@ export function ScheduleEditor({ item, selectedDate, onClose }: { item?: Schedul
       toast.success(remove ? '日程已在本机删除' : '日程已保存到本机');
       useScheduleStore.getState().setSelectedDate(form.date);
       onClose();
-    } catch (reason) { setError(`${remove ? '删除失败：' : ''}${reason instanceof Error ? reason.message : '未保存，输入仍保留，请重试'}`); setConfirmDelete(false); }
+    } catch (reason) { setError(scheduleFailureMessage(reason, remove)); setConfirmDelete(false); }
     finally { guard.current = false; setBusy(false); }
   };
   const setScope = (scope: ScheduleScope) => {
@@ -55,10 +62,10 @@ export function ScheduleEditor({ item, selectedDate, onClose }: { item?: Schedul
     </>}>
       <div className="space-y-4">
         <p className="text-xs text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复本机编辑稿；保存前不会修改日程' : '取消会保留本机草稿，不修改日程'}</p>
-        {(error || draft.error) && <div role="alert" className="text-sm text-[var(--danger)]">{error || draft.error}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
+        {visibleError && <div ref={errorRegion} tabIndex={-1} role="alert" className="text-sm text-[var(--danger)]">{visibleError}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
         {stale && <div role="alert" className="space-y-2 rounded-xl bg-[var(--surface-2)] p-3 text-sm"><p>原日程已在其他位置更新或删除。你的输入仍保留，未覆盖最新记录。</p>{current && <><p className="break-words">最新：{current.title} · {current.date} {current.startTime}–{current.endTime} · {current.location || '无地点'}</p><Button variant="soft" onClick={() => update({ base: structuredClone(current) })}>已核对，使用我的编辑稿覆盖</Button></>}</div>}
         <fieldset disabled={busy || !draft.ready} className="space-y-4">
-          {recurring && <section className="space-y-2 rounded-xl bg-[var(--surface-2)] p-3"><p className="text-sm">你打开的是 {form.occurrenceDate} 这一次安排</p><div role="group" aria-label="修改范围" className="flex flex-wrap gap-2"><Button variant={form.scope === 'occurrence' ? 'primary' : 'ghost'} onClick={() => setScope('occurrence')} aria-pressed={form.scope === 'occurrence'}>仅这一次</Button><Button variant={form.scope === 'series' ? 'primary' : 'ghost'} onClick={() => setScope('series')} aria-pressed={form.scope === 'series'}>整个系列</Button></div><p className="text-xs">{form.scope === 'occurrence' ? '其他日期的重复安排保持原样' : `将影响从 ${form.base!.date} 开始的系列；已经单独调整的日期保留各自内容`}</p></section>}
+          {recurring && <section className="space-y-2 rounded-xl bg-[var(--surface-2)] p-3"><p className="text-sm">{form.scope === 'series' ? `正在编辑从 ${form.base!.date} 开始的整个系列` : form.date === form.occurrenceDate ? `${form.occurrenceDate} 这一次安排` : `这次原定 ${form.occurrenceDate}，现安排在 ${form.date}`}</p><div role="group" aria-label="修改范围" className="flex flex-wrap gap-2"><Button variant={form.scope === 'occurrence' ? 'primary' : 'ghost'} onClick={() => setScope('occurrence')} aria-pressed={form.scope === 'occurrence'}>仅这一次</Button><Button variant={form.scope === 'series' ? 'primary' : 'ghost'} onClick={() => setScope('series')} aria-pressed={form.scope === 'series'}>整个系列</Button></div><p className="text-xs">{form.scope === 'occurrence' ? '其他日期的重复安排保持原样' : `将影响从 ${form.base!.date} 开始的系列；已经单独调整的日期保留各自内容`}</p></section>}
           <Input ref={first} id="schedule-title" label="标题 *" value={form.title} maxLength={100} onChange={event => update({ title: event.target.value })} />
           <Input id="schedule-date" label="日期" type="date" value={form.date} disabled={Boolean(recurring && form.scope === 'series' && form.base?.exceptions?.length)} onChange={event => update({ date: event.target.value })} />
           <div className="flex gap-3"><div className="min-w-0 flex-1"><Input id="schedule-start" label="开始" type="time" value={form.startTime} onChange={event => update({ startTime: event.target.value })} /></div><div className="min-w-0 flex-1"><Input id="schedule-end" label="结束" type="time" value={form.endTime} onChange={event => update({ endTime: event.target.value })} /></div></div>

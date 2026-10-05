@@ -104,3 +104,11 @@ test('mismatched verified owner rejects new local mutation before any business w
   assert.equal(await storage.db.schedules.count(), 0);
   api.setSessionActive(owner); const captured = await actor.readLocalActor(); api.clearSession(); api.setSessionActive(owner); await assert.rejects(actor.assertLocalActor(captured), /账号/);
 });
+
+test('schedule storage failure copy gives a Chinese remedy without exposing raw engine errors', async () => {
+  const { scheduleFailureMessage } = await import('../src/components/schedule/scheduleErrors.ts');
+  const quota = scheduleFailureMessage(new DOMException('raw quota', 'QuotaExceededError'), true);
+  assert.ok(quota.includes('删除失败')); assert.ok(quota.includes('存储空间不足')); assert.ok(quota.includes('输入仍保留')); assert.equal(quota.includes('QuotaExceededError'), false);
+  assert.equal(scheduleFailureMessage(new Error('raw native engine unavailable')).includes('raw native'), false);
+  assert.ok(scheduleFailureMessage(new Error('记录刚刚更新，请核对')).includes('记录刚刚更新，请核对'));
+});
