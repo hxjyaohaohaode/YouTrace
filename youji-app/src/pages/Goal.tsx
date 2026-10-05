@@ -107,12 +107,12 @@ export default function Goal() {
   const save = () => run(() => {
     const values = { title, description, level, domain, priority, targetDate: targetDate || null };
     return editing ? useGoalStore.getState().updateGoal(editing.id, values, editing) : useGoalStore.getState().addGoal(values, creationId);
-  }, editing ? '目标已保存在本机，账号目标会继续同步' : '目标已保存在本机，等待账号同步确认', () => {
+  }, editing ? '目标已保存在本机，账号目标会继续同步' : '目标已保存在本机，可在卡片查看同步状态', () => {
     setTitle(''); setDescription(''); setTargetDate(''); setEditing(null); setShowModal(false); setCreationId(generateLocalId());
   });
 
   return <div className="w-full" data-component="goal-workspace">
-    <PageHeader icon={Target} gradient="from-[#7C6FFF] to-[#B06AFF]" title="目标" subtitle={goalSummaryLabel(loaded, loading, readError, doneCount, items.length, avgProgress)} actions={<Button onClick={() => openEditor()} disabled={busy} aria-label="新建目标"><Plus size={18} aria-hidden /></Button>} />
+    <PageHeader icon={Target} gradient="from-[#7C6FFF] to-[#B06AFF]" title="目标" subtitle={goalSummaryLabel(loaded, loading, readError, doneCount, items.length, avgProgress)} wrapSubtitle actions={<Button onClick={() => openEditor()} disabled={busy} aria-label="新建目标"><Plus size={18} aria-hidden /></Button>} />
     <p className="mb-4 text-xs leading-6 text-[var(--text-3)]">进度由你手动确认，可随时调回。新目标同步到当前账号；断网时先保留本机修改，收到云端确认后显示“已同步”。</p>
     <p className="mb-4 text-xs leading-6 text-[var(--text-3)]">{loaded ? <>上方完成数与平均进度统计{readError ? '上次读取的' : ''}全部目标（共 {items.length} 个），筛选只改变下方列表{filter !== 'all' ? `；当前显示${goalLevelLabels[filter]} ${filtered.length} 个目标` : ''}。</> : '读取成功后显示全部目标的统计，暂不把未读到的资料算作空列表。'}</p>
     {invalidProgressCount > 0 && <p role="status" className="mb-4 text-xs text-[var(--warning)]">{invalidProgressCount} 份旧目标的进度需要校正，原值已保留且未计入平均进度。请手动选择实际进度后再同步。</p>}

@@ -41,3 +41,9 @@ test('ordinary Goal feedback cannot pass with the archived false refresh-needed 
   assert.equal(checks.normalFeedback([{ role: 'alert', text: '暂时无法读取目标' }]), false);
   assert.equal(checks.normalFeedback([{ role: 'status', text: '进度已保存，可随时调整' }]), true);
 });
+
+
+test('acknowledged Goal feedback cannot retain an obsolete waiting-for-sync state', () => {
+  assert.equal(checks.normalFeedback([{ role: 'status', text: '目标已保存在本机，等待账号同步确认' }]), false);
+  assert.equal(checks.normalFeedback([{ role: 'status', text: '目标已保存在本机，可在卡片查看同步状态' }]), true);
+});

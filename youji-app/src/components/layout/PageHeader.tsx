@@ -7,10 +7,11 @@ interface PageHeaderProps {
   gradient: string;
   title: string;
   subtitle?: string;
+  wrapSubtitle?: boolean;
   actions?: ReactNode;
 }
 
-export function PageHeader({ icon: Icon, gradient, title, subtitle, actions }: PageHeaderProps) {
+export function PageHeader({ icon: Icon, gradient, title, subtitle, wrapSubtitle = false, actions }: PageHeaderProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: -6 }}
@@ -26,7 +27,7 @@ export function PageHeader({ icon: Icon, gradient, title, subtitle, actions }: P
         <div className="min-w-0">
           <h1 className="truncate text-xl font-extrabold tracking-tight text-[var(--text-1)] sm:text-2xl">{title}</h1>
           {subtitle && (
-            <p className="mt-0.5 truncate text-[13px] font-medium text-[var(--text-3)]">{subtitle}</p>
+            <p className={`mt-0.5 ${wrapSubtitle ? 'whitespace-normal break-words' : 'truncate'} text-[13px] font-medium text-[var(--text-3)]`}>{subtitle}</p>
           )}
         </div>
       </div>

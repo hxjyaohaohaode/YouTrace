@@ -14,7 +14,7 @@ const DATE = `${EDITOR} input[type=date]`;
 const validVersion = value => typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 const version = (facts, id) => facts.local.settings.find(row => row.key === `sync-version:goals:${id}`)?.value;
 const goalSettings = local => local.settings.filter(row => /^(?:sync-(?:version|conflict):goals:|goal-)/.test(row.key));
-const normalFeedback = messages => !messages.some(row => row.role === 'alert' || /列表暂未刷新|请刷新核对|无需重复提交/.test(row.text));
+const normalFeedback = messages => !messages.some(row => row.role === 'alert' || /列表暂未刷新|请刷新核对|无需重复提交|等待(?:账号|云端)?同步确认|正在同步/.test(row.text));
 const sameRows = (left, right) => isDeepStrictEqual([...left].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))), [...right].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))));
 function preserved(before, after) {
   return sameRows(before.local.goalRecords, after.local.goalRecords) && sameRows(before.server, after.server) &&
@@ -438,6 +438,10 @@ export async function runGoalOutcomes(h) {
           if (savedNotices.length === 1) savedReading = await read(page, await exactSelector(page, `${WORKSPACE} [role=status], ${WORKSPACE} [role=alert]`, savedNotices[0]));
         }
         await capture(page, `${label}-actual-saved-fact-during-read-outage`);
+        const cachedSummary = await read(page, `${WORKSPACE} h1 + p`), validBefore = before.local.goalRecords.filter(row => Number.isFinite(row.progress) && row.progress >= 0 && row.progress <= 100);
+        const expectedAverage = validBefore.length ? Math.round(validBefore.reduce((sum, row) => sum + row.progress, 0) / validBefore.length) : 0;
+        const expectedDone = validBefore.filter(row => row.progress === 100).length;
+        await observe(page, `${label}-cached-statistics-fully-readable-with-qualifier`, cachedSummary.visible && cachedSummary.text.includes('上次读取') && cachedSummary.text.match(/(\d+)\s*\/\s*(\d+)/)?.[1] === String(expectedDone) && cachedSummary.text.match(/(\d+)\s*\/\s*(\d+)/)?.[2] === String(before.local.goalRecords.length) && cachedSummary.text.match(/平均进度\s*(\d+)%/)?.[1] === String(expectedAverage), JSON.stringify({ cachedSummary, expectedDone, expectedCount: before.local.goalRecords.length, expectedAverage, note: 'Cached qualifier and the entire quantitative percentage must fit; DOM text behind an ellipsis is not read.' }));
         const refreshSelector = await exactSelector(page, `${WORKSPACE} button`, '刷新核对'), refreshReading = await read(page, refreshSelector);
         await observe(page, `${label}-read-fault-after-commit-and-usable-recovery`, fault.writes.length === 1 && fault.commits.length === 1 && fault.hits.length > 0 && !fault.expired && fault.hits.every(hit => hit.at >= fault.commits[0].at) && message?.reading?.visible && savedReading?.visible && /已保存|写入已完成/.test(savedReading.text) && refreshReading.visible && !notices.some(text => /这次操作没有保存/.test(text)), JSON.stringify({ fault, actualFailure: message, notices, savedReading, refreshReading }));
       } finally {
