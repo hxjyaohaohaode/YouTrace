@@ -12,7 +12,7 @@ import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
 import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
 import { runHabitOutcomes } from './audit-habit-outcomes.mjs';
 import { runGoalOutcomes } from './audit-goal-outcomes.mjs';
-import { runLegacyGoalOutcomes } from './audit-legacy-goal-outcomes.mjs';
+import { runLegacyGoalOutcomes, waitForStableModalTarget } from './audit-legacy-goal-outcomes.mjs';
 import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
@@ -263,7 +263,19 @@ async function mobileDiscoveryAndCreation(page) {
   await pointer(page, '[role=radiogroup][aria-label="主题"] button', '跟随系统'); await page.waitForFunction(() => document.documentElement.dataset.theme === (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')); await capture(page, 'YN-system-theme-restored');
   await page.setViewport({ width: 900, height: 900 }); actions.push({ kind: 'viewport-resize', width: 900, height: 900 }); await nav(page, '时间线'); await waitPath(page, '/timeline'); await staticArrival(page, 'YN-tablet-natural-timeline-arrival', '/timeline');
   await observe(page, 'YN-tablet-timeline-navigation', await page.$eval('aside button[aria-label="时间线"]', el => el.getAttribute('aria-current') === 'page'), 'Tablet now offers the real timeline entry and exposes its selected route');
-  await page.setViewport({ width: 1280, height: 900 }); actions.push({ kind: 'viewport-resize', width: 1280, height: 900 }); await nav(page, '目标'); await waitPath(page, '/goal'); await staticArrival(page, 'YN-desktop-natural-goal-arrival', '/goal');
+  await page.setViewport({ width: 1280, height: 900 }); actions.push({ at: new Date().toISOString(), kind: 'viewport-resize', surface: surfaceNames.get(page), width: 1280, height: 900, recordingViewport: { width: 360, height: 800 }, stillImagesUseCurrentViewport: true });
+  // setViewport completes before React necessarily replaces the tablet nodes.
+  // Observe the real desktop navigation before acquiring its Goal control.
+  await page.waitForFunction(() => {
+    const navs = [...document.querySelectorAll('aside nav[aria-label="主导航"]')].filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0);
+    if (!matchMedia('(min-width: 1025px)').matches || navs.length !== 1) return false;
+    const nav = navs[0], aside = nav.closest('aside'), goal = [...nav.querySelectorAll('button')].find(el => el.textContent.trim() === '目标');
+    return Boolean(aside && aside.getBoundingClientRect().width > 200 && nav.innerText.includes('安排与坚持') && goal?.isConnected && goal.getBoundingClientRect().width > 0);
+  }, { polling: 100, timeout: 10000 });
+  const stability = await page.evaluate(waitForStableModalTarget, 'aside nav[aria-label="主导航"]', 2500);
+  actions.push({ kind: 'actual-desktop-sidebar-ready-after-resize', surface: surfaceNames.get(page), stability });
+  await capture(page, 'YN-desktop-sidebar-after-resize-before-goal');
+  await nav(page, '目标'); await waitPath(page, '/goal'); await staticArrival(page, 'YN-desktop-natural-goal-arrival', '/goal');
   await observe(page, 'YN-desktop-purpose-groups-and-goal-entry', (await state(page)).text.includes('安排与坚持') && !(await page.$eval('aside nav', el => el.innerText)).includes('系统'), 'Desktop grouping no longer calls life tasks system settings; actual goal navigation is operated');
 }
 async function retrieveOlderThanMonth(page, api, existingHistoryCount) {

@@ -59,3 +59,12 @@ App只在身份已检查且已认证时加载账号资料；确认签出的保�
 候选只有App、apiClient、authStore三份业务源码和对应回归测试；actor、数据库绑定、同步引擎、useAppInit的12秒截止及现有初始/恢复读竞态均未改。Login、Splash和品牌文件字节不改。原生脚本保留全部动作、截止、源对象及结果断言，只把退出证据说明收窄到当前浏览器401，措辞修正不算行为修复。
 
 原模块15场景在b666为10通过/5失败，同一套在候选15通过；另有独立73个对抗场景、74个App/路由检查和完整候选前端545项通过。合入当前5cce测试树后，本地前端567项、后端55项及双端lint/类型/构建通过。它们含fake-indexeddb、合成传输和确定性React/router测试替身，不替代下一精确SHA的原生新注册/退出重入/回原路径与完整记录验收。既有初始/恢复加载竞态及旧b5b8根因仍开放。
+
+
+## d732当前结果与响应观察修正
+
+[`d732226`](https://github.com/hxjyaohaohaode/YouTrace/commit/d732226b0f0e2b41c9ca98901b45a37cae5a8c53) / [CI37344678863](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37344678863)八项成功，initial-session与records两项失败，不能称全CI通过。独立核验initial-session全部106份原件：两宽首次401已到可读Login，并实际完成注册后返回完整`/todo?view=all`；桌面退出、保护页重入、既有账号OTP与同ID待办返回的完整本机/服务端账本/版本比较已完成。
+
+手机最后一次OTP验证真实为POST200，Chrome trace记录请求正常完成；整页导航后，测试再读取旧document的响应体时，CDP报通用响应体不可读取错误。原故障帧已进入请求路径的加载过渡，约0.5秒后原最终PNG真实显示原待办。这不是已经证明的preflight失败；该次后续GET owner/完整ledger比较尚未执行，不能用最后一张图补成手机整链通过。
+
+取证候选仅让既有账号分支依靠已经必须成功的原生验证POST，以及原有后续完整路径、GET确认账号、可读原待办和完整对象/ledger/回执/outbox比较，避免依赖已被导航替换的旧响应体。新注册仍解析needRegister并要求true；不会重复已尝试的验证，不改应用或减去用户结果断言。手机尾项须新精确SHA复验。records的独立视口切换阻断见[NAVIGATION_TASK_PACKAGE](NAVIGATION_TASK_PACKAGE.md)。

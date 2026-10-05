@@ -190,8 +190,12 @@ export async function runInitialSessionOutcomes(h) {
         const sent = await (await submit('button', '获取验证码', '/auth/send-code')).json();
         assert.match(sent.devCode ?? '', /^\d{6}$/, 'Require synthetic backend devOTP');
         await fill('#login-code', sent.devCode);
-        const verified = await (await submit('button', '验证', '/auth/verify')).json();
-        if (existing) { assert.ok(verified.needRegister !== true && typeof verified.user?.id === 'string', 'Existing account must return the actual user and must not register again'); return; }
+        const verification = await submit('button', '验证', '/auth/verify');
+        // Existing-account verification replaces the document. CDP may no longer
+        // retain that old response body; the actual HTTP200, requested route,
+        // GET-confirmed owner and complete original record/ledger are required below.
+        if (existing) return;
+        const verified = await verification.json();
         assert.equal(verified.needRegister, true, 'Fresh synthetic account must require registration');
         await fill('#login-nickname', `Synthetic ${config.branch}`); await submit('button', '开始使用', '/auth/register');
       };
