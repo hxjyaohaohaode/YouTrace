@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task_set: [records, coach, planning]
+        task_set: [records, coach, planning, habits]
     # Independent evidence must still run when another browser regression fails.
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -10,13 +10,16 @@ import { randomBytes, createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
 import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
+import { runHabitOutcomes } from './audit-habit-outcomes.mjs';
+import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
+const habitClock = taskSet === 'habits' ? createHabitAuditClock() : null;
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
 await mkdir(artifacts, { recursive: true });
 const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
@@ -42,12 +45,19 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   return files;
 }
 const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-implementation-candidate' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], planningRedEvidenceCommit: 'fccbb230435b92333a27ecac19e0badac882d067', applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
+if (taskSet === 'habits') {
+  metadata.kind = 'habit-user-outcome-red-baseline';
+  metadata.controlledClock = habitClock;
+  metadata.applicationBaseline = 'cd6b152dce7e2db264776427175efeff58eb3336';
+  metadata.scenarioScope = ['native adult weekly habit choice/discovery', 'explicit Wednesday test Date in browser and disposable API', 'Tuesday backfill/dated undo/weekly versus today meaning', 'same-name exact-ID deletion, cancel and bounded native quota attempt'];
+  metadata.untested = ['Real calendar transition or midnight', 'Real mobile device/OS accessibility or screen reader', 'Live SMS/model/notification delivery', 'Arbitrary habit scales, all component states and all account/multi-device concurrency', 'Human-operated task execution'];
+}
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
   await rename(temporary, join(artifacts, 'progress-checkpoint.json'));
 }
-function launch(command, args, cwd) { const child = spawn(command, args, { cwd, env: environment, stdio: ['ignore', 'ignore', 'pipe'] }); child.stderr.on('data', () => infrastructure.push('synthetic-service-stderr')); children.push(child); return child; }
+function launch(command, args, cwd, extraEnvironment = {}) { const child = spawn(command, args, { cwd, env: { ...environment, ...extraEnvironment }, stdio: ['ignore', 'ignore', 'pipe'] }); child.stderr.on('data', () => infrastructure.push('synthetic-service-stderr')); children.push(child); return child; }
 async function ready(url) { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(url)).ok) return; } catch {} await sleep(150); } throw new Error('Isolated service did not start'); }
 async function state(page) { return page.evaluate(() => ({ capturedAt: new Date().toISOString(), path: location.pathname + location.search, title: document.title, theme: document.documentElement.dataset.theme, text: document.body.innerText, scroll: { x: scrollX, y: scrollY }, visibility: document.visibilityState, focused: document.hasFocus(), activeElement: { tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label') }, animations: document.getAnimations().map(animation => ({ playState: animation.playState, currentTime: String(animation.currentTime), target: animation.effect?.target?.tagName })), viewport: { width: innerWidth, height: innerHeight }, headings: [...document.querySelectorAll('h1,h2,h3')].map(el => el.textContent), navigationLabels: [...document.querySelectorAll('nav[aria-label="主导航"] button span')].filter(el => el.getBoundingClientRect().width > 0).map(el => ({ text: el.textContent, color: getComputedStyle(el).color, fontSize: getComputedStyle(el).fontSize, fontWeight: getComputedStyle(el).fontWeight, box: el.getBoundingClientRect().toJSON(), ownBackground: getComputedStyle(el).backgroundColor, buttonBackground: getComputedStyle(el.closest('button')).backgroundColor, buttonGradient: getComputedStyle(el.closest('button')).backgroundImage, navBackground: getComputedStyle(el.closest('nav')).backgroundColor })), controls: [...document.querySelectorAll('button,input,textarea,select,a')].filter(el => el.getBoundingClientRect().width && el.getBoundingClientRect().height).map(el => ({ tag: el.tagName, text: el.textContent?.trim().slice(0, 180), label: el.getAttribute('aria-label'), type: el.getAttribute('type'), disabled: el.disabled, value: ['INPUT','TEXTAREA','SELECT'].includes(el.tagName) ? el.value : undefined, box: el.getBoundingClientRect().toJSON(), opacity: getComputedStyle(el).opacity, color: getComputedStyle(el).color, backgroundColor: getComputedStyle(el).backgroundColor, backgroundImage: getComputedStyle(el).backgroundImage, fontSize: getComputedStyle(el).fontSize, hitAtCenter: (() => { const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { tag: hit?.tagName, label: hit?.getAttribute('aria-label'), isTarget: el.contains(hit) }; })(), ancestors: (() => { const rows = []; for (let node = el.parentElement; node && rows.length < 8; node = node.parentElement) { const css = getComputedStyle(node); rows.push({ tag: node.tagName, box: node.getBoundingClientRect().toJSON(), position: css.position, opacity: css.opacity, transform: css.transform, overflow: css.overflow, display: css.display }); } return rows; })() })) })); }
 async function capture(page, name) { const stem = `${String(++sequence).padStart(3, '0')}-${name.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 75)}`; await page.screenshot({ path: join(artifacts, `${stem}.png`), fullPage: false }); const snapshot = await state(page); await writeFile(join(artifacts, `${stem}.json`), JSON.stringify(snapshot, null, 2)); await checkpoint(`captured ${stem}`); return { screenshot: `${stem}.png`, snapshot: `${stem}.json`, state: snapshot }; }
@@ -533,14 +543,19 @@ async function recoverStorage(page) {
 try {
   assert.equal(spawnSync('ffmpeg', ['-version']).status, 0, 'Video evidence requires ffmpeg');
   const migrated = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { cwd: join(root, 'server'), env: environment, encoding: 'utf8' }); assert.equal(migrated.status, 0, migrated.stderr);
-  launch(process.execPath, ['dist/index.js'], join(root, 'server'));
+  const clockArguments = habitClock ? ['--import', join(root, 'scripts', 'audit-clock.mjs')] : [];
+  const clockEnvironment = habitClock ? { YOUTRACE_AUDIT_CLOCK_PRELOAD: 'habit-outcomes-v1', YOUTRACE_AUDIT_CLOCK_ISO: habitClock.instant, YOUTRACE_AUDIT_CLOCK_WALL_MS: String(habitClock.wallMs) } : {};
+  launch(process.execPath, [...clockArguments, 'dist/index.js'], join(root, 'server'), clockEnvironment);
   launch(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(frontPort), '--strictPort'], root);
   await ready(`http://127.0.0.1:${apiPort}/health`); await ready(origin);
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'planning') {
+  if (taskSet === 'habits') {
+    const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet === 'planning') {
     const peerMedia = await runPlanningOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames, infrastructure, traffic, checkpoint });
     for (const name of ['Y4-plan-and-adapt-1280', 'Y4-plan-and-adapt-360']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
     for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Opened peer requires its video; both targets share the original continuous browser trace');
