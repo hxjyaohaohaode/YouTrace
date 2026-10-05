@@ -1,12 +1,10 @@
 import { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, ChevronLeft, ChevronRight, Clock, MapPin, Trash2 } from 'lucide-react';
-import { useScheduleStore, expandRecurringForRange } from '../../stores/scheduleStore';
-import { Modal } from '../ui/Modal';
-import { Button } from '../ui/Button';
+import { Plus, ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react';
+import { useScheduleStore, expandRecurringForRange, type ScheduleOccurrence } from '../../stores/scheduleStore';
 import { Card } from '../ui/Card';
-import { toast } from '../../services/toastBus';
 import type { ScheduleRecord } from '../../db';
+import { ScheduleEditor } from './ScheduleEditor';
 import { formatBusinessDate, getToday, parseBusinessDate } from '../../utils/date';
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -23,7 +21,6 @@ const scheduleTypeConfig: Record<ScheduleType, { label: string; color: string }>
   other: { label: '其他', color: '#8F8FA8' },
 };
 
-const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function formatDate(date: Date): string {
   return formatBusinessDate(date);
@@ -57,191 +54,8 @@ function getMonthDates(date: Date): Date[][] {
   );
 }
 
-interface ScheduleFormModalProps {
-  open: boolean;
-  onClose: () => void;
-  selectedDate: string;
-  editItem?: ScheduleRecord;
-  onRequestDelete?: (item: ScheduleRecord) => void;
-}
-
-function ScheduleFormModal({ open, onClose, selectedDate, editItem, onRequestDelete }: ScheduleFormModalProps) {
-  const addItem = useScheduleStore((s) => s.addItem);
-  const updateItem = useScheduleStore((s) => s.updateItem);
-  const [title, setTitle] = useState(editItem?.title ?? '');
-  const [date, setDate] = useState(editItem?.date ?? selectedDate);
-  const [startTime, setStartTime] = useState(editItem?.startTime ?? '09:00');
-  const [endTime, setEndTime] = useState(editItem?.endTime ?? '10:30');
-  const [location, setLocation] = useState(editItem?.location ?? '');
-  const [type, setType] = useState<ScheduleType>(editItem?.type ?? 'other');
-  const [repeat, setRepeat] = useState<ScheduleRecord['repeat']>(editItem?.repeat ?? 'none');
-  const [saving, setSaving] = useState(false);
-
-  const timeValid = TIME_PATTERN.test(startTime) && TIME_PATTERN.test(endTime) && startTime < endTime;
-
-  const handleSave = async () => {
-    const trimmed = title.trim();
-    if (!trimmed || !timeValid || saving) return;
-    setSaving(true);
-    try {
-      if (editItem) {
-        await updateItem(editItem.id, {
-          title: trimmed,
-          date,
-          startTime,
-          endTime,
-          location,
-          type,
-          repeat,
-        });
-      } else {
-        await addItem({ title: trimmed, date, startTime, endTime, location, type, repeat, remind: 15 });
-      }
-      onClose();
-    } catch {
-      toast.error('日程保存失败，请重试');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={editItem ? '编辑日程' : '新建日程'}
-      footer={
-        <>
-          {editItem && onRequestDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onRequestDelete(editItem)}
-              className="!text-[var(--danger)] mr-auto"
-            >
-              <Trash2 size={14} className="mr-1 inline" aria-hidden />
-              删除
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
-          <Button size="sm" onClick={handleSave} disabled={!title.trim() || !timeValid || saving}>
-            {saving ? '保存中…' : '保存'}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="schedule-title" className="mb-1 block text-xs font-medium text-[var(--text-3)]">标题 *</label>
-          <input
-            id="schedule-title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value.slice(0, 100))}
-            placeholder="日程标题"
-            maxLength={100}
-            className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8"
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label htmlFor="schedule-date" className="mb-1 block text-xs font-medium text-[var(--text-3)]">日期</label>
-          <input
-            id="schedule-date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8"
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label htmlFor="schedule-start" className="mb-1 block text-xs font-medium text-[var(--text-3)]">开始</label>
-            <input
-              id="schedule-start"
-              type="time"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8"
-            />
-          </div>
-          <div className="flex-1">
-            <label htmlFor="schedule-end" className="mb-1 block text-xs font-medium text-[var(--text-3)]">结束</label>
-            <input
-              id="schedule-end"
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8"
-            />
-          </div>
-        </div>
-        {!timeValid && (
-          <p className="text-xs text-[var(--danger)]" role="alert">结束时间必须晚于开始时间</p>
-        )}
-
-        <div>
-          <label htmlFor="schedule-location" className="mb-1 block text-xs font-medium text-[var(--text-3)]">地点</label>
-          <input
-            id="schedule-location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value.slice(0, 100))}
-            placeholder="教学楼301（可选）"
-            maxLength={100}
-            className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-1)] outline-none transition-all focus:border-[var(--primary)] focus:ring-[3px] focus:ring-[var(--primary)]/8"
-          />
-        </div>
-
-        <div>
-          <p className="mb-1 block text-xs font-medium text-[var(--text-3)]">类型</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="日程类型">
-            {(Object.entries(scheduleTypeConfig) as [ScheduleType, typeof scheduleTypeConfig['class']][]).map(([key, config]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setType(key)}
-                aria-pressed={type === key}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                  type === key
-                    ? 'text-white shadow-sm'
-                    : 'bg-[var(--surface-2)] text-[var(--text-2)]'
-                }`}
-                style={type === key ? { background: `linear-gradient(135deg, ${config.color}, ${config.color}cc)` } : undefined}
-              >
-                {config.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <p className="mb-1 block text-xs font-medium text-[var(--text-3)]">重复</p>
-          <div className="flex gap-2" role="group" aria-label="重复规则">
-            {(['none', 'weekly'] as const).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRepeat(r)}
-                aria-pressed={repeat === r}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                  repeat === r
-                    ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-sm'
-                    : 'bg-[var(--surface-2)] text-[var(--text-2)]'
-                }`}
-              >
-                {r === 'none' ? '不重复' : '每周重复'}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-const DAY_START_HOUR = 7;
-const DAY_END_HOUR = 23;
+const DAY_START_HOUR = 0;
+const DAY_END_HOUR = 24;
 const HOUR_HEIGHT = 56;
 const GRID_HEIGHT = (DAY_END_HOUR - DAY_START_HOUR) * HOUR_HEIGHT;
 
@@ -251,7 +65,7 @@ function toMinutes(time: string): number {
 }
 
 interface PositionedItem {
-  item: ScheduleRecord;
+  item: ScheduleOccurrence;
   virtualId: string;
   top: number;
   height: number;
@@ -260,14 +74,14 @@ interface PositionedItem {
 }
 
 function layoutDayItems(
-  items: Array<ScheduleRecord & { virtualId: string }>,
+  items: ScheduleOccurrence[],
 ): PositionedItem[] {
   const bounded = items
     .map((item) => {
       const startTotal = toMinutes(item.startTime);
       const endTotal = toMinutes(item.endTime);
       const top = ((startTotal - DAY_START_HOUR * 60) / 60) * HOUR_HEIGHT;
-      const height = Math.max(28, ((endTotal - startTotal) / 60) * HOUR_HEIGHT);
+      const height = Math.max(44, ((endTotal - startTotal) / 60) * HOUR_HEIGHT);
       return { item, virtualId: item.virtualId, rawTop: top, height };
     })
     .filter(({ rawTop, height }) => rawTop < GRID_HEIGHT && rawTop + height > 0)
@@ -315,7 +129,7 @@ function layoutDayItems(
   return positioned;
 }
 
-function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleRecord) => void }) {
+function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurrence) => void }) {
   const items = useScheduleStore((s) => s.items);
   const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => i + DAY_START_HOUR);
 
@@ -323,17 +137,6 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleRecord
     const expanded = expandRecurringForRange(items, date, date);
     return layoutDayItems(expanded);
   }, [items, date]);
-
-  const onEditToOrigin = useCallback(
-    (item: ScheduleRecord & { originDate?: string }) => {
-      if (item.originDate && item.originDate !== item.date) {
-        onEdit({ ...item, date: item.originDate });
-      } else {
-        onEdit(item);
-      }
-    },
-    [onEdit]
-  );
 
   return (
     <div className="relative overflow-x-auto">
@@ -360,11 +163,11 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleRecord
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  onClick={() => onEditToOrigin(item)}
+                  onClick={() => onEdit(item)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      onEditToOrigin(item);
+                      onEdit(item);
                     }
                   }}
                   role="button"
@@ -413,7 +216,7 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleRecord
   );
 }
 
-function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: (d: string) => void; onEdit: (item: ScheduleRecord) => void }) {
+function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: (d: string) => void; onEdit: (item: ScheduleOccurrence) => void }) {
   const items = useScheduleStore((s) => s.items);
   const today = getToday();
 
@@ -491,7 +294,7 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
             <motion.button
               key={item.virtualId}
               type="button"
-              onClick={() => onEdit(item.date !== item.originDate && item.originDate ? { ...item, date: item.originDate } : item)}
+              onClick={() => onEdit(item)}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
@@ -609,16 +412,14 @@ function MonthView({ date, onSelectDate }: { date: string; onSelectDate: (d: str
   );
 }
 
-export function ScheduleContent({ initialRecord }: { initialRecord?: ScheduleRecord } = {}) {
+export function ScheduleContent({ initialRecord, initialOccurrence }: { initialRecord?: ScheduleRecord; initialOccurrence?: ScheduleOccurrence } = {}) {
   const [view, setView] = useState<ViewMode>('day');
   const [showModal, setShowModal] = useState(Boolean(initialRecord));
-  const [editItem, setEditItem] = useState<ScheduleRecord | undefined>(() => initialRecord ? structuredClone(initialRecord) : undefined);
+  const [editItem, setEditItem] = useState<ScheduleOccurrence | undefined>(() => initialOccurrence ? structuredClone(initialOccurrence) : initialRecord ? { ...structuredClone(initialRecord), virtualId: initialRecord.id, occurrenceDate: initialRecord.date, source: structuredClone(initialRecord) } : undefined);
   const [formKey, setFormKey] = useState(0);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   const selectedDate = useScheduleStore((s) => s.selectedDate);
   const setSelectedDate = useScheduleStore((s) => s.setSelectedDate);
-  const removeItem = useScheduleStore((s) => s.removeItem);
 
   const navigateDate = useCallback((delta: number) => {
     const d = parseBusinessDate(selectedDate);
@@ -637,24 +438,11 @@ export function ScheduleContent({ initialRecord }: { initialRecord?: ScheduleRec
     setShowModal(true);
   }, []);
 
-  const handleEdit = useCallback((item: ScheduleRecord) => {
-    setEditItem(item);
+  const handleEdit = useCallback((item: ScheduleOccurrence) => {
+    setEditItem(structuredClone(item));
     setFormKey((k) => k + 1);
     setShowModal(true);
   }, []);
-
-  const handleDelete = useCallback(async () => {
-    if (showDeleteConfirm === null) return;
-    try {
-      await removeItem(showDeleteConfirm);
-    } catch {
-      toast.error('删除失败，请重试');
-    } finally {
-      setShowDeleteConfirm(null);
-      setShowModal(false);
-      setEditItem(undefined);
-    }
-  }, [showDeleteConfirm, removeItem]);
 
   const dateObj = parseBusinessDate(selectedDate);
   const headerDate = view === 'day'
@@ -719,28 +507,8 @@ export function ScheduleContent({ initialRecord }: { initialRecord?: ScheduleRec
         {view === 'month' && <MonthView date={selectedDate} onSelectDate={(d) => { setSelectedDate(d); setView('day'); }} />}
       </Card>
 
-      <ScheduleFormModal
-        key={formKey}
-        open={showModal}
-        onClose={() => { setShowModal(false); setEditItem(undefined); }}
-        selectedDate={selectedDate}
-        editItem={editItem}
-        onRequestDelete={(item) => setShowDeleteConfirm(item.id)}
-      />
+      {showModal && <ScheduleEditor key={formKey} selectedDate={selectedDate} item={editItem} onClose={() => { setShowModal(false); setEditItem(undefined); }} />}
 
-      <Modal
-        open={showDeleteConfirm !== null}
-        onClose={() => setShowDeleteConfirm(null)}
-        title="确认删除"
-        footer={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(null)}>取消</Button>
-            <Button variant="danger" size="sm" onClick={handleDelete}>删除</Button>
-          </>
-        }
-      >
-        <p className="text-sm text-[var(--text-1)]">确定要删除这个日程吗？此操作不可撤销。</p>
-      </Modal>
     </div>
   );
 }

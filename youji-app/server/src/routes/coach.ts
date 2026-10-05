@@ -1,3 +1,4 @@
+import { scheduleOccurrences } from '../services/scheduleExceptions.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { prisma } from '../utils/db.js'
@@ -82,7 +83,7 @@ coachRoutes.get('/brief', async (c) => {
       select: { moodScore: true },
     }),
     prisma.schedule.findMany({
-      where: { userId: user.id, date: today },
+      where: { userId: user.id, OR: [{ date: today }, { repeat: 'weekly' }] },
       orderBy: { startTime: 'asc' },
     }),
     prisma.insight.findMany({
@@ -127,7 +128,7 @@ coachRoutes.get('/brief', async (c) => {
         .map((item) => item.actionSuggested)
         .filter((item): item is string => Boolean(item))
         .slice(0, 3),
-      todaySchedule: schedules.map((item) => ({
+      todaySchedule: scheduleOccurrences(schedules, today, today).map((item) => ({
         id: item.id,
         time: `${item.startTime}-${item.endTime}`,
         title: item.title,

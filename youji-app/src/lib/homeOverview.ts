@@ -1,3 +1,4 @@
+import { expandScheduleRows } from '../utils/scheduleOccurrences';
 import type { ScheduleRecord } from '../db';
 import type { ExpenseItem } from '../stores/expenseStore';
 import type { HabitView } from '../stores/habitStore';
@@ -5,11 +6,10 @@ import {
   formatBusinessDate,
   getBusinessClock,
   getNaturalWeekDates,
-  parseBusinessDate,
 } from '../utils/date';
 
 type OverviewHabit = Pick<HabitView, 'name' | 'frequency' | 'createdAt' | 'recentCheckins'>;
-type OverviewSchedule = Pick<ScheduleRecord, 'date' | 'startTime' | 'endTime' | 'title' | 'repeat'>;
+type OverviewSchedule = Pick<ScheduleRecord, 'date' | 'startTime' | 'endTime' | 'title' | 'repeat' | 'exceptions'>;
 type OverviewExpense = Pick<ExpenseItem, 'date' | 'amount' | 'category' | 'isIncome'>;
 
 export function getExpenseOverview(expenses: readonly OverviewExpense[], monthBudget: number, now: Date) {
@@ -85,15 +85,7 @@ export function getScheduleOverview(schedules: readonly OverviewSchedule[], now:
   const today = formatBusinessDate(now);
   const clock = getBusinessClock(now);
   const nowMinutes = clock.hour * 60 + clock.minute;
-  const todaySchedules = schedules.filter((schedule) => {
-    if (schedule.date === today) return true;
-    if (schedule.repeat !== 'weekly' || schedule.date > today) return false;
-    try {
-      return parseBusinessDate(schedule.date).getUTCDay() === clock.weekday;
-    } catch {
-      return false;
-    }
-  });
+  const todaySchedules = expandScheduleRows(schedules, today, today);
 
   const timed = todaySchedules.flatMap((schedule) => {
     const start = minutesOfDay(schedule.startTime);

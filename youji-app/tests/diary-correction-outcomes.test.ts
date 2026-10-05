@@ -15,7 +15,7 @@ const formOf = (row: DiaryRecord): DiaryForm => ({ id: row.id, date: row.date, c
 const newForm = (patch: Partial<DiaryForm> = {}): DiaryForm => ({ ...input, id: 'synthetic-draft-id', base: null, ...patch });
 before(async () => { await storage.bindAccountDatabase('synthetic-diary-correction'); sync.pauseSync(); });
 beforeEach(async () => {
-  localStorage.removeItem(api.SIGNED_OUT_KEY); localStorage.removeItem(api.SESSION_REVISION_KEY); api.clearSession();
+  localStorage.removeItem(api.SIGNED_OUT_KEY); localStorage.removeItem(api.SESSION_REVISION_KEY); api.clearSession(); api.setSessionActive('synthetic-diary-correction');
   await storage.db.diary.clear(); await storage.db.settings.clear(); await storage.db.outbox.clear();
   useDiaryStore.setState({ items: [], loaded: false, loadError: '' }); await useDiaryStore.getState().loadFromDB();
 });

@@ -14,16 +14,20 @@ interface ErrorResponse {
 export const SESSION_REVISION_KEY = 'youtrace:session-revision'
 export const SIGNED_OUT_KEY = 'youtrace:signed-out'
 let activeOwner: string | null = null
+let sessionGeneration = 0
+export function getSessionGeneration(): number { return sessionGeneration }
 let sessionController = new AbortController()
 
 export function setSessionActive(ownerId: string) {
   if (!ownerId) throw new Error('账号尚未验证')
+  sessionGeneration += 1
   activeOwner = ownerId
   localStorage.setItem(SESSION_FLAG_KEY, 'true')
   localStorage.removeItem(SIGNED_OUT_KEY)
 }
 
 export function clearSession() {
+  sessionGeneration += 1
   activeOwner = null
   sessionController.abort()
   sessionController = new AbortController()

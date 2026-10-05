@@ -1,3 +1,4 @@
+import { scheduleExceptionsSchema, exceptionsBelongToSeries, validScheduleDate } from '../services/scheduleExceptions.js'
 import { Hono } from 'hono'
 import { assertWritable, decodeChangePayload, latestVersion, mutationHash, recordAbsentDeletion, SyncRejection, type SyncEntity, type SyncTransaction } from '../services/syncProtocol.js'
 import { z } from 'zod'
@@ -22,7 +23,8 @@ const scheduleSyncSchema = z.object({
   location: z.string().trim().max(100).optional().default(''),
   repeat: z.enum(['none', 'weekly']).optional().default('none'),
   remind: z.number().int().min(0).max(1440).optional().default(0),
-})
+  exceptions: scheduleExceptionsSchema.optional(),
+}).refine(row => validScheduleDate(row.date) && row.startTime < row.endTime && exceptionsBelongToSeries(row), '日程日期、时间或单次调整范围无效')
 
 const expenseSyncSchema = z.object({
   baseVersion: baseVersionSchema,
@@ -115,6 +117,7 @@ const deletionsSchema = z.object({
 
 const syncPayloadSchema = z.object({
   protocol: z.literal(2),
+  scheduleExceptionsVersion: z.literal(1).optional(),
   mutationId: z.string().min(8).max(128),
   goals: z.array(goalSyncSchema).max(1000).optional(),
   schedules: z.array(scheduleSyncSchema).max(500).optional(),
@@ -142,6 +145,16 @@ async function requireSyncInfrastructure() {
   const found = new Set(triggers.map((trigger) => trigger.name))
   return tables.every((table) => ['insert', 'update', 'delete', 'no_resurrection', 'identity_immutable'].every((suffix) => found.has(`sync_${table}_${suffix}`)))
 }
+
+async function requireScheduleExceptions() {
+  const columns = await prisma.$queryRaw<Array<{ name: string }>>`PRAGMA table_info("Schedule")`
+  const triggers = await prisma.$queryRaw<Array<{ sql: string }>>`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name IN ('sync_Schedule_insert', 'sync_Schedule_update')`
+  return columns.some(column => column.name === 'exceptions') && triggers.length === 2 && triggers.every(trigger => trigger.sql.includes('NEW."exceptions"'))
+}
+syncRoutes.get('/capabilities', async (c) => {
+  if (!await requireSyncInfrastructure() || !await requireScheduleExceptions()) return c.json({ error: '日程同步尚未准备完成，修改保留在本机' }, 503)
+  return c.json({ protocol: 2, features: ['goals-v1', 'schedule-exceptions-v1'] })
+})
 
 syncRoutes.get('/pull', async (c) => {
   if (c.req.query('protocol') !== '2') return c.json({ error: '请升级客户端后再同步，保留本地修改', code: 'SYNC_UPGRADE_REQUIRED', protocol: 2 }, 426)
@@ -215,6 +228,7 @@ syncRoutes.post('/push', async (c) => {
   if (!await requireSyncInfrastructure()) return c.json({ error: '同步数据库尚未完成迁移，已暂停同步', code: 'SYNC_MIGRATION_REQUIRED' }, 503)
 
   const data = parsed.data
+  if (data.scheduleExceptionsVersion === 1 && !await requireScheduleExceptions()) return c.json({ error: '日程单次调整尚未完成迁移，修改已保留', code: 'SYNC_MIGRATION_REQUIRED' }, 503)
   const requestHash = mutationHash(data)
   try {
     const response = await prisma.$transaction(async (tx) => {
@@ -242,10 +256,16 @@ syncRoutes.post('/push', async (c) => {
         })
       }
       for (const item of data.schedules ?? []) {
-        const { id, baseVersion, ...changes } = item
+        const { id, baseVersion, exceptions, ...fields } = item
         touch('schedules', id)
+        const existing = await tx.schedule.findUnique({ where: { id } })
+        // Old clients cannot unknowingly erase or detach a single-occurrence change.
+        if ((exceptions !== undefined || existing?.exceptions !== undefined && existing.exceptions !== '[]') && data.scheduleExceptionsVersion !== 1) throw new SyncRejection('SCHEDULE_CLIENT_UPGRADE_REQUIRED', '请刷新有迹后调整含单次变更的日程；原稿已保留', 409, { entity: 'schedules', entityId: id })
+        const effective = exceptions ?? (existing ? JSON.parse(existing.exceptions) : [])
+        if (!exceptionsBelongToSeries({ ...fields, exceptions: effective })) throw new SyncRejection('INVALID_SCHEDULE_EXCEPTION', '调整日期与重复系列不一致，未改动原日程', 409, { entity: 'schedules', entityId: id })
+        const changes = { ...fields, ...(exceptions === undefined ? {} : { exceptions: JSON.stringify(exceptions) }) }
         await applyWrite(tx, user.id, { entity: 'schedules', id, baseVersion,
-          read: () => tx.schedule.findUnique({ where: { id } }),
+          read: async () => existing,
           create: () => tx.schedule.create({ data: { id, userId: user.id, ...changes } }),
           update: () => tx.schedule.update({ where: { id }, data: changes }),
         })
@@ -325,6 +345,8 @@ syncRoutes.post('/push', async (c) => {
         })
       }
       for (const item of deletions?.scheduleIds ?? []) {
+        const existing = await tx.schedule.findUnique({ where: { id: item.id } })
+        if (existing?.exceptions !== undefined && existing.exceptions !== '[]' && data.scheduleExceptionsVersion !== 1) throw new SyncRejection('SCHEDULE_CLIENT_UPGRADE_REQUIRED', '请刷新有迹后删除含单次调整的日程', 409, { entity: 'schedules', entityId: item.id })
         touch('schedules', item.id)
         await applyDeletion(tx, user.id, { entity: 'schedules', ...item,
           read: () => tx.schedule.findUnique({ where: { id: item.id } }), remove: () => tx.schedule.delete({ where: { id: item.id } }),
@@ -382,7 +404,7 @@ syncRoutes.post('/push', async (c) => {
       }
       const versions = []
       for (const { entity, entityId } of touched.values()) versions.push({ entity, entityId, seq: await latestVersion(tx, user.id, entity, entityId) })
-      const ack = { protocol: 2, mutationId: data.mutationId, acknowledged: true, synced, versions }
+      const ack = { protocol: 2, ...(data.scheduleExceptionsVersion === 1 ? { features: ['schedule-exceptions-v1'] } : {}), mutationId: data.mutationId, acknowledged: true, synced, versions }
       await tx.syncReceipt.create({ data: { userId: user.id, mutationId: data.mutationId, requestHash, response: JSON.stringify(ack) } })
       return ack
     }, { timeout: 30_000, maxWait: 5_000 })

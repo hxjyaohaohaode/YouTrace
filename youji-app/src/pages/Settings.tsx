@@ -9,7 +9,7 @@ import { Download, Trash2, Shield, Clock, Moon, Sun, Monitor, Sparkles, Bell, Al
 import { useSettingsStore, stopPreferenceSync, type CoachStyle, type ThemeMode, type AppSettings } from '../stores/settingsStore';
 import { useExpenseStore } from '../stores/expenseStore';
 import { useAuthStore, lockLocalSession } from '../stores/authStore';
-import { exportAllData, clearAllData, exportLegacyData, hasLegacyDatabase, db } from '../db';
+import { exportAllData, clearAllData, exportLegacyData, hasLegacyDatabase, db, getAccountGenerationRecovery, exportAccountGenerationRecovery } from '../db';
 import { api, isLoggedIn } from '../services/apiClient';
 
 import { toast } from '../services/toastBus';
@@ -183,6 +183,16 @@ export default function Settings() {
   const logout = useAuthStore((s) => s.logout);
 
   const [hasLegacy, setHasLegacy] = useState(false);
+  const [generationRecovery, setGenerationRecovery] = useState<Awaited<ReturnType<typeof getAccountGenerationRecovery>>>(null);
+  const [generationError, setGenerationError] = useState(false);
+  const refreshGenerationRecovery = () => {
+    void getAccountGenerationRecovery().then((status) => { setGenerationRecovery(status); setGenerationError(false); }).catch(() => setGenerationError(true));
+  };
+  useEffect(() => {
+    const refresh = () => { void getAccountGenerationRecovery().then((status) => { setGenerationRecovery(status); setGenerationError(false); }).catch(() => setGenerationError(true)); };
+    refresh(); window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
   const [showLegacyConfirm, setShowLegacyConfirm] = useState(false);
   useEffect(() => { void hasLegacyDatabase().then(setHasLegacy); }, []);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -200,14 +210,14 @@ export default function Settings() {
     void settings.updateSetting(key, value).catch((cause: unknown) => setPreferenceError(cause instanceof Error ? cause.message : '偏好未保存，原设置保留，请重试'));
   };
 
-  const handleExport = async (legacy = false) => {
+  const handleExport = async (legacy: boolean | 'generation' = false) => {
     try {
-      const data = legacy ? await exportLegacyData() : await exportAllData();
+      const data = legacy === 'generation' ? await exportAccountGenerationRecovery() : legacy ? await exportLegacyData() : await exportAllData();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `youtrace-${legacy ? 'legacy-unverified' : 'backup'}-${getToday()}.json`;
+      a.download = `youtrace-${legacy === 'generation' ? 'account-retained-source' : legacy ? 'legacy-unverified' : 'backup'}-${getToday()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       setShowLegacyConfirm(false);
@@ -471,7 +481,7 @@ export default function Settings() {
                       注销账号（删除全部云端数据）
                     </Button>
                     <p className="mt-2 text-xs leading-relaxed text-[var(--text-3)]">
-                      将永久删除服务器上该手机号的全部记录：花销、待办、习惯、速记、日记、日程、目标、账号偏好、教练对话与本设备本地缓存。
+                      将永久删除服务器上该手机号的全部记录：花销、待办、习惯、速记、日记、日程、目标、账号偏好、教练对话与当前本地缓存。升级前隔离保留的原始资料不会在此删除；请先导出并关闭旧版窗口。
                     </p>
                   </div>
                 </>
@@ -493,6 +503,14 @@ export default function Settings() {
                   当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；新目标和提醒偏好支持账号同步；旧目标需逐项确认上传，草稿、外观和预算仍留本机。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
                 </p>
               </div>
+              {generationError && <div role="alert" className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm">升级前资料状态暂时无法读取，原始资料没有删除</p><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>重新检查保留资料</Button></div>}
+              {generationRecovery?.sourcePresent && <div className="rounded-xl border border-[var(--warning)]/30 p-3">
+                <p className="text-sm font-semibold">升级前账号资料已隔离保留</p>
+                <p className="mt-1 text-xs text-[var(--text-2)]">请关闭旧版窗口，避免继续在那里编辑。旧窗口后续修改不会自动导入本窗口；可单独导出升级时原始资料与旧窗口当前资料，核对后再恢复。此备份不会上传。</p>
+                {generationRecovery.changedTables.length > 0 && <p role="status" className="mt-2 text-xs text-[var(--warning)]">发现 {generationRecovery.changedTables.length} 类旧版资料与升级时不同，可能包含尚未转入的修改</p>}
+                {generationRecovery.cleared && <p className="mt-2 text-xs text-[var(--text-2)]">当前本地数据已清除，保留资料不会重新自动导入</p>}
+                <div className="mt-2 flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => void handleExport('generation')}>导出升级前保留资料</Button><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>检查旧窗口修改</Button></div>
+              </div>}
               {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-xs text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
               <div className="flex gap-2 border-t border-[var(--border-light)] pt-4">
                 <Button variant="ghost" size="sm" icon={Download} onClick={() => void handleExport()} className="flex-1">
@@ -513,7 +531,7 @@ export default function Settings() {
           <div className="flex items-start gap-3">
             <AlertTriangle size={20} className="mt-0.5 shrink-0 text-[var(--danger)]" aria-hidden />
             <div>
-              <p className="text-sm text-[var(--text-1)]">此操作只清除当前账号在本设备的记录、目标、草稿、打卡和设置，不影响其他账号和旧版隔离数据。未同步修改存在时将阻止清除，请先同步或导出。</p>
+              <p className="text-sm text-[var(--text-1)]">此操作只清除当前账号在本设备的记录、目标、草稿、打卡和设置，不影响其他账号和升级前隔离保留的原始资料；保留资料不会自动重新导入。未同步修改存在时将阻止清除，请先同步或导出。</p>
               {isLoggedIn() && (
                 <p className="mt-2 text-xs text-[var(--text-2)]">注意：服务端已有同步数据不会删除，重新联网后会恢复到本设备。</p>
               )}
@@ -526,7 +544,7 @@ export default function Settings() {
           <div className="flex items-start gap-3">
             <AlertTriangle size={20} className="mt-0.5 shrink-0 text-[var(--danger)]" aria-hidden />
             <div>
-              <p className="text-sm text-[var(--text-1)]">此操作将永久删除你在服务端的全部数据，且无法恢复。</p>
+              <p className="text-sm text-[var(--text-1)]">此操作将永久删除你在服务端的全部数据与当前本地缓存，且无法恢复。升级前隔离保留的原始资料不会在此删除；请先导出备份，并关闭旧版窗口。</p>
               <p className="mt-2 text-xs font-bold text-[var(--danger)]">请谨慎操作！</p>
             </div>
           </div>

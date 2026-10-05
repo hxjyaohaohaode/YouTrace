@@ -93,6 +93,7 @@ model Schedule {
   location  String   @default("")
   repeat    String   @default("none")
   remind    Int      @default(0)
+  exceptions String  @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

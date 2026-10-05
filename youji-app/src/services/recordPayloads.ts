@@ -54,13 +54,20 @@ function parsedNote(value: unknown): boolean {
 export function isSafeFrozenPayload(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   for (const [key, leaf] of Object.entries(value)) {
-    if (key === 'protocol') { if (leaf !== 2) return false; }
+    if (key === 'scheduleExceptionsVersion') { if (leaf !== 1) return false; }
+    else if (key === 'protocol') { if (leaf !== 2) return false; }
     else if (key === 'mutationId') { if (typeof leaf !== 'string') return false; }
     else if (key === 'deletions') {
       if (!leaf || typeof leaf !== 'object' || Array.isArray(leaf)) return false;
       for (const [entity, rows] of Object.entries(leaf)) if (!['goalIds', 'scheduleIds', 'expenseIds', 'todoIds', 'habitIds', 'quickNoteIds', 'diaryIds', 'habitCheckinIds'].includes(entity) || !Array.isArray(rows) || !rows.every(row => scalarRecord(row, { id: 'string', baseVersion: 'string' }))) return false;
     } else if (key === 'quickNotes') {
       if (!Array.isArray(leaf) || !leaf.every(row => { if (!row || typeof row !== 'object' || Array.isArray(row)) return false; const { parsed, ...rest } = row as Record<string, unknown>; return scalarRecord(rest, { id: 'string', content: 'string', timestamp: 'number', confirmed: 'boolean', baseVersion: 'string' }) && (parsed === undefined || parsedNote(parsed)); })) return false;
+    } else if (key === 'schedules') {
+      if (!Array.isArray(leaf) || !leaf.every(row => {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+        const { exceptions, ...rest } = row as Record<string, unknown>;
+        return scalarRecord(rest, { ...oldFields.schedules, baseVersion: 'string' }) && (exceptions === undefined || Array.isArray(exceptions) && exceptions.length <= 500 && exceptions.every(exception => scalarRecord(exception, { occurrenceDate: 'string', cancelled: 'boolean', date: 'string', startTime: 'string', endTime: 'string', title: 'string', location: 'string', type: 'string', remind: 'number' })));
+      })) return false;
     } else if (!oldFields[key] || !Array.isArray(leaf) || !leaf.every(row => scalarRecord(row, { ...oldFields[key], baseVersion: 'string' }))) return false;
   }
   return true;

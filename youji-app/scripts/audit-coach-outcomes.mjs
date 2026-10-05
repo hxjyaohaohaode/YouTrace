@@ -144,7 +144,7 @@ export async function runCoachOutcomes(h) {
       await historyToggle(page);
     });
     await segment(page, `${label}-choice-quota-and-recovery`, async () => {
-      await page.evaluate(owner => { const original = IDBObjectStore.prototype.put; window.__choicePutOriginal = original; window.__choiceQuotaHits = 0; IDBObjectStore.prototype.put = function(value, ...args) { if (this.transaction.db.name === `youtrace:user:${owner}` && this.name === 'settings' && String(value?.key).startsWith('observation-choice:')) { window.__choiceQuotaHits++; throw new DOMException('Synthetic choice quota', 'QuotaExceededError'); } return original.call(this, value, ...args); }; }, api.ownerId);
+      await page.evaluate(owner => { const original = IDBObjectStore.prototype.put; window.__choicePutOriginal = original; window.__choiceQuotaHits = 0; IDBObjectStore.prototype.put = function(value, ...args) { if (this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'settings' && String(value?.key).startsWith('observation-choice:')) { window.__choiceQuotaHits++; throw new DOMException('Synthetic choice quota', 'QuotaExceededError'); } return original.call(this, value, ...args); }; }, api.ownerId);
       actions.push({ kind: 'synthetic-choice-quota-boundary', owner: api.ownerId, scope: 'settings observation-choice only' });
       try {
         await pointer(page, `${currentSurface} button`, '在此设备隐藏本期间支出观察'); await page.waitForFunction(() => window.__choiceQuotaHits > 0 && document.body.innerText.includes('显示选择未保存'));
@@ -189,7 +189,7 @@ export async function runCoachOutcomes(h) {
         let restored = false; const restore = () => { if (restored) return; restored = true; IDBObjectStore.prototype.get = original; clearTimeout(timer); diagnostic.restoredAt = Date.now(); };
         const timer = setTimeout(() => { diagnostic.expired = true; restore(); }, 15000); window.__restoreObservationRead = restore;
         IDBObjectStore.prototype.get = function(key) {
-          if (this.transaction.db.name === `youtrace:user:${owner}` && this.name === 'settings' && key === 'localDataEpoch') {
+          if (this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'settings' && key === 'localDataEpoch') {
             const tables = [...this.transaction.objectStoreNames], mode = this.transaction.mode;
             const eligible = mode === 'readonly' && tables.length === 7 && ['expenses','habitCheckins','diary','quickNotes','settings','outbox','coachInsights'].every(name => tables.includes(name));
             const call = { at: Date.now(), db: this.transaction.db.name, table: this.name, key, mode, tables, eligible };

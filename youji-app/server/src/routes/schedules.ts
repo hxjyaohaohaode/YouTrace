@@ -1,3 +1,4 @@
+import { decodeScheduleExceptions } from '../services/scheduleExceptions.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { prisma } from '../utils/db.js'
@@ -42,7 +43,7 @@ scheduleRoutes.get('/', async (c) => {
     orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
   })
 
-  return c.json({ schedules })
+  return c.json({ schedules: schedules.map(row => ({ ...row, exceptions: decodeScheduleExceptions(row.exceptions) })) })
 })
 
 scheduleRoutes.post('/', async (c) => {
@@ -75,12 +76,16 @@ scheduleRoutes.put('/:id', async (c) => {
 
   const existing = await prisma.schedule.findFirst({ where: { id, userId: user.id } })
   if (!existing) return c.json({ error: '日程不存在' }, 404)
+  if (existing.exceptions !== '[]') return c.json({ error: '这组日程有单次调整，请使用最新有迹页面核对后操作', code: 'SCHEDULE_CLIENT_UPGRADE_REQUIRED' }, 409)
 
-  const schedule = await prisma.schedule.update({
-    where: { id },
+  // The protection is in the write predicate, not just the prior read. A new
+  // client can add exceptions between these awaits. Never detach those edits.
+  const result = await prisma.schedule.updateMany({
+    where: { id, userId: user.id, exceptions: '[]', updatedAt: existing.updatedAt },
     data: parsed.data,
   })
-
+  if (result.count !== 1) return c.json({ error: '日程刚刚更新，请刷新核对后重试', code: 'SCHEDULE_VERSION_CONFLICT' }, 409)
+  const schedule = await prisma.schedule.findFirst({ where: { id, userId: user.id } })
   return c.json({ schedule })
 })
 
@@ -90,7 +95,9 @@ scheduleRoutes.delete('/:id', async (c) => {
 
   const existing = await prisma.schedule.findFirst({ where: { id, userId: user.id } })
   if (!existing) return c.json({ error: '日程不存在' }, 404)
+  if (existing.exceptions !== '[]') return c.json({ error: '这组日程有单次调整，请使用最新有迹页面核对后操作', code: 'SCHEDULE_CLIENT_UPGRADE_REQUIRED' }, 409)
 
-  await prisma.schedule.delete({ where: { id } })
+  const result = await prisma.schedule.deleteMany({ where: { id, userId: user.id, exceptions: '[]', updatedAt: existing.updatedAt } })
+  if (result.count !== 1) return c.json({ error: '日程刚刚更新，请刷新核对后重试', code: 'SCHEDULE_VERSION_CONFLICT' }, 409)
   return c.json({ success: true })
 })

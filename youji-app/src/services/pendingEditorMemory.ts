@@ -1,9 +1,9 @@
 /** Document-lifetime fallback for failed local writes. Never synced or logged. */
-export interface EditorMemoryScope { database: object; owner: string | null; session: string | null; epoch: unknown; key: string }
+export interface EditorMemoryScope { database: object; owner: string | null; session: string | null; epoch: unknown; sessionGeneration?: number; key: string }
 interface PendingValue { scope: EditorMemoryScope; token: number; value: unknown }
 const pending = new Map<string, PendingValue>();
 let sequence = 0;
-const sameScope = (a: EditorMemoryScope, b: EditorMemoryScope) => a.database === b.database && a.owner === b.owner && a.session === b.session && a.epoch === b.epoch;
+const sameScope = (a: EditorMemoryScope, b: EditorMemoryScope) => a.database === b.database && a.owner === b.owner && a.session === b.session && a.epoch === b.epoch && a.sessionGeneration === b.sessionGeneration;
 export function retainPendingEditor<T>(scope: EditorMemoryScope, value: T): number { const token = ++sequence; pending.set(`${scope.owner}:${scope.key}`, { scope: { ...scope }, token, value: structuredClone(value) }); return token; }
 export function readPendingEditor<T>(scope: EditorMemoryScope): T | null {
   const key = `${scope.owner}:${scope.key}`, entry = pending.get(key);

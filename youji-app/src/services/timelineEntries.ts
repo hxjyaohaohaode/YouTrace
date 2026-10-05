@@ -26,7 +26,10 @@ export function timelineEntries(data: TimelineData): TimelineEntry[] {
     add({ type: 'habit', recordId: row.id, title: `${parent.icon} ${parent.name}`, detail: '打卡所属日期 · 可包含补卡', date: isCaptureDate(row.date) ? row.date : null, occurredAt: null, route: `/habit?record=${encodeURIComponent(parent.id)}&date=${encodeURIComponent(row.date)}` });
   }
   for (const row of data.diaries) add({ type: 'diary', recordId: row.id, title: row.content.slice(0, 80) || '日记', detail: '日记所属日期', date: isCaptureDate(row.date) ? row.date : null, occurredAt: null, route: `/diary?record=${encodeURIComponent(row.id)}` });
-  for (const row of data.schedules) add({ type: 'schedule', recordId: row.id, title: row.title, detail: `计划 ${row.startTime}–${row.endTime} · 不代表已完成`, date: isCaptureDate(row.date) ? row.date : null, occurredAt: null, route: `/schedule?record=${encodeURIComponent(row.id)}&date=${encodeURIComponent(row.date)}` });
+  for (const row of data.schedules) {
+    add({ type: 'schedule', recordId: row.id, title: row.title, detail: `${row.repeat === 'weekly' ? '每周系列起始日 · 单次调整另列 · ' : ''}计划 ${row.startTime}–${row.endTime} · 不代表已完成`, date: isCaptureDate(row.date) ? row.date : null, occurredAt: null, route: `/schedule?record=${encodeURIComponent(row.id)}` });
+    for (const exception of row.exceptions ?? []) rows.push({ id: `schedule-exception:${row.id}:${exception.occurrenceDate}`, type: 'schedule', recordId: row.id, title: exception.title, detail: exception.cancelled ? `已取消 ${exception.occurrenceDate} 这一次安排` : `单次调整 · 原日期 ${exception.occurrenceDate} · 计划 ${exception.startTime}–${exception.endTime} · 不代表已完成`, date: exception.cancelled ? exception.occurrenceDate : exception.date, occurredAt: null, route: `/schedule?record=${encodeURIComponent(row.id)}&occurrence=${encodeURIComponent(exception.occurrenceDate)}` });
+  }
   for (const row of data.notes) {
     const time = validTime(row.createdAt) ? row.createdAt : null;
     add({ type: 'capture', recordId: row.id, title: row.rawInput.slice(0, 80), detail: row.confirmed ? '已确认的原始速记 · 保存时间' : '原始速记 · 确认状态未知', date: time ? formatBusinessDate(new Date(time)) : null, occurredAt: time, route: `/timeline?record=${encodeURIComponent(row.id)}` });

@@ -20,7 +20,7 @@ const { commitLocalMutation } = await import('../src/services/localMutation.ts')
 const { default: Dexie } = await import('dexie');
 let current = db;
 
-before(async () => { await bindAccountDatabase('synthetic-account-a'); current = storage.db; });
+before(async () => { await bindAccountDatabase('synthetic-account-a'); current = storage.db; api.setSessionActive('synthetic-account-a'); sync.pauseSync(); });
 after(() => { sync.pauseSync(); current.close(); });
 
 test('fake IndexedDB: per-account databases survive A/B/A without shared reads', async () => {
@@ -47,6 +47,7 @@ test('fake IndexedDB: account mutation and outbox roll back together on quota fa
 
 test('fake IndexedDB: unacknowledged work survives every HTTP rejection and session clearing', async () => {
   for (const status of [400, 401, 403, 409, 413, 429, 500]) {
+    api.setSessionActive('synthetic-account-a'); sync.pauseSync();
     await current.outbox.clear();
     await commitLocalMutation('todos', 'upsert', { id: 'retained-001', text: 'synthetic', done: false, priority: 'medium' }, () => current.todos.put({ id: 'retained-001', text: 'synthetic', done: false, priority: 'medium' }));
     globalThis.fetch = async () => Response.json({ error: 'synthetic failure' }, { status });
@@ -69,7 +70,7 @@ test('fake IndexedDB: export includes goal/draft/outbox and clear rejects pendin
   assert.equal(await current.goalRecords.count(), 1);
   await current.outbox.clear();
   await clearAllData();
-  for (const table of current.tables) assert.equal(await table.count(), table.name === 'settings' ? 1 : 0, table.name);
+  for (const table of current.tables) assert.equal(await table.count(), ['settings', '_accountGeneration'].includes(table.name) ? 1 : 0, table.name);
 });
 
 test('fake IndexedDB: old v2 autoincrement records and unknown note fields remain readable without upgrade', async () => {
@@ -92,7 +93,7 @@ test('fake IndexedDB: old v2 autoincrement records and unknown note fields remai
 });
 
 test('fake IndexedDB: stale visible todo cannot overwrite newly pulled text under a newer version', async () => {
-  api.clearSession();
+  api.setSessionActive('synthetic-account-a'); sync.pauseSync();
   const original = { id: 'stale-snapshot-001', text: 'old visible text', done: false, priority: 'medium' as const };
   await current.todos.put(original);
   await useTodoStore.getState().loadFromDB();

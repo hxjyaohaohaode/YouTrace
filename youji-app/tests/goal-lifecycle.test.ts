@@ -5,10 +5,11 @@ const memoryStorage = () => { const entries = new Map<string, string>(); return 
 Object.assign(globalThis, { localStorage: memoryStorage(), sessionStorage: memoryStorage(), window: Object.assign(new EventTarget(), { location: { replace() {} } }) });
 const storage = await import('../src/db/index.ts');
 const sync = await import('../src/services/syncEngine.ts');
+const api = await import('../src/services/apiClient.ts');
 const { useGoalStore } = await import('../src/stores/goalStore.ts');
 const goalInput = { title: 'Synthetic goal', description: 'Private draft', level: 'short' as const, domain: '生活', priority: 'medium' as const, targetDate: null };
 before(async () => { await storage.bindAccountDatabase('synthetic-goal-account'); sync.pauseSync(); });
-beforeEach(async () => { await storage.db.table('goals').clear(); await storage.db.goalRecords.clear(); await storage.db.outbox.clear(); await storage.db.settings.clear(); await useGoalStore.getState().loadFromDB(); });
+beforeEach(async () => { api.setSessionActive('synthetic-goal-account'); await storage.db.table('goals').clear(); await storage.db.goalRecords.clear(); await storage.db.outbox.clear(); await storage.db.settings.clear(); await useGoalStore.getState().loadFromDB(); });
 after(() => { sync.pauseSync(); storage.db.close(); });
 
 test('goal lifecycle: new account goal and retryable mutation share one transaction', async () => {

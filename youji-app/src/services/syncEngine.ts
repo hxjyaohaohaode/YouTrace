@@ -26,7 +26,7 @@ export interface SyncEvent {
 }
 interface PullPage { protocol: 2; features: string[]; events: SyncEvent[]; nextCursor: string; hasMore: boolean }
 interface Version { entity: SyncEntity; entityId: string; seq: string }
-interface Ack { protocol: 2; mutationId: string; acknowledged: true; versions: Version[] }
+interface Ack { features?: string[]; protocol: 2; mutationId: string; acknowledged: true; versions: Version[] }
 interface FrozenBatch { mutationId: string; seqs: number[]; keys: string[]; payload: Record<string, unknown> }
 export interface SyncConflict { event: SyncEvent; receivedAt: number }
 const versionKey = (key: string) => `sync-version:${key}`;
@@ -96,6 +96,7 @@ async function prepareBatch(): Promise<FrozenBatch | null> {
         await db.outbox.update(row.seq!, { status: 'blocked', lastStatus: 413 });
         continue;
       }
+      if (row.entity === 'schedules') candidate.scheduleExceptionsVersion = 1;
       Object.assign(payload, candidate);
       keys.push(key);
     }
@@ -108,6 +109,7 @@ async function prepareBatch(): Promise<FrozenBatch | null> {
 }
 
 function validAck(response: Ack, batch: FrozenBatch): boolean {
+  if (batch.payload.scheduleExceptionsVersion === 1 && !response.features?.includes('schedule-exceptions-v1')) return false;
   if (response.protocol !== 2 || response.acknowledged !== true || response.mutationId !== batch.mutationId || !Array.isArray(response.versions)) return false;
   const received = new Set(response.versions.filter((v) => ENTITIES.includes(v.entity) && isSequence(v.seq)).map((v) => `${v.entity}:${v.entityId}`));
   return batch.keys.every((key) => received.has(key));
@@ -121,6 +123,11 @@ export async function flush(): Promise<boolean> {
     const batch = await prepareBatch();
     if (!batch) return await db.outbox.count() === 0;
     try {
+      if (batch.payload.scheduleExceptionsVersion === 1) {
+        const capability = await api.get<{ protocol: number; features: string[] }>('/sync/capabilities');
+        if (capability.protocol !== 2 || !capability.features?.includes('schedule-exceptions-v1')) throw new Error('服务器暂不支持单次日程调整，原稿保留在本机');
+      }
+      if (epoch !== generation || paused || !isLoggedIn()) return false;
       const response = await api.post<Ack>('/sync/push', batch.payload, 30_000);
       if (!validAck(response, batch)) throw new Error('同步回执不完整，修改已保留');
       if (paused || !isLoggedIn()) return false;

@@ -1,3 +1,4 @@
+import { scheduleOccurrences } from '../services/scheduleExceptions.js'
 import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { z } from 'zod'
@@ -302,10 +303,8 @@ async function buildUserContext(userId: string): Promise<UserContext> {
       take: 5,
     }),
     prisma.schedule.findMany({
-      where: { userId, date: { gte: today } },
-      select: { title: true, startTime: true, date: true },
+      where: { userId, OR: [{ date: { gte: today, lte: addDays(today, 7) } }, { repeat: 'weekly' }] },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
-      take: 10,
     }),
   ])
 
@@ -340,7 +339,7 @@ async function buildUserContext(userId: string): Promise<UserContext> {
       moodScore: d.moodScore,
       date: d.date,
     })),
-    schedules: schedules.map((s) => ({
+    schedules: scheduleOccurrences(schedules, today, addDays(today, 7)).slice(0, 10).map((s) => ({
       title: s.title,
       startTime: s.startTime,
       date: s.date,

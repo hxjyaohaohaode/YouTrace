@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { useEffect } from 'react';
 import {
   api, setSessionActive, clearSession, UNAUTHORIZED_EVENT, AuthError,
-  announceSessionChange, SESSION_REVISION_KEY, SIGNED_OUT_KEY,
+  announceSessionChange, SESSION_REVISION_KEY, SIGNED_OUT_KEY, getSessionGeneration,
 } from '../services/apiClient';
 import { bindAccountDatabase } from '../db';
 import { pauseSync } from '../services/syncEngine';
@@ -77,19 +77,25 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   loadUser: () => {
     if (loadingIdentity) return loadingIdentity;
+    const generation = getSessionGeneration(), revision = localStorage.getItem(SESSION_REVISION_KEY);
+    const current = () => generation === getSessionGeneration() && revision === localStorage.getItem(SESSION_REVISION_KEY);
+    const assertCurrent = () => { if (!current()) throw new Error('登录状态已变化，旧页面不会重新打开账号资料'); };
     loadingIdentity = (async () => {
       set({ identityUnavailable: false });
       try {
         if (localStorage.getItem(SIGNED_OUT_KEY) === 'true') {
-          await bindAccountDatabase(null);
+          await bindAccountDatabase(null, assertCurrent);
           set({ user: null, isAuthenticated: false, authChecked: true });
           return;
         }
         const { user } = await api.get<{ user: AuthUser }>('/auth/me');
-        await bindAccountDatabase(user.id);
+        assertCurrent();
+        await bindAccountDatabase(user.id, assertCurrent);
+        assertCurrent();
         setSessionActive(user.id);
         set({ user, isAuthenticated: true, authChecked: true });
       } catch (error) {
+        if (!current()) return;
         if (error instanceof AuthError) {
           clearSession();
           await bindAccountDatabase(null);

@@ -505,6 +505,76 @@ test('additive goal migration interruption rolls back schema and preserves popul
   db.close()
 })
 
+test('schedule occurrence exceptions use canonical revision, exact replay, changefeed and old-client refusal', async () => {
+  const owner = await user('schedule-owner'), scheduleId = id('schedule');
+  const original = { id: scheduleId, title: 'Synthetic weekly', date: '2026-10-06', startTime: '09:00', endTime: '10:00', type: 'work', location: 'Original', repeat: 'weekly', remind: 0 };
+  const first = await push(owner, { schedules: [original] }, 'legacy-before-exceptions'); assert.equal(first.status, 200);
+  const firstAck = await first.json() as Ack;
+  const exception = { occurrenceDate: '2026-10-13', date: '2026-10-15', startTime: '12:15', endTime: '13:15', title: 'Only this occurrence', location: 'Single place', type: 'work', remind: 0 };
+  const mutation = { scheduleExceptionsVersion: 1, schedules: [{ ...original, baseVersion: firstAck.versions[0].seq, exceptions: [exception] }] };
+  const response = await push(owner, mutation, 'schedule-exception-new'); assert.equal(response.status, 200, await response.clone().text());
+  const ack = await response.json() as Ack & { features: string[] }; assert.ok(ack.features.includes('schedule-exceptions-v1'));
+  assert.deepEqual(await (await push(owner, mutation, 'schedule-exception-new')).json(), ack);
+  assert.deepEqual(await (await push(owner, { schedules: [original] }, 'legacy-before-exceptions')).json(), firstAck, 'exact pre-upgrade receipt still replays original request');
+  const events = await allChanges(owner); assert.deepEqual(events.at(-1)?.data?.exceptions, [exception]);
+  const row = await prisma.schedule.findUniqueOrThrow({ where: { id: scheduleId } }); assert.equal(row.date, original.date); assert.equal(row.startTime, original.startTime);
+  const legacy = { ...original, title: 'Old client overwrites', baseVersion: ack.versions[0].seq };
+  assert.equal((await push(owner, { schedules: [legacy] })).status, 409);
+  assert.equal((await push(owner, { deletions: { scheduleIds: [{ id: scheduleId, baseVersion: ack.versions[0].seq }] } })).status, 409);
+  assert.equal((await request(owner, `/schedules/${scheduleId}`, { repeat: 'none' }, 'PUT')).status, 409);
+  assert.equal((await request(owner, `/schedules/${scheduleId}`, undefined, 'DELETE')).status, 409);
+  assert.deepEqual(await prisma.schedule.findUniqueOrThrow({ where: { id: scheduleId } }), row);
+});
+
+test('schedule capability rejects malformed or mismatched occurrence range atomically', async () => {
+  const owner = await user('schedule-validation'), scheduleId = id('schedule');
+  const original = { id: scheduleId, title: 'Synthetic', date: '2026-10-06', startTime: '09:00', endTime: '10:00', type: 'work', location: '', repeat: 'weekly', remind: 0 };
+  const base = { occurrenceDate: '2026-10-13', date: '2026-10-13', title: 'Synthetic exception', startTime: '12:15', endTime: '13:15', type: 'work', location: '', remind: 0 };
+  const capability = await request(owner, '/sync/capabilities', undefined, 'GET'); assert.equal(capability.status, 200); assert.ok((await capability.json() as { features: string[] }).features.includes('schedule-exceptions-v1'));
+  for (const exception of [{ ...base, date: '2026-02-30' }, { ...base, occurrenceDate: '2026-10-14' }, { ...base, startTime: '23:30', endTime: '00:15' }, { ...base, arbitraryPrivateField: 'never transmit' }]) {
+    assert.equal((await push(owner, { scheduleExceptionsVersion: 1, schedules: [{ ...original, exceptions: [exception] }] })).status, 400);
+  }
+  assert.equal((await push(owner, { scheduleExceptionsVersion: 1, schedules: [{ ...original, exceptions: [base, base] }] })).status, 400);
+  assert.equal(await prisma.schedule.count({ where: { userId: owner } }), 0); assert.equal((await allChanges(owner)).length, 0);
+});
+
+test('legacy schedule REST write predicates protect exceptions committed after its earlier read', async () => {
+  for (const method of ['PUT', 'DELETE']) {
+    const owner = await user('rest-race-owner'), scheduleId = id('schedule');
+    const original = { id: scheduleId, title: 'Synthetic race', date: '2026-10-06', startTime: '09:00', endTime: '10:00', type: 'work', location: '', repeat: 'weekly', remind: 0 };
+    assert.equal((await push(owner, { schedules: [original] })).status, 200);
+    const baseVersion = (await allChanges(owner)).at(-1)!.seq;
+    const exception = { occurrenceDate: '2026-10-13', date: '2026-10-13', title: 'Just acknowledged', startTime: '12:15', endTime: '13:15', type: 'work', location: '', remind: 0 };
+    const find = prisma.schedule.findFirst; let injected = false;
+    prisma.schedule.findFirst = (async (...args: Parameters<typeof find>) => {
+      const before = await find.apply(prisma.schedule, args);
+      if (!injected && before?.id === scheduleId) {
+        injected = true;
+        const peer = await push(owner, { scheduleExceptionsVersion: 1, schedules: [{ ...original, baseVersion, exceptions: [exception] }] });
+        assert.equal(peer.status, 200, await peer.clone().text());
+      }
+      return before;
+    }) as typeof find;
+    try { assert.equal((await request(owner, `/schedules/${scheduleId}`, method === 'PUT' ? { repeat: 'none' } : undefined, method)).status, 409); } finally { prisma.schedule.findFirst = find; }
+    assert.equal(injected, true);
+    const kept = await prisma.schedule.findUniqueOrThrow({ where: { id: scheduleId } }); assert.equal(kept.repeat, 'weekly'); assert.deepEqual(JSON.parse(kept.exceptions), [exception]);
+  }
+});
+
+test('schedule additive migration rollback preserves populated rows and immutable previous event bytes', async () => {
+  const path = join(fixtureDir, 'schedule-upgrade.db'), db = new DatabaseSync(path, { enableDoubleQuotedStringLiterals: true });
+  try {
+    const directory = resolve('prisma/migrations');
+    for (const name of (await readdir(directory)).sort()) { if (name === 'migration_lock.toml' || name === '20261005000000_schedule_exceptions') continue; db.exec(await readFile(resolve(directory, name, 'migration.sql'), 'utf8')); }
+    db.exec(`INSERT INTO "User" (id, phone, nickname, updatedAt) VALUES ('schedule-old-owner','schedule-old-phone','Synthetic',0); INSERT INTO "Schedule" (id,userId,title,date,startTime,endTime,repeat,updatedAt) VALUES ('schedule-old-row','schedule-old-owner','Original','2026-10-06','06:15','06:45','weekly',0);`);
+    const before = db.prepare('SELECT payload FROM SyncChange ORDER BY seq').all();
+    const sql = await readFile(resolve(directory, '20261005000000_schedule_exceptions/migration.sql'), 'utf8');
+    assert.throws(() => db.exec(sql.replace('COMMIT;', 'SELECT no_such_upgrade_function(); COMMIT;'))); db.exec('ROLLBACK;');
+    assert.equal(db.prepare('PRAGMA table_info("Schedule")').all().some(row => row.name === 'exceptions'), false); assert.equal(db.prepare('SELECT title FROM Schedule').get()?.title, 'Original');
+    db.exec(sql); assert.equal(db.prepare('SELECT exceptions FROM Schedule').get()?.exceptions, '[]'); assert.deepEqual(db.prepare('SELECT payload FROM SyncChange ORDER BY seq').all(), before);
+  } finally { db.close(); }
+});
+
 test('missing database trigger fails closed with no write and no ACK', async () => {
   const owner = await user('missing-trigger')
   await prisma.$executeRawUnsafe('DROP TRIGGER "sync_Todo_insert"')

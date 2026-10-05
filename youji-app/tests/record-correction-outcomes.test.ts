@@ -14,7 +14,7 @@ const todoInput = { text: 'Synthetic repeated name', priority: 'medium' as const
 const expenseInput = { name: 'Synthetic repeated name', category: 'food', amount: 1234, date: '2026-10-03', isIncome: false };
 before(async () => { await storage.bindAccountDatabase('synthetic-record-correction'); sync.pauseSync(); });
 beforeEach(async () => {
-  localStorage.removeItem(api.SIGNED_OUT_KEY); localStorage.removeItem(api.SESSION_REVISION_KEY); api.clearSession();
+  localStorage.removeItem(api.SIGNED_OUT_KEY); localStorage.removeItem(api.SESSION_REVISION_KEY); api.clearSession(); api.setSessionActive('synthetic-record-correction');
   await storage.db.todos.clear(); await storage.db.expenses.clear(); await storage.db.settings.clear(); await storage.db.outbox.clear();
   useTodoStore.setState({ undoStack: [] }); await useTodoStore.getState().loadFromDB(); await useExpenseStore.getState().loadFromDB();
 });

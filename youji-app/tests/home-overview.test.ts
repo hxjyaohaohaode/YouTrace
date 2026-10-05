@@ -247,3 +247,12 @@ test('refresh delay aligns to the next minute and midnight and never busy-loops'
   assert.equal(getOverviewRefreshDelay(new Date('2026-10-04T16:00:00.000Z').getTime()), 60_000);
   assert.equal(getOverviewRefreshDelay(new Date('2026-10-04T16:00:25.500Z').getTime()), 34_500);
 });
+
+test('Home current overview shares cancelled and moved occurrence semantics with the calendar', () => {
+  const original = schedule({ date: '2026-10-05', repeat: 'weekly', exceptions: [{ occurrenceDate: '2026-10-12', date: '2026-10-13', title: 'Moved only once', startTime: '11:00', endTime: '12:00', location: '', type: 'work', remind: 0 }] });
+  assert.deepEqual(getScheduleOverview([original], at('2026-10-12', '09:30')), { value: '0 项', sub: '今天没有日程' });
+  assert.deepEqual(getScheduleOverview([original], at('2026-10-13', '11:30')), { value: '1 项', sub: '进行中: Moved only once' });
+  assert.equal(getScheduleOverview([original], at('2026-10-19', '09:30')).value, '1 项');
+  const cancelled = { ...original, exceptions: original.exceptions!.map(row => ({ ...row, cancelled: true })) };
+  assert.deepEqual(getScheduleOverview([cancelled], at('2026-10-13', '11:30')), { value: '0 项', sub: '今天没有日程' });
+});

@@ -7,7 +7,7 @@ import { useAuthStore, useUnauthedRedirect } from './stores/authStore';
 import SplashScreen from './components/ui/SplashScreen';
 import { ToastHost } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
-import { DATABASE_UPGRADE_BLOCKED_EVENT, isDatabaseUpgradeBlocked } from './db';
+import { DATABASE_UPGRADE_BLOCKED_EVENT, isDatabaseUpgradeBlocked, getDatabaseRecoveryError } from './db';
 import { RuntimeObserver } from './components/layout/RuntimeObserver';
 
 function NavigateBridge() {
@@ -26,7 +26,8 @@ function NavigateBridge() {
 function ReadyRoutes({ ready, failed }: { ready: boolean; failed: boolean }) {
   const { pathname } = useLocation();
   const [databaseBlocked, setDatabaseBlocked] = useState(isDatabaseUpgradeBlocked);
-  useEffect(() => { const update = () => setDatabaseBlocked(isDatabaseUpgradeBlocked()); window.addEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); return () => window.removeEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); }, []);
+  const [recoveryError, setRecoveryError] = useState(getDatabaseRecoveryError);
+  useEffect(() => { const update = () => { setDatabaseBlocked(isDatabaseUpgradeBlocked()); setRecoveryError(getDatabaseRecoveryError()); }; window.addEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); return () => window.removeEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); }, []);
   const checked = useAuthStore((s) => s.authChecked);
   const unavailable = useAuthStore((s) => s.identityUnavailable);
   const isPublic = ['/login', '/onboarding', '/data-info'].includes(pathname);
@@ -34,7 +35,7 @@ function ReadyRoutes({ ready, failed }: { ready: boolean; failed: boolean }) {
   return <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
     <div className="flex max-w-sm flex-col items-center gap-3 px-5 text-center">
       {failed || unavailable || databaseBlocked ? <>
-        <p className="text-sm text-[var(--text-2)]">{databaseBlocked ? '请先关闭这台设备其他有迹标签页，再重试升级。记录仍原样保留' : unavailable ? '暂时无法确认登录身份，记录仍保存在本设备' : '加载遇到问题'}</p>
+        <p className="text-sm text-[var(--text-2)]">{recoveryError ? `本地资料升级未完成：${recoveryError}。原始资料仍保留，请勿清除浏览器数据；可关闭旧窗口、检查可用空间后重试` : databaseBlocked ? '请先关闭这台设备其他有迹标签页，再重试升级。记录仍原样保留' : unavailable ? '暂时无法确认登录身份，记录仍保存在本设备' : '加载遇到问题'}</p>
         <button type="button" onClick={() => window.location.reload()} className="rounded-full bg-[var(--primary)] px-6 py-2.5 text-sm font-semibold text-white">重试</button>
       </> : <>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" aria-hidden />

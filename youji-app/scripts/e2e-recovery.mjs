@@ -1,6 +1,6 @@
 // Real Chromium + real HTTP cookies + real IndexedDB. Synthetic, isolated data only.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, access, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -428,7 +428,7 @@ async function businessRegressions(page, errors) {
     await otherContext.close();
   });
 
-  await scenario('Goal migration: real old IndexedDB preview, explicit upload, and old-window copy preserve originals', async () => {
+  await scenario('Goal migration: pre-generation IndexedDB copy, explicit upload, and retained source-table recovery preserve originals', async () => {
     await page.bringToFront();
     const ownerId = await page.evaluate(async () => (await (await fetch('/api/auth/me')).json()).user.id);
     assert.match(ownerId, /^[a-zA-Z0-9_-]+$/);
@@ -466,9 +466,11 @@ async function businessRegressions(page, errors) {
     assert.equal(upload.status(), 200);
     assert.equal(upload.request().postData().includes('SYNTHETIC_UNSELECTED_BROWSER_FIELD'), false, 'unpreviewed arbitrary legacy field never leaves the browser');
     await expectText(legacyPage, '已同步', true, 'main article span');
+    // Synthetic change to the retained goals source table in the new generation.
+    // Actual old-JS writes to the old physical DB are covered separately.
     await legacyPage.evaluate(async (owner) => {
       await new Promise((resolve, reject) => {
-        const request = indexedDB.open(`youtrace:user:${owner}`);
+        const request = indexedDB.open(`youtrace:user:${owner}:schedule-v1`);
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const database = request.result, transaction = database.transaction('goals', 'readwrite'), source = transaction.objectStore('goals');
@@ -486,6 +488,28 @@ async function businessRegressions(page, errors) {
     await clickButton(legacyPage, '生成本机副本', '[role=dialog]'); await modalClosed(legacyPage);
     await expectText(legacyPage, '0/2 完成 · 平均进度 50%');
     await expectText(legacyPage, '仅本机', true, 'main article span');
+    // True old-window write targets the retained pre-cutover physical DB. It must
+    // not update the current-generation goal or upload itself through this app.
+    await legacyPage.evaluate(owner => new Promise((resolve, reject) => {
+      const opening = indexedDB.open(`youtrace:user:${owner}`);
+      opening.onerror = () => reject(opening.error);
+      opening.onsuccess = () => {
+        const database = opening.result, tx = database.transaction('goals', 'readwrite'), table = tx.objectStore('goals'), read = table.get('synthetic-browser-legacy-goal');
+        read.onsuccess = () => table.put({ ...read.result, title: 'Synthetic old window late change', progress: 88 });
+        tx.oncomplete = () => { database.close(); resolve(); }; tx.onerror = () => { database.close(); reject(tx.error); };
+      };
+    }), ownerId);
+    await reloadPage(legacyPage); await expectText(legacyPage, '0/2 完成 · 平均进度 50%'); await expectText(legacyPage, 'Synthetic old window late change', false);
+    await route(legacyPage, '/settings'); await clickButton(legacyPage, '检查旧窗口修改'); await expectText(legacyPage, '类旧版资料与升级时不同', true, '[role=status]');
+    await legacyPage.screenshot({ path: join(artifactDir, 'generation-late-source-disclosure.png'), fullPage: false });
+    const downloadPath = join(artifactDir, 'generation-export'); await mkdir(downloadPath, { recursive: true }); await legacyPage.browserContext().setDownloadBehavior({ policy: 'allow', downloadPath });
+    await clickButton(legacyPage, '导出升级前保留资料');
+    let exported;
+    for (let attempt = 0; attempt < 40; attempt++) { const file = (await readdir(downloadPath)).find(name => name.endsWith('.json')); if (file) { try { exported = JSON.parse(await readFile(join(downloadPath, file), 'utf8')); break; } catch { /* wait for completed write */ } } await delay(100); }
+    assert.equal(exported?.format, 'youtrace-account-generation-recovery'); assert.equal(exported.ownerId, ownerId); assert.equal(exported.status.changedTables.includes('goals'), true);
+    assert.equal(JSON.stringify(exported.baseline).includes('Synthetic old window late change'), false); assert.equal(JSON.stringify(exported.source).includes('Synthetic old window late change'), true);
+    step('Retained old source: visible late-change notice and actual downloaded baseline/source JSON preserve separate originals', { file: 'generation-export/', currentGoalStill25: true });
+
     await route(page, '/goal');
     await expectText(page, '0/1 完成 · 平均进度 25%');
     await legacyContext.close();

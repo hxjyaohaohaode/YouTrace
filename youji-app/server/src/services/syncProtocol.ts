@@ -1,3 +1,4 @@
+import { decodeScheduleExceptions } from './scheduleExceptions.js'
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 
@@ -81,5 +82,6 @@ export function decodeChangePayload(entity: string, payload: string | null): Rec
     // A malformed historical JSON blob must remain recoverable, not silently become {}.
     try { row.parsed = JSON.parse(row.parsed) } catch { row.parsed = { legacyRaw: row.parsed } }
   }
+  if (entity === 'schedules' && typeof row.exceptions === 'string') row.exceptions = decodeScheduleExceptions(row.exceptions)
   return row
 }

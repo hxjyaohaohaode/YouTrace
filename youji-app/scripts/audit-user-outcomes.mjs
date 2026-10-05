@@ -41,7 +41,7 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   }
   return files;
 }
-const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-red-baseline' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
+const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-implementation-candidate' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], planningRedEvidenceCommit: 'fccbb230435b92333a27ecac19e0badac882d067', applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -54,7 +54,24 @@ async function capture(page, name) { const stem = `${String(++sequence).padStart
 async function observe(page, name, pass, detail) { const evidence = await capture(page, name); results.push({ name, status: pass === null ? 'observed-context' : pass ? 'observed-pass' : 'observed-fail', detail, screenshot: evidence.screenshot, snapshot: evidence.snapshot }); console.log(`${pass === null ? 'CONTEXT' : pass ? 'OBSERVED' : 'PRODUCT GAP'} ${name}: ${detail}`); await checkpoint(`observed ${name}`); return evidence.state; }
 async function segment(page, name, operation) { try { await operation(); } catch (error) { const evidence = await capture(page, name).catch(() => ({})); results.push({ name, status: 'blocked', detail: error.message, screenshot: evidence.screenshot, snapshot: evidence.snapshot }); console.log(`BLOCKED ${name}: ${error.message}`); await checkpoint(`blocked ${name}`); } }
 async function visibleHandle(page, selector, text) { const handle = await page.waitForFunction((selector, text) => [...document.querySelectorAll(selector)].find(el => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden' && !el.disabled && (text === undefined || el.textContent.trim() === text); }), { timeout: 7000 }, selector, text); return handle.asElement(); }
-async function pointer(page, selector, text) { await page.bringToFront(); const element = await visibleHandle(page, selector, text); try { await element.scrollIntoView(); await page.waitForFunction(el => { const r = el.getBoundingClientRect(); return el.isConnected && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 7000 }, element); await element.asLocator().click(); actions.push({ at: new Date().toISOString(), kind: 'native-pointer', surface: surfaceNames.get(page), selector, text, path: new URL(page.url()).pathname }); } finally { await element.dispose(); } }
+async function pointer(page, selector, text) {
+  await page.bringToFront();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const element = await visibleHandle(page, selector, text); let attemptedClick = false;
+    try {
+      await element.scrollIntoView();
+      await page.waitForFunction(el => { if (!el.isConnected) return true; const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 7000 }, element);
+      if (!await element.evaluate(el => el.isConnected)) { actions.push({ kind: 'reacquire-rendered-target-before-click', selector, text }); continue; }
+      attemptedClick = true; await element.asLocator().click();
+      actions.push({ at: new Date().toISOString(), kind: 'native-pointer', surface: surfaceNames.get(page), selector, text, path: new URL(page.url()).pathname }); return;
+    } catch (error) {
+      // Reacquire only before any click was attempted; never replay an uncertain action.
+      if (!attemptedClick && /detached|not connected/i.test(error.message) && attempt < 2) { actions.push({ kind: 'reacquire-detached-target-before-click', selector, text }); continue; }
+      throw error;
+    } finally { await element.dispose(); }
+  }
+  throw new Error('Rendered target kept changing before a native click');
+}
 async function fill(page, selector, text) { await pointer(page, selector); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.sendCharacter(text); assert.equal(await page.$eval(selector, el => el.value), text); actions.push({ at: new Date().toISOString(), kind: 'native-text', surface: surfaceNames.get(page), selector, syntheticText: text }); }
 async function nav(page, label) { await pointer(page, 'aside nav button', label); await sleep(350); }
 async function waitPath(page, path) { const started = Date.now(); await page.waitForFunction(path => location.pathname === path, { timeout: 15000 }, path); actions.push({ at: new Date().toISOString(), kind: 'route-observed', surface: surfaceNames.get(page), path, waitedMs: Date.now() - started }); await sleep(350); }
@@ -94,7 +111,7 @@ async function apiFor(page) {
 }
 async function localRows(page, owner) {
   return page.evaluate(owner => new Promise((resolve, reject) => {
-    const request = indexedDB.open(`youtrace:user:${owner}`);
+    const request = indexedDB.open(`youtrace:user:${owner}:schedule-v1`);
     request.onupgradeneeded = () => { request.transaction.abort(); reject(new Error('Expected account DB must already exist')); };
     request.onerror = () => reject(request.error);
     request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'schedules', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
@@ -278,7 +295,7 @@ async function receiptReadFailureAfterUpdate(page) {
     // Only this already-loaded receipt tab has a bounded read outage. The peer performs
     // a real same-ID edit; no application records or UI values are injected.
     await page.evaluate(({ id, owner }) => {
-      const original = IDBObjectStore.prototype.get, database = `youtrace:user:${owner}`, startedAt = Date.now(), deadline = startedAt + 15000;
+      const original = IDBObjectStore.prototype.get, database = `youtrace:user:${owner}:schedule-v1`, startedAt = Date.now(), deadline = startedAt + 15000;
       const diagnostic = { database, recordId: id, startedAt, deadline, calls: [], hits: [], callCount: 0, hitCount: 0, truncatedEvents: false, restoredAt: null, expired: false };
       window.__receiptReadDiagnostic = diagnostic;
       let timer;

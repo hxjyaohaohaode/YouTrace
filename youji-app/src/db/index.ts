@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { accountDatabaseName, prepareAccountGeneration, GENERATION_STORE, generationRecovery, encodeRecovery } from './accountGeneration';
 import type { ExpenseItem } from '../stores/expenseStore';
 import type { TodoItem } from '../stores/todoStore';
 import type { HabitItem } from '../stores/habitStore';
@@ -15,6 +16,18 @@ export type SyncEntity =
   | 'habitCheckins'
   | 'goals';
 
+export interface ScheduleException {
+  occurrenceDate: string;
+  cancelled?: boolean;
+  date: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  location: string;
+  type: ScheduleRecord['type'];
+  remind: number;
+}
+
 export interface ScheduleRecord {
   id: string;
   date: string;
@@ -24,6 +37,7 @@ export interface ScheduleRecord {
   location: string;
   type: 'class' | 'study' | 'work' | 'social' | 'other';
   repeat: 'none' | 'weekly';
+  exceptions?: ScheduleException[];
   remind: number;
   createdAt: number;
   updatedAt: number;
@@ -98,6 +112,8 @@ export function generateLocalId(): string {
 
 export const DATABASE_UPGRADE_BLOCKED_EVENT = 'youtrace:database-upgrade-blocked';
 let databaseUpgradeBlocked = false;
+let databaseRecoveryError: string | null = null;
+export const getDatabaseRecoveryError = () => databaseRecoveryError;
 export const isDatabaseUpgradeBlocked = () => databaseUpgradeBlocked;
 
 export const LOCAL_DATA_EPOCH_KEY = 'localDataEpoch';
@@ -124,14 +140,20 @@ export class YoujiDatabase extends Dexie {
   outbox!: Table<OutboxRecord, number>;
   readonly ownerId: string | null;
 
-  constructor(ownerId: string | null = null) {
+  constructor(ownerId: string | null = null, currentGeneration = false) {
     if (ownerId !== null && !/^[a-zA-Z0-9_-]{1,128}$/.test(ownerId)) {
       throw new Error('账号标识无效，未打开数据');
     }
-    super(ownerId ? `youtrace:user:${ownerId}` : 'youtrace:guest');
+    super(ownerId ? accountDatabaseName(ownerId, !currentGeneration) : 'youtrace:guest');
     this.ownerId = ownerId;
     this.on('blocked', () => { databaseUpgradeBlocked = true; if (typeof window !== 'undefined') window.dispatchEvent(new Event(DATABASE_UPGRADE_BLOCKED_EVENT)); });
     this.on('ready', () => { databaseUpgradeBlocked = false; if (typeof window !== 'undefined') window.dispatchEvent(new Event(DATABASE_UPGRADE_BLOCKED_EVENT)); });
+    // Prepared generations are dynamically opened: this preserves every unknown
+    // table and its exact native index names without another schema upgrade.
+    if (currentGeneration) {
+      this.on('ready', () => { for (const name of ENTITY_TABLES) Reflect.set(this, name, this.table(name)); });
+      return;
+    }
     this.version(1).stores({
       schedules: 'id, date, type',
       expenses: 'id, date, category',
@@ -163,26 +185,73 @@ let bound = false;
 
 // Bind only once in a document, after /auth/me verifies the owner. Changing an
 // account reloads the document, so late store callbacks cannot reach another DB.
-export async function bindAccountDatabase(ownerId: string | null): Promise<void> {
+export async function bindAccountDatabase(ownerId: string | null, assertCurrent: () => void = () => undefined): Promise<void> {
+  assertCurrent();
   if (bound && db.ownerId !== ownerId) throw new Error('切换账号需要重新加载页面');
-  if (!bound && db.ownerId !== ownerId) {
-    db.close();
-    db = new YoujiDatabase(ownerId);
+  let candidate = db;
+  try {
+    // /auth/me is the caller's identity proof. Never promote a guest or the
+    // unowned shared database and never fall back to an empty account on error.
+    if (!bound && ownerId) {
+      await prepareAccountGeneration(ownerId);
+      assertCurrent();
+      candidate = new YoujiDatabase(ownerId, true);
+    }
+    await candidate.open();
+    assertCurrent();
+    if (candidate !== db) { db.close(); db = candidate; }
+    bound = true;
+    databaseRecoveryError = null;
+  } catch (error) {
+    if (candidate !== db) candidate.close();
+    databaseRecoveryError = error instanceof Error ? error.message : '本地资料升级未完成，原始资料仍保留';
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(DATABASE_UPGRADE_BLOCKED_EVENT));
+    throw error;
   }
-  bound = true;
-  await db.open();
+}
+
+export async function getAccountGenerationRecovery() {
+  return db.ownerId ? (await generationRecovery(db.ownerId)).status : null;
+}
+
+export async function exportAccountGenerationRecovery() {
+  if (!db.ownerId) throw new Error('请先确认账号身份');
+  const recovery = await generationRecovery(db.ownerId);
+  return {
+    format: 'youtrace-account-generation-recovery', schemaVersion: 1,
+    ownerId: db.ownerId, exportedAt: new Date().toISOString(),
+    status: recovery.status,
+    // Tagged encoding preserves raw IndexedDB keys and non-JSON unknown fields.
+    encoding: 'youtrace-structured-clone-v1',
+    baseline: await encodeRecovery(recovery.baseline), source: await encodeRecovery(recovery.source),
+  };
 }
 
 export async function exportAllData() {
-  return db.transaction('r', db.tables, async () => {
+  const active = await db.transaction('r', db.tables, async () => {
     const tables: Record<string, unknown[]> = {};
-    for (const name of ENTITY_TABLES) tables[name === 'goalRecords' ? 'goals' : name === 'goals' ? 'legacyGoalSources' : name] = await db.table(name).toArray();
+    const rawTables: Array<{ name: string; keys: unknown[]; rows: unknown[] }> = [];
+    for (const table of db.tables) {
+      const name = table.name;
+      if (name === GENERATION_STORE) continue;
+      const rows = await table.toArray();
+      rawTables.push({ name, keys: await table.toCollection().primaryKeys(), rows });
+      tables[name === 'goalRecords' ? 'goals' : name === 'goals' ? 'legacyGoalSources' : name] = rows.map((row, index) => {
+        // Compatibility reading view only. Exact structured-clone values and
+        // keys are always in rawTables, including data JSON cannot represent.
+        try { return JSON.parse(JSON.stringify(row)); }
+        catch { return { rawTable: name, rawRow: index, representation: 'See lossless rawTables; this row is not ordinary JSON' }; }
+      });
+    }
     return {
-      format: 'youtrace-local-backup', schemaVersion: 2, storageVersion: db.verno,
+      format: 'youtrace-local-backup', schemaVersion: 3, storageVersion: db.verno,
       exportedAt: new Date().toISOString(), ownerId: db.ownerId,
-      scope: db.ownerId ? 'account' : 'guest', tables,
+      scope: db.ownerId ? 'account' : 'guest', tablesRepresentation: 'JSON reading view; rawTables is authoritative for exact restoration', tables, rawTables,
     };
   });
+  // Separate snapshots are labelled: the retained source may still be written
+  // by an old window and is never silently treated as current account content.
+  return { ...active, rawTables: await encodeRecovery(active.rawTables), rawTablesEncoding: 'youtrace-structured-clone-v1', generationRecovery: db.ownerId ? await exportAccountGenerationRecovery() : null };
 }
 
 export async function clearAllData(options: { allowPending?: boolean } = {}): Promise<void> {
@@ -190,7 +259,13 @@ export async function clearAllData(options: { allowPending?: boolean } = {}): Pr
     if (!options.allowPending && (await db.outbox.count() > 0 || await db.settings.where('key').startsWith('pendingSetting:').count() > 0)) {
       throw new Error('还有未同步的修改，先同步或导出备份后再处理');
     }
-    for (const table of db.tables) await table.clear();
+    // Keep the durable cutover receipt. Clearing must never re-import the old
+    // account database on the next restart; retained sources are separate.
+    for (const table of db.tables) if (table.name !== GENERATION_STORE) await table.clear();
+    if (db.tables.some((table) => table.name === GENERATION_STORE)) {
+      const marker = await db.table(GENERATION_STORE).get('cutover');
+      await db.table(GENERATION_STORE).put({ ...marker, cleared: true });
+    }
     await db.settings.put({ key: LOCAL_DATA_EPOCH_KEY, value: generateLocalId() });
   });
 }
