@@ -29,9 +29,12 @@ function ReadyRoutes({ ready, failed }: { ready: boolean; failed: boolean }) {
   const [recoveryError, setRecoveryError] = useState(getDatabaseRecoveryError);
   useEffect(() => { const update = () => { setDatabaseBlocked(isDatabaseUpgradeBlocked()); setRecoveryError(getDatabaseRecoveryError()); }; window.addEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); return () => window.removeEventListener(DATABASE_UPGRADE_BLOCKED_EVENT, update); }, []);
   const checked = useAuthStore((s) => s.authChecked);
+  const authenticated = useAuthStore((s) => s.isAuthenticated);
   const unavailable = useAuthStore((s) => s.identityUnavailable);
   const isPublic = ['/login', '/onboarding', '/data-info'].includes(pathname);
-  if (isPublic || (ready && checked)) return <AppRoutes />;
+  // A confirmed signed-out document must reach RequireAuth without loading
+  // account stores. Only authenticated routes depend on data readiness.
+  if (isPublic || (checked && (!authenticated || ready))) return <AppRoutes />;
   return <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
     <div className="flex max-w-sm flex-col items-center gap-3 px-5 text-center">
       {failed || unavailable || databaseBlocked ? <>
@@ -47,8 +50,9 @@ function ReadyRoutes({ ready, failed }: { ready: boolean; failed: boolean }) {
 
 export default function App() {
   const authChecked = useAuthStore((s) => s.authChecked);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const loadUser = useAuthStore((s) => s.loadUser);
-  const { ready, failed } = useAppInit(authChecked);
+  const { ready, failed } = useAppInit(authChecked && isAuthenticated);
   const [splashComplete, setSplashComplete] = useState(false);
   useEffect(() => { void loadUser().catch(() => useAuthStore.setState({ identityUnavailable: true })); }, [loadUser]);
   useUnauthedRedirect();

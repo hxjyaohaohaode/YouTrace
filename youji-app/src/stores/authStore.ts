@@ -77,14 +77,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   loadUser: () => {
     if (loadingIdentity) return loadingIdentity;
-    const generation = getSessionGeneration(), revision = localStorage.getItem(SESSION_REVISION_KEY);
-    const current = () => generation === getSessionGeneration() && revision === localStorage.getItem(SESSION_REVISION_KEY);
+    let generation = getSessionGeneration();
+    const revision = localStorage.getItem(SESSION_REVISION_KEY), signedOut = localStorage.getItem(SIGNED_OUT_KEY);
+    const sameDocumentSession = () => revision === localStorage.getItem(SESSION_REVISION_KEY) && signedOut === localStorage.getItem(SIGNED_OUT_KEY);
+    const current = () => generation === getSessionGeneration() && sameDocumentSession();
     const assertCurrent = () => { if (!current()) throw new Error('登录状态已变化，旧页面不会重新打开账号资料'); };
     loadingIdentity = (async () => {
       set({ identityUnavailable: false });
       try {
         if (localStorage.getItem(SIGNED_OUT_KEY) === 'true') {
           await bindAccountDatabase(null, assertCurrent);
+          assertCurrent();
           set({ user: null, isAuthenticated: false, authChecked: true });
           return;
         }
@@ -95,11 +98,21 @@ export const useAuthStore = create<AuthState>((set) => ({
         setSessionActive(user.id);
         set({ user, isAuthenticated: true, authChecked: true });
       } catch (error) {
+        // The current /auth/me rejection itself revokes request authority. Only
+        // its exact receipt may advance this attempt; later logins/clears win.
+        if (error instanceof AuthError && error.revokedGeneration === generation + 1 && error.revokedGeneration === getSessionGeneration() && sameDocumentSession()) {
+          generation = error.revokedGeneration;
+        }
         if (!current()) return;
         if (error instanceof AuthError) {
-          clearSession();
-          await bindAccountDatabase(null);
-          set({ user: null, isAuthenticated: false, authChecked: true });
+          if (error.revokedGeneration === null) { clearSession(); generation = getSessionGeneration(); }
+          try {
+            await bindAccountDatabase(null, assertCurrent);
+            assertCurrent();
+            set({ user: null, isAuthenticated: false, authChecked: true });
+          } catch {
+            if (current()) set({ authChecked: false, identityUnavailable: true });
+          }
         } else {
           // A cached boolean is not proof of identity. Keep private data locked
           // until the session can be verified; all existing databases survive.

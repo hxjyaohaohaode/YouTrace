@@ -257,7 +257,7 @@ export async function runInitialSessionOutcomes(h) {
           const afterLogout = await local(owner); await save('after-logout-local', afterLogout);
           await pass('logout-private-content-absent-retained-DB', await noPrivateContent(title) && retained(before.local, afterLogout), 'Visible Login hides private Todo/navigation; original account DB/schema, complete Todo/outbox and receipts remain exact');
           const revoked = await get('/api/auth/me'); await save('logout-server-session', { source: 'GET-only observer probe after native logout', status: revoked.status });
-          await pass('actual-server-logout', revoked.status === 401, 'Normal Settings Logout revoked the actual disposable server session');
+          await pass('actual-server-logout', revoked.status === 401, 'Normal Settings Logout completed; the current browser now receives HTTP401. Old-credential replay is outside this journey.');
           await setStage('signed-out-protected-reentry');
           actions.push({ kind: 'declared-post-logout-protected-navigation', surface: label, path: INITIAL_SESSION_PATH });
           trace.boundary(page, 'route-start', '/todo');

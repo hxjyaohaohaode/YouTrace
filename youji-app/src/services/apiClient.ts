@@ -58,10 +58,13 @@ function requestAuthority(): RequestAuthority {
   return { owner: activeOwner, generation: sessionGeneration, revision: localStorage.getItem(SESSION_REVISION_KEY), signedOut: localStorage.getItem(SIGNED_OUT_KEY) }
 }
 /** A late rejection belongs to the request's session, never a later login. */
-function revokeRequestAuthority(authority: RequestAuthority): void {
-  if (authority.owner !== activeOwner || authority.generation !== sessionGeneration || authority.revision !== localStorage.getItem(SESSION_REVISION_KEY) || authority.signedOut !== localStorage.getItem(SIGNED_OUT_KEY)) return
+function revokeRequestAuthority(authority: RequestAuthority): number | null {
+  if (authority.owner !== activeOwner || authority.generation !== sessionGeneration || authority.revision !== localStorage.getItem(SESSION_REVISION_KEY) || authority.signedOut !== localStorage.getItem(SIGNED_OUT_KEY)) return null
   clearSession()
+  // Capture before listeners run: they may already establish a newer session.
+  const revokedGeneration = sessionGeneration
   window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+  return revokedGeneration
 }
 
 async function request<T>(
@@ -89,8 +92,7 @@ async function request<T>(
   recordDiagnostic(res.ok ? 'request-ok' : 'request-failed', requestArea(path), performance.now() - startedAt, res.status)
 
   if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
-    revokeRequestAuthority(authority)
-    throw new AuthError('登录已过期')
+    throw new AuthError('登录已过期', revokeRequestAuthority(authority))
   }
 
   if (res.status === 204 || res.headers.get('content-length') === '0') {
@@ -116,9 +118,11 @@ async function request<T>(
 
 export class AuthError extends Error {
   readonly status = 401
-  constructor(message: string) {
+  readonly revokedGeneration: number | null
+  constructor(message: string, revokedGeneration: number | null = null) {
     super(message)
     this.name = 'AuthError'
+    this.revokedGeneration = revokedGeneration
   }
 }
 
@@ -179,8 +183,7 @@ export async function streamChat(
   })
 
   if (res.status === 401 || (res.status === 409 && res.headers.get('X-YouTrace-Account-Mismatch') === 'true')) {
-    revokeRequestAuthority(authority)
-    throw new AuthError('登录已过期')
+    throw new AuthError('登录已过期', revokeRequestAuthority(authority))
   }
 
   if (!res.ok) {
