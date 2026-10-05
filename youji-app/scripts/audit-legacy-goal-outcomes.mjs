@@ -87,6 +87,36 @@ function serverMatches(source, server, owner) {
 }
 export const legacyGoalOutcomeChecks = { fixture, preserved, neighborUnchanged, decodeRecovery, rawTableMatches, physicalRowsMatch, wireSafe, serverMatches, pendingGoal };
 
+// Browser-only observation: wait for the same modal control to stop moving.
+// No animation changes, synthetic clicks, or replay of an attempted action.
+export function waitForStableModalTarget(selector, timeoutMs = 2500) {
+  const target = document.querySelector(selector);
+  if (!target) return Promise.reject(new Error('Modal control disappeared before pointer action'));
+  return new Promise((resolve, reject) => {
+    const startedAt = performance.now(), samples = [];
+    let previous, stable = 0, frame, ended = false;
+    const finish = (error, result) => {
+      if (ended) return;
+      ended = true; clearTimeout(timer); cancelAnimationFrame(frame);
+      if (error) reject(error); else resolve(result);
+    };
+    const timer = setTimeout(() => finish(new Error('Modal control did not stop moving before pointer action')), timeoutMs);
+    const sample = () => {
+      if (ended) return;
+      if (!target.isConnected || document.querySelector(selector) !== target) { finish(new Error('Modal control changed before pointer action')); return; }
+      const rect = target.getBoundingClientRect(), box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      const elapsedMs = performance.now() - startedAt;
+      samples.push({ ...box, elapsedMs });
+      if (samples.length > 3) samples.shift();
+      stable = previous && Object.keys(box).every(key => box[key] === previous[key]) ? stable + 1 : 0;
+      if (stable >= 2) { finish(null, { box, samples, elapsedMs }); return; }
+      if (elapsedMs >= timeoutMs) { finish(new Error('Modal control did not stop moving before pointer action')); return; }
+      previous = box; frame = requestAnimationFrame(sample);
+    };
+    frame = requestAnimationFrame(sample);
+  });
+}
+
 export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Y6L native audit is hosted-CI only');
   assert.ok(['all', 'enrollment', 'source'].includes(scenarioSet), 'Unknown legacy Goal scenario set');
@@ -149,12 +179,23 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     }, { selector, text });
   }
   async function tap(page, selector, text) {
-    await page.bringToFront(); const resolved = await exact(page, selector, text), box = await read(page, resolved);
+    await page.bringToFront(); const resolved = await exact(page, selector, text);
+    let box = await read(page, resolved), stability = null;
     assert.ok(box.visible, `Actual control is clipped, unpainted, obscured or truncated: ${selector} ${text ?? ''}`);
+    if (await page.$eval(resolved, el => Boolean(el.closest('[role=dialog]')))) {
+      stability = await page.evaluate(waitForStableModalTarget, resolved);
+      box = await page.evaluate(geometry, resolved);
+      assert.ok(box.visible && Object.keys(stability.box).every(key => box.rect[key] === stability.box[key]), 'The stable modal control must still satisfy the full geometry and foreground checks');
+    }
     assert.equal(await page.$eval(resolved, el => Boolean(el.disabled)), false, 'A disabled control is not an attempted action');
     const x = box.rect.x + box.rect.width / 2, y = box.rect.y + box.rect.height / 2;
-    await page.mouse.move(x, y); await page.mouse.click(x, y);
-    actions.push({ kind: 'native-pointer-legacy-goal', surface: surfaceNames.get(page), selector, resolvedSelector: resolved, text, x, y, actualClip: box.clip, path: new URL(page.url()).pathname });
+    await page.mouse.move(x, y);
+    if (stability) {
+      const atPointer = await page.evaluate(geometry, resolved);
+      assert.ok(atPointer.visible && Object.keys(stability.box).every(key => atPointer.rect[key] === stability.box[key]), 'Modal target moved or became obscured before the single native click');
+    }
+    await page.mouse.click(x, y);
+    actions.push({ kind: 'native-pointer-legacy-goal', surface: surfaceNames.get(page), selector, resolvedSelector: resolved, text, x, y, actualClip: box.clip, ...(stability ? { stability } : {}), path: new URL(page.url()).pathname });
   }
   async function fill(page, selector, text) {
     await tap(page, selector); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.sendCharacter(text);
