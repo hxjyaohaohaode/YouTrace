@@ -13,12 +13,13 @@ import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
 import { runHabitOutcomes } from './audit-habit-outcomes.mjs';
 import { runGoalOutcomes } from './audit-goal-outcomes.mjs';
 import { runLegacyGoalOutcomes } from './audit-legacy-goal-outcomes.mjs';
+import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -75,6 +76,18 @@ if (taskSet.startsWith('legacy-goals-')) {
     : ['same-name source-choice readability', 'explicit current-generation source-table fixture comparison/copy/keep', 'committed copy then bounded display-read failure and actual recovery', 'stale opened comparison after copy deletion cannot resurrect'];
   metadata.interactions = 'native pointer/keyboard and recorded browser reloads; historical per-account DB seed and current-generation source changes explicitly labelled; no auth injection or business-write API';
   metadata.untested = ['Anonymous shared database ownership recovery', 'Automatic merging or one-click recovery of actual pre-cutover late changes', 'Arbitrary historical formats or private production data', 'Full-component keyboard/accessibility/zoom/reduced-motion and real mobile devices', 'Live SMS/model or production operations'];
+}
+if (taskSet === 'initial-session') {
+  metadata.kind = 'initial-session-native-RED-baseline';
+  metadata.applicationBaseline = '6290160';
+  metadata.harnessBaseline = 'e90ed2b37fb8c2393681f3062fe368d88172b210';
+  metadata.redEvidenceCommit = null; // This run establishes its own native baseline.
+  delete metadata.planningRedEvidenceCommit;
+  delete metadata.coachRedEvidenceCommit;
+  metadata.scenarioScope = ['fresh protected /todo?view=all -> actual auth/me401 -> visible Login -> native registration -> exact return', 'separate public Login/native registration -> create Todo/full same-ID ACK -> Settings Logout -> protected re-entry/Login with private content absent and retained DB -> existing-account OTP -> exact path and original record', 'both branches in independent 1280/360 profiles, with first failures and bounded deadlines'];
+  metadata.interactions = 'native pointer/keyboard/wheel; only declared initial and post-Logout protected URL entries; GET-only evidence and existing-IDB readonly snapshots; no auth/cookie/state injection';
+  metadata.diagnosisBoundary = 'Module-confirmed initial signed-out/auth401 readiness issues do not establish the unresolved original b5b8a12 B-to-Todo failure cause';
+  metadata.untested = ['Live SMS/model delivery', 'Manual human/mobile OS/screen-reader/accessibility acceptance', 'Initial-session races beyond these four independent native scenarios', 'Production accounts/data/deployment'];
 }
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
@@ -135,7 +148,7 @@ async function isolated(name, viewport, body) {
     recorder = await page.screencast({ path: join(artifacts, `${name}.webm`), fps: 12, quality: 35 });
     await body(page);
   } catch (error) { await segment(page, `${name}-setup`, async () => { throw error; }); }
-  finally { if (recorder && !page.isClosed()) { actions.push({ kind: 'natural-reading-interval', surface: name, durationMs: 500, purpose: 'final visible state before recording closes' }); await sleep(500); await capture(page, `${name}-final-visible-frame`).catch(() => infrastructure.push({ scenario: name, finalVisibleFrameMissing: true })); } if (recorder) await recorder.stop(); await page.tracing.stop(); await context.close(); }
+  finally { if (recorder && !page.isClosed()) { actions.push({ kind: 'natural-reading-interval', surface: name, durationMs: 500, purpose: 'final visible state before recording closes' }); await sleep(500); await capture(page, `${name}-final-visible-frame`).catch(() => infrastructure.push({ scenario: name, finalVisibleFrameMissing: true })); } try { if (recorder) await recorder.stop(); } finally { try { await page.tracing.stop(); } finally { await context.close(); actions.push({ kind: 'isolated-profile-closed', surface: name }); } } }
 }
 async function apiFor(page) {
   const cookie = (await page.browserContext().cookies()).filter(row => row.domain === '127.0.0.1').map(row => `${row.name}=${row.value}`).join('; ');
@@ -577,7 +590,10 @@ try {
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet.startsWith('habits')) {
+  if (taskSet === 'initial-session') {
+    const media = await runInitialSessionOutcomes({ isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet.startsWith('habits')) {
     const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock }, { frequencyOnly: taskSet === 'habits-frequency' });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet.startsWith('legacy-goals-')) {
