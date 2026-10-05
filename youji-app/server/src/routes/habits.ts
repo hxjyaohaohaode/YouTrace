@@ -42,6 +42,7 @@ habitRoutes.get('/', async (c) => {
         updatedAt: h.updatedAt,
         done: stat?.done ?? false,
         streak: stat?.streak ?? 0,
+        period: stat?.period ?? null,
         recentCheckins: stat?.recentCheckins ?? [],
       }
     }),

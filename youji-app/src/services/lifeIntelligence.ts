@@ -1,12 +1,16 @@
 import { db } from '../db';
 import { addDays, formatBusinessDate, getToday } from '../utils/date';
+import { getHabitPeriod } from '../utils/habitPeriod';
 import type { InsightType } from '../stores/coachStore';
 
 export interface WeeklyStats {
   expenseTotalFen: number;
   lastWeekExpenseTotalFen: number;
   weekOverWeekPct: number | null;
+  /** Current daily / natural-week plan only, never a historical seven-day score. */
   habitCompletionRate: number;
+  habitRecordCount: number;
+  habitRecordDays: number;
   habitExpectedCount: number;
   todoCohortDescription: string;
   todoDoneCount: number;
@@ -67,28 +71,15 @@ async function computeWeeklyExpenseStats() {
 }
 
 async function computeHabitStats() {
-  const today = getToday();
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
+  const today = getToday(), cutoff = addDays(today, -6);
   const habits = await db.habits.toArray();
-  if (habits.length === 0) return { rate: 0, totalPossible: 0, totalDone: 0 };
-
-  const checkins = await db.habitCheckins.where('date').anyOf(weekDates).toArray();
-  const doneSet = new Set(checkins.filter((c) => c.done).map((c) => `${c.habitId}|${c.date}`));
-
-  let totalPossible = 0;
-  let totalDone = 0;
-  for (const habit of habits) {
-    const createdDate = timestampDate(habit.createdAt);
-    const eligibleDates = weekDates.filter((date) => !createdDate || date >= createdDate);
-    if (eligibleDates.length === 0) continue;
-    const doneCount = eligibleDates.filter((date) => doneSet.has(`${habit.id}|${date}`)).length;
-    // A weekly habit asks for one completion in this rolling seven-day window.
-    // Daily habits only count days on or after their creation date.
-    totalPossible += habit.frequency === 'weekly' ? 1 : eligibleDates.length;
-    totalDone += habit.frequency === 'weekly' ? Math.min(1, doneCount) : doneCount;
-  }
-
-  return { rate: totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0, totalPossible, totalDone };
+  const checkins = await db.habitCheckins.where('date').between(cutoff, today, true, true).toArray();
+  const ids = new Set(habits.map(row => row.id));
+  const facts = checkins.filter(row => row.done && ids.has(row.habitId));
+  const periods = habits.map(habit => getHabitPeriod({ ...habit, recentCheckins: checkins.filter(row => row.habitId === habit.id) }, today)).filter(period => period.applicable);
+  const totalPossible = periods.length, totalDone = periods.filter(period => period.attained).length;
+  return { rate: totalPossible ? Math.round(totalDone / totalPossible * 100) : 0, totalPossible, totalDone,
+    recordCount: new Set(facts.map(row => `${row.habitId}|${row.date}`)).size, recordDays: new Set(facts.map(row => row.date)).size };
 }
 
 function timestampDate(value: unknown): string | null {
@@ -173,6 +164,8 @@ export async function computeWeeklyStats(): Promise<WeeklyStats> {
     weekOverWeekPct: expenseStats.wowPct,
     habitCompletionRate: habitStats.rate,
     habitExpectedCount: habitStats.totalPossible,
+    habitRecordCount: habitStats.recordCount,
+    habitRecordDays: habitStats.recordDays,
     todoCohortDescription: '近7天创建或到期的待办（当前完成状态）',
     todoDoneCount: todoStats.done,
     todoTotalCount: todoStats.total,
@@ -205,20 +198,12 @@ export async function generateRealInsights(): Promise<LifeInsight[]> {
     });
   }
 
-  if (stats.habitCompletionRate > 0 && stats.habitCompletionRate >= 70) {
+  if (stats.habitRecordCount > 0) {
     insights.push({
-      type: 'positive',
-      title: `习惯完成率 ${stats.habitCompletionRate}%`,
-      description: `近7天的习惯完成率为${stats.habitCompletionRate}%，按每日或每周频率、创建日期计算。可以按适合自己的节奏继续。`,
-      dataSources: ['habit'],
-    });
-  } else if (stats.habitCompletionRate > 0 && stats.habitCompletionRate < 30) {
-    insights.push({
-      type: 'anomaly',
+      type: 'pattern',
       title: '习惯记录回顾',
-      description: `近7天已记录的习惯完成率为${stats.habitCompletionRate}%。未打卡不一定代表没做过，也可以按实际安排调整计划。`,
+      description: `近7天在${stats.habitRecordDays}天记录了${stats.habitRecordCount}次习惯活动。这是实际日期的记录，不按现在的频率回算过去的完成率；未记录不代表没有做过。`,
       dataSources: ['habit'],
-      actionSuggested: '挑一个最简单的习惯先恢复',
     });
   }
 
@@ -276,8 +261,8 @@ export async function generateWeeklyReview(): Promise<string> {
     lines.push(`   最大支出：${getCategoryLabel(stats.topCategory)} ¥${(stats.topCategoryAmountFen / 100).toFixed(2)}`);
   }
 
-  if (stats.habitExpectedCount > 0) {
-    lines.push(`\n✅ 习惯完成率：${stats.habitCompletionRate}%（按频率与创建日期计算）`);
+  if (stats.habitRecordCount > 0) {
+    lines.push(`\n✅ 近7天习惯记录：${stats.habitRecordCount} 次，分布在 ${stats.habitRecordDays} 天（按实际日期，不回算历史完成率）`);
   }
 
   if (stats.todoTotalCount > 0) {

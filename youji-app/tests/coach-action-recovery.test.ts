@@ -11,12 +11,12 @@ const { useHabitStore } = await import('../src/stores/habitStore.ts');
 const { pauseSync } = await import('../src/services/syncEngine.ts');
 const { getToday } = await import('../src/utils/date.ts');
 const originalTodo = useTodoStore.getState().addItem;
-const originalToggle = useHabitStore.getState().toggleHabit;
+const originalSet = useHabitStore.getState().setHabitDone;
 const seed = (payload: NonNullable<import('../src/stores/coachStore').CoachAction['payload']>) => useCoachStore.setState({ messages: [{ id: 'message', role: 'assistant', content: 'synthetic', timestamp: 0, actions: [{ id: 'action', type: 'smart', title: 'synthetic', level: 2, checked: false, payload }] }] });
 const execute = () => useCoachStore.getState().executeSmartAction('message', 'action');
 const executed = () => useCoachStore.getState().messages[0].actions![0].executed === true;
 before(async () => { await accountStorage.bindAccountDatabase('synthetic-coach-action'); });
-beforeEach(() => { useTodoStore.setState({ addItem: originalTodo }); useHabitStore.setState({ toggleHabit: originalToggle, items: [] }); });
+beforeEach(() => { useTodoStore.setState({ addItem: originalTodo }); useHabitStore.setState({ setHabitDone: originalSet, items: [] }); });
 after(() => { pauseSync(); accountStorage.db.close(); });
 
 test('repeated clicks while a coach write is pending apply exactly once', async () => {
@@ -43,7 +43,7 @@ test('failed coach writes never mark success and a deliberate retry can recover'
 
 test('habit action requires one exact nonempty match, never a substring or ambiguous name', async () => {
   let calls = 0;
-  useHabitStore.setState({ toggleHabit: async () => { calls++; } });
+  useHabitStore.setState({ setHabitDone: async (view, date, done) => { calls++; assert.equal(view.id, 'walk'); assert.equal(date, getToday()); assert.equal(done, true); return { status: 'already-achieved', viewUpdated: true }; } });
   const habit = (id: string, name: string) => ({ id, name, icon: 'x', frequency: 'daily' as const, sortOrder: 0, createdAt: 0, done: false, streak: 0, recentCheckins: [] });
   useHabitStore.setState({ items: [habit('walk', '散步'), habit('run', '跑步五公里')] });
   for (const name of ['', '跑步', '每天散步']) { seed({ actionType: 'check_habit', name }); await execute(); assert.equal(executed(), false, name); }
@@ -53,7 +53,7 @@ test('habit action requires one exact nonempty match, never a substring or ambig
   useHabitStore.setState({ items: [habit('walk', '散步')] });
   seed({ actionType: 'check_habit', name: '散步' }); await execute(); assert.equal(executed(), true); assert.equal(calls, 1);
   await accountStorage.db.habitCheckins.put({ id: `walk|${getToday()}`, habitId: 'walk', date: getToday(), done: true, confirmed: true, source: 'manual', updatedAt: Date.now() });
-  seed({ actionType: 'check_habit', name: '散步' }); await execute(); assert.equal(executed(), true); assert.equal(calls, 1);
+  seed({ actionType: 'check_habit', name: '散步' }); await execute(); assert.equal(executed(), true); assert.equal(calls, 2, 'the store verifies the explicit true intent atomically, never a stale DB toggle');
 });
 
 test('blank todo text cannot be turned into a confirmed write', async () => {

@@ -81,12 +81,12 @@ test('empty habits invite a first habit without inventing completion', () => {
   });
 });
 
-test('future habits are not obligations or completed habits today', () => {
+test('a future audit timestamp does not hide an existing habit or invent a completed fact', () => {
   const future = habit({ createdAt: at('2026-10-05', '00:00').getTime(), done: true });
   assert.deepEqual(getHabitOverview([future], at('2026-10-04')), {
-    label: '今日习惯', value: '0 项', sub: '今天暂无需要打卡的习惯',
+    label: '今日习惯', value: '0/1', sub: '散步',
   });
-  assert.equal(getHabitOverview([habit(), future], at('2026-10-04')).value, '0/1');
+  assert.equal(getHabitOverview([habit(), future], at('2026-10-04')).value, '0/2');
 });
 
 test('daily completion uses dated check-ins, not cached done or streak values', () => {
@@ -123,10 +123,12 @@ test('mixed frequency totals disclose their daily and weekly windows', () => {
   });
 });
 
-test('future, prior-week and pre-creation check-ins cannot complete this week', () => {
+test('explicit pre-entry activity counts, while future and prior-week facts remain outside this week', () => {
   const weekly = habit({ frequency: 'weekly', createdAt: at('2026-10-02').getTime(), recentCheckins: [
     { date: '2026-09-27', done: true }, { date: '2026-10-01', done: true }, { date: '2026-10-05', done: true },
   ] });
+  assert.equal(getHabitOverview([weekly], at('2026-10-04')).value, '1/1');
+  weekly.recentCheckins = weekly.recentCheckins.filter(row => row.date !== '2026-10-01');
   assert.equal(getHabitOverview([weekly], at('2026-10-04')).value, '0/1');
 });
 

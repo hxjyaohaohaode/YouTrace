@@ -240,8 +240,8 @@ export async function runHabitOutcomes(h) {
     await closeDialogs(page); const before = await facts(page, api, `${label}-before-reload`, [target.id, neighbor.id]); assert.equal(before.local.outbox.length, 0);
     await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'browser-reload-fully-synced-habit', habitId: target.id, surface: surfaceNames.get(page) }); await waitPath(page, '/habit'); await page.waitForSelector('button[aria-label="新建习惯"]');
     const after = await facts(page, api, `${label}-normal-reloaded-source`, [target.id, neighbor.id]); const local = after.local.habits.find(row => row.id === target.id), server = after.server.find(row => row.id === target.id);
-    assert.ok(local && server); assert.equal(after.local.outbox.length, 0); assert.ok(Object.hasOwn(local, 'updatedAt') && local.updatedAt != null && server.updatedAt != null, 'Deletion must use a normally synchronized/reloaded record containing server updatedAt; never strip it to get past CAS');
-    await observe(page, `${label}-normal-server-updatedAt-retained`, true, JSON.stringify({ exactId: target.id, localUpdatedAt: local.updatedAt, serverUpdatedAt: server.updatedAt, fields: Object.keys(local), note: 'These values come from actual server synchronization; the clock fixture does not rewrite database timestamps' })); return after;
+    assert.ok(local && server); assert.equal(after.local.outbox.length, 0); assert.ok(server.updatedAt != null, 'Server observation must retain its own canonical audit fields; no local field is manufactured');
+    await observe(page, `${label}-normal-synced-source-shape-retained`, true, JSON.stringify({ exactId: target.id, localUpdatedAt: local.updatedAt, serverUpdatedAt: server.updatedAt, fields: Object.keys(local), note: 'This is the complete naturally observed local source after normal ACK/reload. A local timestamp is not asserted to be server-hydrated; same-ACK pull may retain local audit timestamps. The server-added-field CAS is separately covered by a module test. No fields were removed or manufactured.' })); return after;
   }
   async function deletion(page, api, target, neighbor, label) {
     let recoveryRetry = null;
@@ -280,7 +280,7 @@ export async function runHabitOutcomes(h) {
       let before;
       const retryPresent = recoveryRetry && await page.$$eval(recoveryRetry.selector, rows => rows.filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled; }).length) === 1;
       if (retryPresent) {
-        before = await facts(page, api, `${label}-before-visible-retry`, [target.id, neighbor.id]); assert.equal(before.local.outbox.length, 0); assert.ok(before.local.habits.find(row => row.id === target.id)?.updatedAt != null);
+        before = await facts(page, api, `${label}-before-visible-retry`, [target.id, neighbor.id]); assert.equal(before.local.outbox.length, 0); assert.ok(before.local.habits.find(row => row.id === target.id));
         await pointer(page, recoveryRetry.selector, recoveryRetry.text); actions.push({ kind: 'native-failure-region-delete-retry', habitId: target.id, ...recoveryRetry });
         if (await page.$$eval('[role=dialog] h3', rows => rows.some(el => el.textContent === '确认删除'))) await pointer(page, '[role=dialog] button', '删除');
       } else {

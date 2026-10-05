@@ -58,8 +58,8 @@ export function WeeklyReviewCard() {
         </div>
 
         <div>
-          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">习惯</p>
-          <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">{stats?.habitCompletionRate ?? 0}%</p>
+          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">习惯实际记录</p>
+          <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">{stats?.habitRecordCount ?? 0} 次</p>
         </div>
 
         <div>

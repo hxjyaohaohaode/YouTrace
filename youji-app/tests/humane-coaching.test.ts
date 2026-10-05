@@ -116,7 +116,7 @@ test('daily counters survive concurrent updates and reset together on business-d
   assert.equal(state.todayPositiveCount, 0);
 });
 
-test('weekly habits count once; new daily habits start on creation and future habits do not dilute the rate', async () => {
+test('current period progress and actual seven-day dated facts are separate; audit creation never discards explicit facts', async () => {
   const today = getToday();
   await storage.db.habits.bulkPut([
     { id: 'daily', name: 'daily', icon: 'a', frequency: 'daily', sortOrder: 0, createdAt: getBusinessDayStartTimestamp(addDays(today, -2)) },
@@ -130,7 +130,9 @@ test('weekly habits count once; new daily habits start on creation and future ha
     }
   }
   const stats = await life.computeWeeklyStats();
-  assert.equal(stats.habitExpectedCount, 4);
+  assert.equal(stats.habitExpectedCount, 3);
+  assert.equal(stats.habitRecordCount, 7);
+  assert.equal(stats.habitRecordDays, 4);
   assert.equal(stats.habitCompletionRate, 100);
 });
 

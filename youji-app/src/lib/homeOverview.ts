@@ -2,13 +2,13 @@ import { expandScheduleRows } from '../utils/scheduleOccurrences';
 import type { ScheduleRecord } from '../db';
 import type { ExpenseItem } from '../stores/expenseStore';
 import type { HabitView } from '../stores/habitStore';
+import { getHabitPeriod } from '../utils/habitPeriod';
 import {
   formatBusinessDate,
   getBusinessClock,
-  getNaturalWeekDates,
 } from '../utils/date';
 
-type OverviewHabit = Pick<HabitView, 'name' | 'frequency' | 'createdAt' | 'recentCheckins'>;
+type OverviewHabit = Pick<HabitView, 'name' | 'frequency' | 'createdAt' | 'recentCheckins'> & Partial<Pick<HabitView, 'checkinSources'>>;
 type OverviewSchedule = Pick<ScheduleRecord, 'date' | 'startTime' | 'endTime' | 'title' | 'repeat' | 'exceptions'>;
 type OverviewExpense = Pick<ExpenseItem, 'date' | 'amount' | 'category' | 'isIncome'>;
 
@@ -36,20 +36,9 @@ export function getExpenseOverview(expenses: readonly OverviewExpense[], monthBu
 
 export function getHabitOverview(habits: readonly OverviewHabit[], now: Date) {
   const today = formatBusinessDate(now);
-  const weekStart = getNaturalWeekDates(today)[0];
   const applicable = habits.flatMap((habit) => {
-    const created = new Date(habit.createdAt);
-    const createdDate = Number.isFinite(created.getTime()) ? formatBusinessDate(created) : null;
-    if (createdDate && createdDate > today) return [];
-
-    // `done` is a cached view of the day the store was loaded. Dated evidence
-    // stays correct after midnight without issuing an account-sensitive reload.
-    const startDate = habit.frequency === 'weekly' ? weekStart : today;
-    const done = habit.recentCheckins.some((entry) => (
-      entry.done && entry.date >= startDate && entry.date <= today
-      && (!createdDate || entry.date >= createdDate)
-    ));
-    return [{ ...habit, done }];
+    const period = getHabitPeriod(habit, today);
+    return period.applicable ? [{ ...habit, done: period.attained }] : [];
   });
 
   if (applicable.length === 0) {

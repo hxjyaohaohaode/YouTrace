@@ -2,7 +2,7 @@ import type { Table } from 'dexie';
 import { db, type SyncEntity } from '../db';
 import { enqueueSync, flush } from './syncEngine';
 import { recordDiagnostic } from './diagnostics';
-import { readLocalActor, assertLocalActor } from './localActor';
+import { readLocalActor, assertLocalActor, type LocalActor } from './localActor';
 
 /** Source snapshot, visible record and retryable mutation share one commit. */
 export async function commitLocalMutation(
@@ -12,8 +12,9 @@ export async function commitLocalMutation(
   write: () => Promise<unknown>,
   tables: Table[] = [db.table(entity === 'diaries' ? 'diary' : entity === 'goals' ? 'goalRecords' : entity)],
   expected?: object | null,
+  capturedActor?: LocalActor,
 ): Promise<void> {
-  const actor = await readLocalActor(), database = actor.database;
+  const actor = capturedActor ?? await readLocalActor(), database = actor.database;
   const assertCurrent = () => assertLocalActor(actor);
   await database.transaction('rw', [...tables, database.outbox, database.settings], async () => {
     await assertCurrent();

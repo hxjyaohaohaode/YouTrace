@@ -585,13 +585,10 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         }
         const habit = matches[0];
         const todayStr = getToday();
-        const record = await db.habitCheckins.get(`${habit.id}|${todayStr}`);
-        if (record?.done) {
-          toast.info(`「${habit.name}」今天已经打过卡了`);
-        } else {
-          await useHabitStore.getState().toggleHabit(habit.id);
-          toast.success(`已打卡：${habit.name} 🔥${Math.max(1, habit.streak + 1)}`);
-        }
+        const result = await useHabitStore.getState().setHabitDone(habit, todayStr, true);
+        if (!result.viewUpdated) toast.warning('打卡已保存在本机，列表暂未刷新，请到习惯页面核对；无需重复提交');
+        else if (result.status === 'already-achieved') toast.info(`「${habit.name}」今天已经打过卡了`);
+        else toast.success(`已记录：${habit.name} · ${todayStr}`);
       } else {
         return;
       }

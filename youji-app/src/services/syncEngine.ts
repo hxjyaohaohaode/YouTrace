@@ -10,6 +10,9 @@ const BATCH_KEY = 'syncV2Batch';
 const ENTITIES: SyncEntity[] = ['schedules', 'expenses', 'todos', 'habits', 'quickNotes', 'diaries', 'habitCheckins', 'goals'];
 const DELETE_KEYS: Record<SyncEntity, string> = { goals: 'goalIds', schedules: 'scheduleIds', expenses: 'expenseIds', todos: 'todoIds', habits: 'habitIds', quickNotes: 'quickNoteIds', diaries: 'diaryIds', habitCheckins: 'habitCheckinIds' };
 let flushing = false;
+// A writer or timer can arrive while the last ACK is still unwinding.
+// Remember that demand until finally releases the single-flight lock.
+let requestedGeneration: number | null = null;
 let paused = false;
 let generation = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -46,12 +49,14 @@ export async function enqueueSync(entity: SyncEntity, op: 'upsert' | 'delete', p
   row.baseVersion = await getSetting<string>(versionKey(key), '0');
   row.predecessorSeq = (await db.outbox.orderBy('seq').toArray()).filter((previous) => recordKey(previous) === key).at(-1)?.seq;
   await db.outbox.add(row);
-  if (retryTimer === null && !flushing) scheduleFlush(300);
+  if (flushing) requestedGeneration = generation;
+  else if (retryTimer === null) scheduleFlush(300);
 }
 
 export function pauseSync(): void {
   paused = true;
   generation += 1;
+  requestedGeneration = null;
   if (retryTimer !== null) clearTimeout(retryTimer);
   retryTimer = null;
 }
@@ -116,7 +121,8 @@ function validAck(response: Ack, batch: FrozenBatch): boolean {
 }
 
 export async function flush(): Promise<boolean> {
-  if (flushing || paused || !isLoggedIn()) return false;
+  if (paused || !isLoggedIn()) return false;
+  if (flushing) { requestedGeneration = generation; return false; }
   flushing = true;
   const epoch = generation;
   try {
@@ -173,7 +179,14 @@ export async function flush(): Promise<boolean> {
       else { failures += 1; scheduleFlush(Math.min(60_000, (failure.status === 429 ? 5000 : 2000) * 2 ** Math.min(failures, 5))); }
       return false;
     }
-  } finally { flushing = false; }
+  } finally {
+    flushing = false;
+    const requested = requestedGeneration === generation;
+    requestedGeneration = null;
+    // Keep an existing retry/backoff deadline; do not turn a server rejection
+    // into a tight retry loop. Pause invalidates requests from the old session.
+    if (requested && retryTimer === null) scheduleFlush(300);
+  }
 }
 
 function millis(value: unknown, fallback = Date.now()): number {
