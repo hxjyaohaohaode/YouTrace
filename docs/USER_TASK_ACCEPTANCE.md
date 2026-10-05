@@ -84,4 +84,4 @@ e723四个profile已独立核验原件，完成上述两宽首次401后注册返
 
 ### 2026-10-05 fb991启动恢复限定验收
 
-首run的两宽四profile已独立验收：迟到恢复失败后保持原界面且真实打开/取消可用，两次均失败则真实Retry返回同owner原记录；完整原源/队列/账本不增不丢。见[精确原件与边界](STARTUP_RECOVERY_TASK_BASELINE.md#fb991四profile限定验收)。首run另有旧目标来源手机已到可读onboarding却未被等待承认，观察修正后的后续任务仍待新原件，不能用同SHA后run全绿覆盖，也不外推旧b5b8或全部初始化情形。
+首run的两宽四profile已独立验收：迟到恢复失败后保持原界面且真实打开/取消可用，两次均失败则真实Retry返回同owner原记录；完整原源/队列/账本不增不丢。见[精确原件与边界](STARTUP_RECOVERY_TASK_BASELINE.md#fb991四profile限定验收)。首run另有旧目标来源手机已到可读onboarding却未被等待承认，后来d542的attempt 2已独立核新原件并完成该profile及两宽完整来源任务，见[复验范围](LEGACY_GOAL_TASK_BASELINE.md#d542新文档观察与原任务复验)。原失败仍保留，不用同SHA后run绿色覆盖，也不外推旧b5b8或全部初始化情形；d542最终十项执行成功，planning仍保留未执行取消，整体CI不计全绿。

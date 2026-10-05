@@ -15,12 +15,13 @@ import { runGoalOutcomes } from './audit-goal-outcomes.mjs';
 import { runLegacyGoalOutcomes, waitForStableModalTarget } from './audit-legacy-goal-outcomes.mjs';
 import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs';
 import { runStartupRecoveryOutcomes } from './audit-startup-recovery-outcomes.mjs';
+import { runPreferenceOutcomes } from './audit-preference-outcomes.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -99,6 +100,20 @@ if (taskSet === 'startup-recovery') {
   metadata.interactions = 'Native pointer/keyboard/wheel; declared initial Login and startup full navigation; GET-only and existing-IDB readonly corroboration. Bounded clearly SYNTHETIC business-fetch rejection and native readonly transaction keepalive/abort, never auth/state injection or application Promise interception.';
   metadata.diagnosisBoundary = 'Known overlapping-read readiness race only; does not establish the unresolved b5b8a12 failure cause';
   metadata.untested = ['Live providers, production data/deployment', 'Manual human/mobile OS/accessibility acceptance', 'Actual browser outcomes until this exact SHA runs and its original media are independently reviewed', 'Arbitrary source/epoch/account changes; this fixture asserts an unchanged original source'];
+}
+if (taskSet.startsWith('preferences-')) {
+  metadata.kind = 'account-preference-native-RED-baseline';
+  metadata.applicationBaseline = 'd54249d1d93da6bd2bddb1c73ff3e2dc38ba8b1d';
+  metadata.redEvidenceCommit = null;
+  delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
+  metadata.scenarioScope = {
+    'preferences-normal': ['Native account preference values, immediate switches and canceling only a time draft', 'Account numerical limit including explicit zero; separately authenticated second profile; device budget/theme retention'],
+    'preferences-write': ['Exact precommit native-IDB quota preserves full source and input', 'Readable failure and actual visible Save retry after explicit release; same intent and one cloud revision'],
+    'preferences-read': ['Exact target transaction completes before real display-only readonly failure', 'Visible saved fact, current read error, actual recovery action without repeating Save, full values and one cloud revision'],
+    'preferences-conflict': ['Two actual profiles, distinct offline conflicts for cloud and local decisions, cancel, stale comparison refusal', 'Full visible field-to-source correspondence, real original snapshot/decision/pending-request downloads, fresh reads in both profiles'],
+  }[taskSet];
+  metadata.interactions = 'Native pointer/keyboard/wheel; initial OTP Login, normal onboarding, actual reload and second profile. GET-only and existing-IDB readonly evidence. Declared bounded native put quota, postcommit readonly abort and offline mode only; no app/auth state injection or business-write API setup.';
+  metadata.untested = ['Actual reminder delivery and per-device usage counters', 'Unknown historical formats, arbitrary account transitions and all Settings components', 'Manual human/mobile OS/accessibility or live SMS/model providers', 'Production data and deployment'];
 }
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
@@ -613,7 +628,11 @@ try {
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'startup-recovery') {
+  if (taskSet.startsWith('preferences-')) {
+    const { media, peerMedia } = await runPreferenceOutcomes({ isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames }, { branch: taskSet.slice('preferences-'.length) });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+    for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Second preference profile requires its own video and target identity in the scenario browser-global trace');
+  } else if (taskSet === 'startup-recovery') {
     const media = await runStartupRecoveryOutcomes({ isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet === 'initial-session') {
