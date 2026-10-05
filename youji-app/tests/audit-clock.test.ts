@@ -26,6 +26,6 @@ test('API Date preload refuses production, non-CI, wrong task or non-disposable 
   for (const changed of [{ GITHUB_ACTIONS: 'false' }, { NODE_ENV: 'production' }, { AUDIT_TASK_SET: 'records' }, { DATABASE_URL: 'file:/tmp/ordinary.db' }]) assert.throws(() => runInNewContext(source, { process: { env: { ...base, ...changed } } }), /restricted/);
   assert.throws(() => runInNewContext(source, { process: { env: { ...base, YOUTRACE_AUDIT_CLOCK_ISO: '2027-01-01T00:00:00.000Z' } } }), /explicit Wednesday/);
   // The allowed fixture is simulated only in this VM, with no filesystem, DB or server.
-  assert.doesNotThrow(() => runInNewContext(source, { process: { env: base } }));
+  for (const task of ['habits', 'habits-frequency']) assert.doesNotThrow(() => runInNewContext(source, { process: { env: { ...base, AUDIT_TASK_SET: task } } }));
   assert.equal(runInNewContext(`${source};typeof globalThis.__youtraceAuditClock`, { process: { env: {} } }), 'undefined', 'importing from driver does not change its Date');
 });

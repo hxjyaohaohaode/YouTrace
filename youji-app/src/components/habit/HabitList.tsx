@@ -11,6 +11,7 @@ import { addDays, getToday } from '../../utils/date';
 import { getHabitPeriod } from '../../utils/habitPeriod';
 import { generateLocalId } from '../../db';
 import { habitErrorMessage } from './habitErrors';
+import { HabitFrequencyModal } from './HabitFrequencyModal';
 import { habitFrequencyLabels } from '../../utils/icons';
 
 const habitIcons = ['🏃', '📚', '😴', '🧘', '💪', '🥗', '💧', '✍️', '🎵', '💊'];
@@ -122,7 +123,7 @@ function AddHabitModal({ open, onClose }: AddHabitModalProps) {
   );
 }
 
-function HabitCard({ habit, today, busy, onToggle, onToggleDate, onDelete }: { habit: HabitView; today: string; busy: boolean; onToggle: () => void; onToggleDate: (date: string, done: boolean) => void; onDelete: () => void }) {
+function HabitCard({ habit, today, busy, onToggle, onToggleDate, onDelete, onEditFrequency }: { habit: HabitView; today: string; busy: boolean; onToggle: () => void; onToggleDate: (date: string, done: boolean) => void; onDelete: () => void; onEditFrequency: () => void }) {
   const period = getHabitPeriod(habit, today);
   const days = Array.from({ length: 7 }, (_, index) => addDays(today, index - 6));
   return (
@@ -150,12 +151,14 @@ function HabitCard({ habit, today, busy, onToggle, onToggleDate, onDelete }: { h
           <span className="block">{date.slice(5).replace('-', '/')}</span><span className="block" aria-hidden>{done ? '✓' : '·'}</span>
         </button>; })}
       </div>
+      <Button className="mt-2" size="sm" variant="ghost" disabled={busy} aria-label={`调整频率 ${habit.name}`} onClick={onEditFrequency}>调整当前频率</Button>
     </motion.div>
   );
 }
 
 export function HabitList() {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [frequencyTarget, setFrequencyTarget] = useState<HabitView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HabitView | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ message: string; retry?: HabitView } | null>(null);
@@ -203,8 +206,9 @@ export function HabitList() {
       </div>
     </div>}
     <div className="space-y-3"><AnimatePresence mode="popLayout">{items.map(habit => <HabitCard key={habit.id} habit={habit} today={today} busy={busyId !== null}
-      onToggle={() => void handleDate(habit, today, !getHabitPeriod(habit, today).doneToday)} onToggleDate={(date, done) => void handleDate(habit, date, done)} onDelete={() => setDeleteTarget(habit)} />)}</AnimatePresence></div>
+      onToggle={() => void handleDate(habit, today, !getHabitPeriod(habit, today).doneToday)} onToggleDate={(date, done) => void handleDate(habit, date, done)} onDelete={() => setDeleteTarget(habit)} onEditFrequency={() => setFrequencyTarget(habit)} />)}</AnimatePresence></div>
     {items.length === 0 && <div className="py-12 text-center"><Sparkles size={28} className="mx-auto mb-3 text-[var(--primary)]" aria-hidden /><p className="text-sm text-[var(--text-3)]">按自己的节奏，从一件小事开始</p><Button className="mt-4" onClick={() => setShowAddModal(true)}>创建第一个习惯</Button></div>}
+    {frequencyTarget && <HabitFrequencyModal key={frequencyTarget.id} habit={frequencyTarget} onClose={() => setFrequencyTarget(null)} />}
     {showAddModal && <AddHabitModal open onClose={() => setShowAddModal(false)} />}
     <Modal open={deleteTarget !== null} onClose={() => { if (!busyId) setDeleteTarget(null); }} title="确认删除" footer={<><Button variant="ghost" size="sm" disabled={busyId !== null} onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" size="sm" disabled={busyId !== null} onClick={() => { if (deleteTarget) void handleDelete(deleteTarget); }}>{busyId ? '正在删除…' : '删除'}</Button></>}>
       <p className="text-sm text-[var(--text-1)]">确定要删除「{deleteTarget?.icon} {deleteTarget?.name}」吗？这条习惯的所有打卡记录将一并删除，此操作不可撤销。</p>

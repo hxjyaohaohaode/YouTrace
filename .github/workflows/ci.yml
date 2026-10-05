@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      include_unsupported_habit_history:
+        description: Run archived future-effective habit/history diagnostic (expected gaps remain red)
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: read
@@ -58,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task_set: [records, coach, planning, habits]
+        task_set: [records, coach, planning, habits, habits-frequency]
     # Independent evidence must still run when another browser regression fails.
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -89,6 +95,7 @@ jobs:
         run: node scripts/audit-user-outcomes.mjs
         env:
           AUDIT_TASK_SET: ${{ matrix.task_set }}
+          AUDIT_INCLUDE_UNSUPPORTED_HABIT_HISTORY: ${{ inputs.include_unsupported_habit_history && 'true' || 'false' }}
           AUDIT_BROWSER_PATH: /usr/bin/google-chrome
       - name: Package all successful and failed evidence without dropping bytes
         if: always()

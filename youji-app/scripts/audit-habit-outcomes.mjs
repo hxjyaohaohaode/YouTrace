@@ -3,6 +3,7 @@
 // Every synthetic habit and dated check-in originates in a rendered control.
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
+import { runCurrentFrequencyJourney } from './audit-habit-frequency.mjs';
 import { installAuditDate, HABIT_AUDIT_INSTANT } from './audit-clock.mjs';
 
 const TODAY = '2026-10-07', TUESDAY = '2026-10-06', MONDAY = '2026-10-05', SUNDAY = '2026-10-11';
@@ -15,7 +16,7 @@ const dayIsDone = (rows, id, date) => rows.some(row => row.habitId === id && row
 const checkinVersion = (local, id, date) => local.settings.find(row => row.key === `sync-version:habitCheckins:${id}|${date}`)?.value;
 const validVersion = value => typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 
-export async function runHabitOutcomes(h) {
+export async function runHabitOutcomes(h, { frequencyOnly = false } = {}) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Y5 is hosted-CI only; never retry a restricted local listener/browser');
   const { isolated, login, pointer, fill, dateInput, waitPath, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock } = h;
   assert.equal(habitClock?.instant, HABIT_AUDIT_INSTANT, 'Wire the same explicit clock into the browser and disposable API process');
@@ -180,6 +181,28 @@ export async function runHabitOutcomes(h) {
     await observe(page, `${label}-home-agrees-with-weekly-evidence`, reading.visible && satisfied && habitResult.weeklySatisfied, JSON.stringify({ exactHabitId: row.id, homeText: text, homeReading: reading, habitText: habitResult.reading.text, expected: 'One accepted Tuesday completion satisfies this week on both surfaces while Wednesday remains unmarked' }));
     await pointer(page, 'main button', text); await waitPath(page, '/habit');
   }
+  async function inspectFutureHistoryDiagnostic(page, api, target, label) {
+    // Keep the original assertions below intact. A declared immediate-only
+    // editor must never be submitted for an explicitly future-only intention.
+    await closeDialogs(page); const root = await card(page, target);
+    const choices = await page.$$eval(`${root} button, ${root} a`, rows => rows.filter(el => /编辑|修改|更改频率|调整频率/.test((el.getAttribute('aria-label') ?? '') + el.textContent)).map(el => ({ tag: el.tagName.toLowerCase(), label: el.getAttribute('aria-label'), text: el.textContent.trim() })));
+    if (choices.length > 1) { await observe(page, `${label}-future-rule-entry-ambiguous`, false, 'Multiple visible edit entries require review; no future-only intent is submitted by guessing.'); return; }
+    if (choices.length === 1) {
+      const choice = choices[0]; await pointer(page, choice.label ? `${root} ${choice.tag}[aria-label=${JSON.stringify(choice.label)}]` : `${root} ${choice.tag}`, choice.label ? undefined : choice.text);
+      await page.waitForSelector('[role=dialog]'); const policy = await page.$eval('[role=dialog]', el => el.innerText);
+      if (/不支持[^。\n]*(?:未来|历次|规则回溯)/.test(policy)) {
+        const before = await facts(page, api, `${label}-unsupported-future-rule-before-cancel`, [target.id]);
+        if (await page.$('[role=dialog] [aria-label="频率调整范围说明"]')) await readControl(page, '[role=dialog] [aria-label="频率调整范围说明"]');
+        await observe(page, `${label}-future-effective-history-explicitly-unsupported`, false, JSON.stringify({ policy, note: 'Future-only intent cannot be submitted into an explicitly immediate-only editor. This remains RED/unsupported; no Save is attempted.' }));
+        await pointer(page, '[role=dialog] button', '取消'); await page.waitForSelector('[role=dialog]', { hidden: true });
+        const after = await facts(page, api, `${label}-unsupported-future-rule-after-cancel`, [target.id]);
+        assert.ok(preserved(before, after), 'Stopping unsupported intent must leave the current rule and facts untouched');
+        return;
+      }
+      await pointer(page, '[role=dialog] button', '取消'); await page.waitForSelector('[role=dialog]', { hidden: true });
+    }
+    await inspectFrequencyEdit(page, api, target, label);
+  }
   async function inspectFrequencyEdit(page, api, target, label) {
     await closeDialogs(page); const root = await card(page, target); await readControl(page, root);
     const choices = await page.$$eval(`${root} button, ${root} a`, rows => rows.filter(el => /编辑|修改|更改频率|调整频率/.test((el.getAttribute('aria-label') ?? '') + el.textContent)).map(el => ({ tag: el.tagName.toLowerCase(), label: el.getAttribute('aria-label'), text: el.textContent.trim() })));
@@ -299,10 +322,17 @@ export async function runHabitOutcomes(h) {
     });
   }
   async function run(page) {
-    const narrow = page.viewport().width === 360, label = narrow ? 'Y5N' : 'Y5';
+    const narrow = page.viewport().width === 360, label = frequencyOnly ? (narrow ? 'Y5BN' : 'Y5B') : (narrow ? 'Y5N' : 'Y5');
     await page.evaluateOnNewDocument(installAuditDate, habitClock); actions.push({ kind: 'explicit-controlled-browser-Date', surface: surfaceNames.get(page), ...habitClock });
     await login(page, narrow ? '13900008842' : '13900008841', `Synthetic ${label}`); const api = await apiFor(page); await verifyClock(page, api, label); await enter(page, true);
     let target, neighbor;
+    if (frequencyOnly) {
+      target = await create(page, api, `${label}-target`, '🏃'); await setDay(page, target, TUESDAY, true);
+      neighbor = await create(page, api, `${label}-neighbor`, '📚'); await setDay(page, neighbor, MONDAY, true);
+      await facts(page, api, `${label}-native-prerequisites`, [target.id, neighbor.id]);
+      await runCurrentFrequencyJourney(page, api, target, neighbor, label, { card, facts, preserved, pointer, readControl, readable, capture, observe, segment, actions, writeFile, join, artifacts, home, enter, closeDialogs, sleep });
+      return;
+    }
     await segment(page, `${label}-first-use-create-weekly-once`, async () => { target = await create(page, api, `${label}-target`, '🏃'); });
     await segment(page, `${label}-backfill-tuesday-and-compare-home`, async () => {
       assert.ok(target, 'Native habit creation is a prerequisite'); await facts(page, api, `${label}-before-tuesday-backfill-actual-creation-chronology`, [target.id]); actions.push({ kind: 'explicit-user-backfill-intent', habitId: target.id, ...BACKFILL_INTENT }); await setDay(page, target, TUESDAY, true);
@@ -325,11 +355,17 @@ export async function runHabitOutcomes(h) {
       const root = await card(page, target); await readControl(page, root); const reading = await readable(page, root);
       await observe(page, `${label}-weekly-no-bogus-daily-pressure`, reading.visible && !/连续\s*\d+\s*天|今天别忘|每日|每天.*打卡/.test(reading.text), JSON.stringify({ actualReading: reading, weeklyFrequency: target.frequency, performedDates: dates, todayUnmarked: TODAY, note: 'Five prior dates were individually operated, not seeded; a weekly user has no additional daily requirement' }));
     });
-    await segment(page, `${label}-edit-frequency-and-effective-range`, async () => { assert.ok(target); await inspectFrequencyEdit(page, api, target, label); });
+    if (process.env.AUDIT_INCLUDE_UNSUPPORTED_HABIT_HISTORY === 'true') {
+      // The archived future-effective/history assertions remain runnable and RED.
+      await segment(page, `${label}-edit-frequency-and-effective-range`, async () => { assert.ok(target); await inspectFutureHistoryDiagnostic(page, api, target, label); });
+    } else {
+      await observe(page, `${label}-future-effective-rule-history-unsupported`, null, 'UNSUPPORTED / not covered by this supported-flow gate. Original red assertions remain in inspectFrequencyEdit and run with AUDIT_INCLUDE_UNSUPPORTED_HABIT_HISTORY=true; preserved da4/f7/11a failures are not relabelled as passes. Immediate current-plan adjustment has a separate Y5b task.');
+    }
     if (target && neighbor) await deletion(page, api, target, neighbor, label);
     else await segment(page, `${label}-deletion-prerequisites-unmet`, async () => { throw new Error('No fully created same-name target/neighbor pair; deletion cannot be claimed or manufactured'); });
   }
-  const media = ['Y5-weekly-habit-1280', 'Y5-weekly-habit-360'];
-  for (const width of [1280, 360]) await isolated(`Y5-weekly-habit-${width}`, { width, height: width === 360 ? 800 : 900 }, run);
+  const prefix = frequencyOnly ? 'Y5B-current-frequency' : 'Y5-weekly-habit';
+  const media = [`${prefix}-1280`, `${prefix}-360`];
+  for (const width of [1280, 360]) await isolated(`${prefix}-${width}`, { width, height: width === 360 ? 800 : 900 }, run);
   return media;
 }

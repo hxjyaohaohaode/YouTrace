@@ -16,10 +16,10 @@ import { createHabitAuditClock } from './audit-clock.mjs';
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
-const habitClock = taskSet === 'habits' ? createHabitAuditClock() : null;
+const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
 await mkdir(artifacts, { recursive: true });
 const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
@@ -45,11 +45,14 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   return files;
 }
 const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-implementation-candidate' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], planningRedEvidenceCommit: 'fccbb230435b92333a27ecac19e0badac882d067', applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
-if (taskSet === 'habits') {
-  metadata.kind = 'habit-user-outcome-red-baseline';
+if (taskSet.startsWith('habits')) {
+  metadata.kind = taskSet === 'habits-frequency' ? 'immediate-current-frequency-user-outcome-candidate' : 'existing-habit-user-outcome-candidate';
+  metadata.unsupported = ['Scheduled future-effective frequency and full historical target-rule reconstruction; archived failing diagnostic remains runnable'];
+  metadata.unsupportedDiagnosticEnabled = process.env.AUDIT_INCLUDE_UNSUPPORTED_HABIT_HISTORY === 'true';
   metadata.controlledClock = habitClock;
-  metadata.applicationBaseline = 'cd6b152dce7e2db264776427175efeff58eb3336';
+  metadata.applicationBaseline = '11a233d4040690b42e64860c7e4d8dafb966c1f9';
   metadata.scenarioScope = ['native adult weekly habit choice/discovery', 'explicit Wednesday test Date in browser and disposable API', 'Tuesday backfill/dated undo/weekly versus today meaning', 'same-name exact-ID deletion, cancel and bounded native quota attempt'];
+  if (taskSet === 'habits-frequency') metadata.scenarioScope = ['native same-name weekly creation and dated facts', 'immediate daily current-progress preview, cancel without writes', 'native quota preserves original and chosen new frequency, visible retry and ACK', 'same-ID facts/version/neighbor checks, Home/current history/reopen/reload'];
   metadata.untested = ['Real calendar transition or midnight', 'Real mobile device/OS accessibility or screen reader', 'Live SMS/model/notification delivery', 'Arbitrary habit scales, all component states and all account/multi-device concurrency', 'Human-operated task execution'];
 }
 async function checkpoint(stage, extra = {}) {
@@ -553,8 +556,8 @@ try {
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'habits') {
-    const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock });
+  if (taskSet.startsWith('habits')) {
+    const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock }, { frequencyOnly: taskSet === 'habits-frequency' });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet === 'planning') {
     const peerMedia = await runPlanningOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames, infrastructure, traffic, checkpoint });

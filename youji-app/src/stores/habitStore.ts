@@ -5,6 +5,7 @@ import { readLocalActor, assertLocalActor, assertLocalActorNow, type LocalActor 
 import { sameHabitSource, habitPayload, habitCheckinPayload } from '../services/habitSource';
 import { recordKey } from '../services/syncIdentity';
 import { recordDiagnostic } from '../services/diagnostics';
+import { enqueueSync, flush } from '../services/syncEngine';
 import { addDays, getToday, parseBusinessDate } from '../utils/date';
 import { normalizeHabitFrequency } from '../utils/icons';
 
@@ -47,6 +48,7 @@ interface HabitState {
   loadFromDB: () => Promise<void>;
   addHabit: (habit: HabitInput, id?: string) => Promise<HabitCreateResult>;
   setHabitDone: (expected: HabitView, date: string, done: boolean) => Promise<HabitWriteResult>;
+  setHabitFrequency: (expected: HabitView, frequency: 'daily' | 'weekly', previewDate: string) => Promise<HabitWriteResult>;
   toggleHabit: (id: string, date?: string) => Promise<void>;
   removeHabit: (id: string, expected?: HabitItem) => Promise<HabitWriteResult>;
 }
@@ -205,6 +207,50 @@ export const useHabitStore = create<HabitState>((set, get) => {
           if (!await sameHabitSource(current, evidence)) throw new Error(SOURCE_CHANGED);
           await database.habitCheckins.put(record);
         }, [database.habits, database.habitCheckins], undefined, actor);
+      } catch (error) {
+        if (!(error instanceof AlreadyAchieved)) throw error;
+        status = 'already-achieved';
+      } finally { pending.delete(source.id); }
+      return afterCommit(actor, status);
+    },
+    setHabitFrequency: async (expected, frequency, previewDate) => {
+      const readingActor = readLocalActor();
+      const viewedActor = expected?.source && sourceActors.get(expected.source);
+      const source = expected?.source && structuredClone(expected.source);
+      const evidence = Array.isArray(expected?.checkinSources) ? structuredClone(expected.checkinSources) : undefined;
+      const expectedId = expected?.id;
+      const actor = await readingActor, database = actor.database;
+      if (!source || source.id !== expectedId || !evidence || !viewedActor) throw new Error('没有可核对的原习惯和打卡记录，请重新打开频率预览');
+      if (frequency !== 'daily' && frequency !== 'weekly') throw new Error('请选择每天或每周');
+      const assertPreviewDay = () => {
+        if (previewDate !== getToday()) throw new Error('日期已变化，请重新打开频率预览并核对当前结果；原记录保留');
+      };
+      assertPreviewDay();
+      if (pending.has(source.id)) throw new Error('这条习惯正在保存，请稍后');
+      pending.add(source.id); ++loadSequence;
+      let status: HabitWriteResult['status'] = 'committed-local';
+      try {
+        // Keep the preview's complete parent/fact set, write, outbox and final
+        // day/authority checks in one transaction. No dated fact is rewritten.
+        await database.transaction('rw', [database.habits, database.habitCheckins, database.outbox, database.settings], async () => {
+          await assertViewedActor(actor, viewedActor);
+          await assertParent(actor, source);
+          const current = await database.habitCheckins.where('habitId').equals(source.id).toArray();
+          const byId = (a: HabitCheckinRecord, b: HabitCheckinRecord) => a.id.localeCompare(b.id);
+          if (!await sameHabitSource(current.sort(byId), evidence.sort(byId))) throw new Error(SOURCE_CHANGED);
+          await assertViewedActor(actor, viewedActor);
+          assertPreviewDay();
+          if (source.frequency === frequency) throw new AlreadyAchieved();
+          const record = { ...source, frequency, updatedAt: Date.now() };
+          const payload = habitPayload(record);
+          await database.habits.put(record);
+          await assertViewedActor(actor, viewedActor);
+          assertPreviewDay();
+          if (database.ownerId) await enqueueSync('habits', 'upsert', payload);
+          await assertViewedActor(actor, viewedActor);
+          assertPreviewDay();
+        });
+        void flush().catch(() => recordDiagnostic('runtime-error', 'sync'));
       } catch (error) {
         if (!(error instanceof AlreadyAchieved)) throw error;
         status = 'already-achieved';

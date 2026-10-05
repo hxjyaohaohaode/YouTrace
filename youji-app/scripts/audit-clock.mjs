@@ -29,7 +29,7 @@ export function installAuditDate(config) {
 // Explicit --import preload on the disposable CI API process, never NODE_OPTIONS.
 // Merely importing this module in the driver has no effect on the driver's Date.
 if (typeof process !== 'undefined' && process.env.YOUTRACE_AUDIT_CLOCK_PRELOAD === 'habit-outcomes-v1') {
-  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.NODE_ENV !== 'test' || process.env.AUDIT_TASK_SET !== 'habits' || !/^file:.*[/\\]youtrace-outcomes-[^/\\]+[/\\]synthetic\.db$/.test(process.env.DATABASE_URL ?? '')) throw new Error('Y5 Date preload is restricted to the disposable hosted-CI test API');
+  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.NODE_ENV !== 'test' || !['habits', 'habits-frequency'].includes(process.env.AUDIT_TASK_SET) || !/^file:.*[/\\]youtrace-outcomes-[^/\\]+[/\\]synthetic\.db$/.test(process.env.DATABASE_URL ?? '')) throw new Error('Y5 Date preload is restricted to the disposable hosted-CI test API');
   const config = createHabitAuditClock(Number(process.env.YOUTRACE_AUDIT_CLOCK_WALL_MS));
   if (process.env.YOUTRACE_AUDIT_CLOCK_ISO !== config.instant) throw new Error('Y5 Date preload requires the explicit Wednesday instant');
   installAuditDate(config);
