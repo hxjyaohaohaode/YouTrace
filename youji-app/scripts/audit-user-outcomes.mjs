@@ -9,11 +9,12 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
+import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
@@ -40,7 +41,7 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   }
   return files;
 }
-const metadata = { kind: taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'rule observation/accept/reject/source correction'] : ['capture/correction/history/navigation/receipt-read outage'], applicationBaseline: '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the single receipt-reread task', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
+const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-red-baseline' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -96,7 +97,7 @@ async function localRows(page, owner) {
     const request = indexedDB.open(`youtrace:user:${owner}`);
     request.onupgradeneeded = () => { request.transaction.abort(); reject(new Error('Expected account DB must already exist')); };
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
+    request.onsuccess = () => { const database = request.result, names = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'schedules', 'coachInsights', 'settings', 'outbox']; const transaction = database.transaction(names, 'readonly'), rows = {};
       for (const name of names) { const read = transaction.objectStore(name).getAll(); read.onsuccess = () => { rows[name] = read.result; }; }
       transaction.oncomplete = () => { database.close(); resolve(rows); }; transaction.onerror = () => { database.close(); reject(transaction.error); };
     };
@@ -522,7 +523,11 @@ try {
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
   browser = await puppeteer.launch({ executablePath, headless: true, args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'coach') {
+  if (taskSet === 'planning') {
+    const peerMedia = await runPlanningOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames, infrastructure, traffic, checkpoint });
+    for (const name of ['Y4-plan-and-adapt-1280', 'Y4-plan-and-adapt-360']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+    for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Opened peer requires its video; both targets share the original continuous browser trace');
+  } else if (taskSet === 'coach') {
     await runCoachOutcomes({ isolated, login, pointer, fill, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join });
     for (const name of ['Y3-sparse-history-360', 'Y3-observation-action-1280', 'Y3-observation-action-360']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else {
