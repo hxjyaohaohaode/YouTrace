@@ -12,12 +12,13 @@ import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
 import { runPlanningOutcomes } from './audit-planning-outcomes.mjs';
 import { runHabitOutcomes } from './audit-habit-outcomes.mjs';
 import { runGoalOutcomes } from './audit-goal-outcomes.mjs';
+import { runLegacyGoalOutcomes } from './audit-legacy-goal-outcomes.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -62,6 +63,18 @@ if (taskSet === 'goals') {
   metadata.applicationBaseline = '9a9fdc12818e9ba03a3768c34155ce036b76a439';
   metadata.scenarioScope = ['native Goal discovery and distinguishable same-name creation', 'manual progress reversal, counts and filtered denominator meaning', 'exact source edit/cancel/clear optional date', 'bounded native quota, retained input, actual retry/delete/reload'];
   metadata.untested = ['Native multi-tab stale goal dialog and account-transition timing', 'Legacy local goal enrollment/recovery fixtures', 'All-component accessibility/zoom/reduced-motion', 'Manual human interaction or real provider calls'];
+}
+if (taskSet.startsWith('legacy-goals-')) {
+  metadata.kind = 'legacy-account-goal-native-fixture-red-baseline';
+  metadata.applicationBaseline = 'ccba25822b92cf7de890ccf29d93679c6d794940';
+  metadata.redEvidenceCommit = null; // This run establishes the legacy-specific baseline.
+  delete metadata.planningRedEvidenceCommit;
+  delete metadata.coachRedEvidenceCommit;
+  metadata.scenarioScope = taskSet === 'legacy-goals-enrollment'
+    ? ['native registration and existing-account OTP in a separate historical-profile fixture', 'selected upload/cancel/quota/retry with unselected original preserved', 'complete visible upload disclosure and no unknown metadata transfer', 'empty historical date refusal/correction and actual original backup download', 'true pre-cutover late source disclosure and separate original exports']
+    : ['same-name source-choice readability', 'explicit current-generation source-table fixture comparison/copy/keep', 'committed copy then bounded display-read failure and actual recovery', 'stale opened comparison after copy deletion cannot resurrect'];
+  metadata.interactions = 'native pointer/keyboard and recorded browser reloads; historical per-account DB seed and current-generation source changes explicitly labelled; no auth injection or business-write API';
+  metadata.untested = ['Anonymous shared database ownership recovery', 'Automatic merging or one-click recovery of actual pre-cutover late changes', 'Arbitrary historical formats or private production data', 'Full-component keyboard/accessibility/zoom/reduced-motion and real mobile devices', 'Live SMS/model or production operations'];
 }
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
@@ -567,6 +580,10 @@ try {
   if (taskSet.startsWith('habits')) {
     const media = await runHabitOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, sleep, actions, artifacts, writeFile, join, surfaceNames, habitClock }, { frequencyOnly: taskSet === 'habits-frequency' });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet.startsWith('legacy-goals-')) {
+    const { media, peerMedia } = await runLegacyGoalOutcomes({ isolated, login, waitPath, capture, observe, segment, apiFor, sleep, actions, artifacts, writeFile, join, surfaceNames, origin }, { scenarioSet: taskSet === 'legacy-goals-enrollment' ? 'enrollment' : 'source' });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+    for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Opened comparison peer requires its video; its target identity is recorded in the continuous scenario trace');
   } else if (taskSet === 'goals') {
     const media = await runGoalOutcomes({ isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
