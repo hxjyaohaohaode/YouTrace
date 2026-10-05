@@ -34,6 +34,9 @@ export function announceSessionChange() {
   localStorage.setItem(SESSION_REVISION_KEY, crypto.randomUUID())
 }
 
+/** Verified in-memory account, never inferred from persisted login flags. */
+export function getVerifiedSessionOwner(): string | null { return activeOwner }
+
 export function isLoggedIn(): boolean {
   return activeOwner !== null
 }

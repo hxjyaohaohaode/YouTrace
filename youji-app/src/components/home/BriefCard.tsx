@@ -34,7 +34,7 @@ export function BriefCard({ data }: BriefCardProps) {
   const insightActions = data.weeklyInsights
     .filter((i) => Boolean(i.actionSuggested))
     .slice(0, 3)
-    .map((i) => ({ text: i.actionSuggested as string, path: resolveActionPath(i.dataSources ?? []) }));
+    .map((i) => ({ text: i.actionSuggested as string, path: resolveActionPath(i.dataSources ?? [], i.actionSuggested) }));
 
   const actions: Array<{ text: string; path: string }> =
     insightActions.length > 0
@@ -43,7 +43,7 @@ export function BriefCard({ data }: BriefCardProps) {
           text,
           path:
             data.weeklyInsights.find((i) => i.actionSuggested === text)?.dataSources
-              ? resolveActionPath(data.weeklyInsights.find((i) => i.actionSuggested === text)!.dataSources ?? [])
+              ? resolveActionPath(data.weeklyInsights.find((i) => i.actionSuggested === text)!.dataSources ?? [], text)
               : '/coach',
         }));
 

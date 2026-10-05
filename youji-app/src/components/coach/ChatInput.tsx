@@ -38,7 +38,7 @@ export function ChatInput({ onSend, disabled = false, initialText = '' }: ChatIn
   }, []);
 
   return (
-    <div className="border-t border-[var(--border-light)] bg-[var(--glass-bg)]/80 backdrop-blur-xl">
+    <div className="shrink-0 border-t border-[var(--border-light)] bg-[var(--glass-bg)]/80 backdrop-blur-xl">
       <div className="flex items-end gap-2 px-4 py-3">
         <div className="relative flex flex-1 items-end">
           <textarea

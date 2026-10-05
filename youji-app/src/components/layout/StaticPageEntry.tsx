@@ -4,7 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { isStaticPageEntry } from '../../lib/navigation';
 
 /** Only explicit static navigation starts at the page heading. Back/record focus stays local. */
-export function StaticPageEntry({ path, children }: { path: string; children: ReactNode }) {
+export function StaticPageEntry({ path, children, className }: { path: string; children: ReactNode; className?: string }) {
   const location = useLocation(), navigationType = useNavigationType();
   const ownerId = useAuthStore(state => state.user?.id) ?? '';
   const surface = useRef<HTMLDivElement>(null);
@@ -48,5 +48,5 @@ export function StaticPageEntry({ path, children }: { path: string; children: Re
     frame = requestAnimationFrame(place);
     return stop;
   }, [eligible, location.key, ownerId, path]);
-  return <div ref={surface} data-page-route={path} data-page-key={location.key}>{children}</div>;
+  return <div ref={surface} className={className} data-page-route={path} data-page-key={location.key}>{children}</div>;
 }

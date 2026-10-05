@@ -11,6 +11,7 @@ const SOURCE_PRIORITY: Array<{ source: string; path: string }> = [
 
 export const dataSourceLabels: Record<string, string> = {
   expense: '花销',
+  quicknote: '速记',
   habit: '习惯',
   schedule: '日程',
   todo: '待办',
@@ -18,7 +19,10 @@ export const dataSourceLabels: Record<string, string> = {
   mood: '情绪',
 };
 
-export function resolveActionPath(dataSources: string[]): string {
+export function resolveActionPath(dataSources: string[], actionSuggested?: string): string {
+  // Exact known action semantics, never guess a destination from prose or the
+  // first evidence category when this suggestion explicitly creates a capture.
+  if (actionSuggested === '有想留下的事时，再写一句速记') return '/quick-note';
   for (const { source, path } of SOURCE_PRIORITY) {
     if (dataSources.includes(source)) return path;
   }

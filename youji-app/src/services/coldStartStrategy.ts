@@ -108,15 +108,19 @@ export function getColdStartStateSync(): ColdStartState {
   };
 }
 
-export function getWelcomeForPhase(phase: ColdStartPhase): string {
-  switch (phase) {
-    case 'seed':
-      return '你好！我是你的生活教练 👋\n\n我会通过你随手记录的内容来了解你。从今天起，每一条速记、每一笔账，都在帮我看清你的规律。\n\n先说好——我不会天天催你做什么，你该干嘛干嘛。有什么想说的，随时跟我说。不想打字？说一句话就行。';
-    case 'observe':
-      return '嗨，又见面了！我已经开始了解你了。\n\n目前我还在观察阶段，不会给你太多建议。等你多记录一些，我就能发现你自己注意不到的规律。\n\n继续用速记记录你的生活吧，我会一直在看。';
-    case 'breakthrough':
-      return '嘿，我发现了一些有意思的事！\n\n经过这段时间的观察，我已经能看出你的一些生活规律了。接下来我会开始分享我的发现，你可以告诉我准不准。\n\n记住，我的建议只是参考，你永远是自己的主人。';
-    case 'trust':
-      return '你好！我们已经相处一段时间了。\n\n我越来越了解你了，可以给你更具体的建议了。如果你觉得我说得对，就试试；觉得不对，告诉我，我会调整。\n\n今天想聊点什么？';
-  }
+/** Coverage is a fact about records, never evidence of a personal relationship. */
+export function formatRecordCoverageWelcome(firstRecordDate: string | null, count: number): string {
+  if (count === 0) return '可以先记一件刚发生的事，或聊聊你想核对什么。记录由你决定，不需要每天完成。没有足够记录时，我不会据此判断你的生活规律。';
+  const scope = firstRecordDate ? `已加载的收支、待办、习惯、日记和速记共${count}条，相关日期最早为${firstRecordDate}。` : `已加载的收支、待办、习惯、日记和速记共${count}条。`;
+  return `${scope}旧日期只表示记录覆盖范围，不代表连续记录或相处时长。可以选一条具体记录核对，再决定下一步；建议只供参考。`;
+}
+
+export function getRecordCoverageWelcome(): string {
+  const count = useExpenseStore.getState().items.length + useTodoStore.getState().items.length + useDiaryStore.getState().items.length + useHabitStore.getState().items.length + useQuickNoteStore.getState().records.length;
+  return formatRecordCoverageWelcome(earliestDateFromStores(), count);
+}
+
+export function subscribeRecordCoverage(listener: () => void): () => void {
+  const subscriptions = [useExpenseStore.subscribe(listener), useTodoStore.subscribe(listener), useDiaryStore.subscribe(listener), useHabitStore.subscribe(listener), useQuickNoteStore.subscribe(listener)];
+  return () => { for (const unsubscribe of subscriptions) unsubscribe(); };
 }

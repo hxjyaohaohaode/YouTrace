@@ -1,3 +1,4 @@
+import { CurrentRecordObservations } from '../components/coach/CurrentRecordObservations';
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, TrendingUp, AlertTriangle, Link2, ThumbsUp, Lightbulb, Check, X, MessageCircle, ArrowUpRight, PenLine } from 'lucide-react';
@@ -50,7 +51,6 @@ export default function CoachInsights() {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [insights, filter, showDismissed]);
 
-  const activeCount = insights.filter((i) => !i.dismissed).length;
   const hiddenCount = Math.max(filteredInsights.length - MAX_RENDERED, 0);
 
   const handleAct = (insight: CoachInsightRecord) => changeFeedback(insight.id, async () => {
@@ -69,7 +69,7 @@ export default function CoachInsights() {
       >
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--text-1)]">教练洞察</h1>
-          <p className="mt-1 text-xs font-medium text-[var(--text-3)]">{activeCount} 条活跃洞察</p>
+          <p className="mt-1 text-xs font-medium text-[var(--text-3)]">从可核对的记录出发，保留你的选择</p>
         </div>
         <button
           type="button"
@@ -81,6 +81,10 @@ export default function CoachInsights() {
         </button>
       </motion.div>
 
+      <CurrentRecordObservations />
+      <details data-component="historical-observations" className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <summary className="cursor-pointer py-3 text-sm font-semibold">查看已保存的历史观察（{insights.length}条）</summary>
+        <p className="mb-5 text-sm leading-6 text-[var(--text-2)]">以下保留生成时的原文，不代表记录现在的内容。核对当前支出请使用上方依据。云端历史反馈仍按原账号处理，本机历史仅保存在此设备。</p>
       <div className="mb-4 flex gap-2 overflow-x-auto pb-2 scrollbar-hide" role="tablist" aria-label="洞察类型筛选">
         {filterOptions.map((opt) => (
           <button
@@ -101,7 +105,7 @@ export default function CoachInsights() {
       </div>
 
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-xs font-medium text-[var(--text-3)]">{filteredInsights.length} 条结果</span>
+        <span className="text-xs font-medium text-[var(--text-3)]">{filteredInsights.length} 条历史结果</span>
         <button
           type="button"
           onClick={() => setShowDismissed(!showDismissed)}
@@ -152,8 +156,8 @@ export default function CoachInsights() {
               {filteredInsights.slice(0, MAX_RENDERED).map((insight) => {
                 const config = typeConfig[insight.type];
                 const Icon = config.icon;
-                const actionPath = insight.actionSuggested && !insight.actionTaken && !insight.dismissed
-                  ? resolveActionPath(insight.dataSources)
+                const actionPath = insight.actionSuggested && !insight.dismissed
+                  ? resolveActionPath(insight.dataSources, insight.actionSuggested)
                   : null;
 
                 return (
@@ -178,14 +182,14 @@ export default function CoachInsights() {
                               className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white"
                               style={{ backgroundColor: config.color }}
                             >
-                              {config.label}
+                              {!insight.actionSuggested && insight.title.startsWith('记录简报') ? '历史记录快照' : insight.dataSources.includes('expense') && insight.title.startsWith('近7天消费比前7天') ? '记录变化' : config.label}
                             </span>
                           </div>
                           <h3 className="text-[13px] font-bold text-[var(--text-1)]">{insight.title === '今日教练简报' ? `记录简报 · ${formatBusinessDate(new Date(insight.createdAt))}` : insight.title}</h3>
                           <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-2)]">{insight.description}</p>
                           <p className="mt-2 text-[11px] leading-relaxed text-[var(--text-3)]">快照生成于 {new Intl.DateTimeFormat('zh-CN', { timeZone: BUSINESS_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(insight.createdAt)}（北京时间），后续记录可能未计入</p>
 
-                          {insight.actionSuggested && !insight.dismissed && !insight.actionTaken && (
+                          {insight.actionSuggested && !insight.dismissed && (
                             <button
                               type="button"
                               onClick={() => navigate(actionPath ?? '/coach')}
@@ -271,10 +275,11 @@ export default function CoachInsights() {
           )}
         </>
       )}
+      </details>
     </div>
   );
 }
 
 function isLoggedInHint(): string {
-  return '还没有洞察。记录几天花销、习惯或日记，教练就会开始发现规律';
+  return '还没有已保存的历史观察。可以先在上方核对当前记录。';
 }

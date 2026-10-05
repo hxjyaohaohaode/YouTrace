@@ -66,7 +66,7 @@ export function AppRoutes() {
           <Route path="/habit" element={<StaticPageEntry path="/habit"><Habit /></StaticPageEntry>} />
           <Route path="/todo" element={<StaticPageEntry path="/todo"><Todo /></StaticPageEntry>} />
           <Route path="/diary" element={<StaticPageEntry path="/diary"><Diary /></StaticPageEntry>} />
-          <Route path="/coach" element={<StaticPageEntry path="/coach"><Coach /></StaticPageEntry>} />
+          <Route path="/coach" element={<StaticPageEntry path="/coach" className="min-h-0 flex-1"><Coach /></StaticPageEntry>} />
           <Route path="/insights" element={<StaticPageEntry path="/insights"><CoachInsights /></StaticPageEntry>} />
           <Route path="/settings" element={<StaticPageEntry path="/settings"><Settings /></StaticPageEntry>} />
           <Route path="/goal" element={<StaticPageEntry path="/goal"><Goal /></StaticPageEntry>} />

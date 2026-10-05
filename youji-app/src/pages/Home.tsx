@@ -1,3 +1,4 @@
+import { db } from '../db';
 import { Link } from 'react-router-dom';
 import { useExpenseStore } from '../stores/expenseStore';
 import { useTodoStore } from '../stores/todoStore';
@@ -10,14 +11,15 @@ import { useAuthStore } from '../stores/authStore';
 import { recordDiagnostic } from '../services/diagnostics';
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useCoachStore } from '../stores/coachStore';
+import { useCoachStore, type CoachInsightRecord } from '../stores/coachStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isLoggedIn } from '../services/apiClient';
 import { flush } from '../services/syncEngine';
+import { assertObservationDeliveryCurrent, managedObservationRule, readRecordObservations, whileObservationVisible } from '../services/recordObservations';
 import { generateRealInsights } from '../services/lifeIntelligence';
 import { generatePushesFromInsights } from '../services/coachEngine';
 import { deliverControlledPush, getEveningReviewPush, isQuietHours, shouldShowEveningReview } from '../services/pushControl';
-import { getBusinessDayStartTimestamp, getToday } from '../utils/date';
+import { formatBusinessDate, getBusinessDayStartTimestamp, getToday } from '../utils/date';
 import { Greeting } from '../components/home/Greeting';
 import { BriefCard } from '../components/home/BriefCard';
 import { QuickActions } from '../components/home/QuickActions';
@@ -53,16 +55,24 @@ export default function Home() {
       if (isLoggedIn()) await flush();
       if (cancelled) return;
 
-      const realInsights = await generateRealInsights();
+      const observation = await readRecordObservations().catch(() => null);
+      const isManaged = (title: string) => managedObservationRule(title) !== null;
+      const realInsights = (await generateRealInsights()).filter(row => !isManaged(row.title) || observation && !observation.choices[row.title === '按适合你的节奏记录' ? 'record-rhythm' : 'spending-comparison'].hidden);
       if (cancelled) return;
       const existingTitles = new Set(
-        useCoachStore.getState().insights.filter((i) => !i.dismissed).map((i) => i.title)
+        useCoachStore.getState().insights.filter(i => isManaged(i.title) ? Number.isFinite(i.createdAt) && formatBusinessDate(new Date(i.createdAt)) === getToday() : !i.dismissed).map(i => i.title)
       );
       const freshInsights = realInsights.filter((i) => !existingTitles.has(i.title));
 
+      const freshCreated: CoachInsightRecord[] = [];
       for (const insight of freshInsights) {
         if (cancelled) return;
-        await addInsight({
+        const rule = managedObservationRule(insight.title);
+        const write = async () => {
+          // Under the managed-visibility transaction, two tabs cannot both
+          // create the same period's rule from stale in-memory title lists.
+          if (rule && (await db.coachInsights.toArray()).some(row => row.title === insight.title && Number.isFinite(row.createdAt) && formatBusinessDate(new Date(row.createdAt)) === observation?.period.end)) return null;
+          return addInsight({
           type: insight.type,
           title: insight.title,
           description: insight.description,
@@ -70,7 +80,10 @@ export default function Home() {
           actionSuggested: insight.actionSuggested,
           dismissed: false,
           significance: 0.7,
-        });
+          });
+        };
+        const created = rule ? observation && await whileObservationVisible(observation, rule, write) : await write();
+        if (created) freshCreated.push(created);
       }
 
       if (cancelled) return;
@@ -80,19 +93,7 @@ export default function Home() {
       const settings = useSettingsStore.getState();
       if (!settings.coachPushEnabled || isQuietHours(settings.quietHours)) return;
 
-      const pushes = await generatePushesFromInsights(
-        freshInsights.map((fi, i) => ({
-          id: `real-${Date.now()}-${i}`,
-          type: fi.type,
-          title: fi.title,
-          description: fi.description,
-          dataSources: fi.dataSources,
-          actionSuggested: fi.actionSuggested,
-          dismissed: false,
-          significance: 0.7,
-          createdAt: Date.now() + i,
-        }))
-      );
+      const pushes = await generatePushesFromInsights(freshCreated);
 
       for (const push of pushes) {
         if (cancelled) return;
@@ -102,8 +103,13 @@ export default function Home() {
             existing.type === push.type && existing.title === push.title && existing.createdAt >= getBusinessDayStartTimestamp()
           );
           if (duplicate) return false;
+          const rule = managedObservationRule(push.title);
+          if (rule) {
+            if (!observation) return false;
+            return await whileObservationVisible(observation, rule, () => addPush(push)) !== null;
+          }
           await addPush(push);
-        });
+        }, observation && managedObservationRule(push.title) ? () => assertObservationDeliveryCurrent(observation) : undefined);
       }
 
       if (

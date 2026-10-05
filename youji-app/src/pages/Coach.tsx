@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -11,7 +11,7 @@ import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { assessEmotionState, detectCrisisKeywords, getCrisisResponse } from '../services/emotionEngine';
 import { mainlandPsychologicalSupport } from '../../server/src/services/safetyResources';
-import { getColdStartStateSync, getWelcomeForPhase } from '../services/coldStartStrategy';
+import { getRecordCoverageWelcome, subscribeRecordCoverage } from '../services/coldStartStrategy';
 
 const quickQuestions = [
   '帮我看看这周的花销',
@@ -44,7 +44,7 @@ export default function Coach() {
   const emotionState = assessEmotionState();
 
   useEffect(() => {
-    if (followingRef.current) containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
+    if (followingRef.current && (messages.length > 0 || isTyping)) containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
   }, [messages, isTyping]);
 
   const handleSend = useCallback(
@@ -63,14 +63,14 @@ export default function Coach() {
     [isTyping, addMessage, sendMessage]
   );
 
+  const recordWelcome = useSyncExternalStore(subscribeRecordCoverage, getRecordCoverageWelcome, getRecordCoverageWelcome);
   const hasMessages = messages.length > 0;
 
   return (
     <div
-      className="flex h-[calc(100dvh-4rem)] flex-col bg-[var(--bg)] sm:h-[calc(100vh-1px)]"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className="flex h-full min-h-0 flex-col bg-[var(--bg)]"
     >
-      <div className="flex items-center justify-between border-b border-[var(--glass-border)] bg-[var(--glass-bg)]/80 px-4 py-3 backdrop-blur-xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--glass-border)] bg-[var(--glass-bg)]/80 px-4 py-3 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           {isMobile && (
             <button
@@ -135,7 +135,7 @@ export default function Coach() {
         followingRef.current = nearBottom; setFollowing(nearBottom);
       }}>
         {!hasMessages ? (
-          <div className="flex flex-col items-center justify-center px-6 py-20">
+          <div className="flex flex-col items-center px-6 py-8 sm:py-12">
             <motion.div
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -158,7 +158,7 @@ export default function Coach() {
               transition={{ delay: 0.2 }}
               className="mb-6 max-w-xs text-center text-sm leading-relaxed text-[var(--text-2)]"
             >
-              {getWelcomeForPhase(getColdStartStateSync().phase)}
+              {recordWelcome}
             </motion.p>
 
             <motion.div

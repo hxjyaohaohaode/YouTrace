@@ -115,8 +115,9 @@ export async function deliverControlledPush(
   pushType: Parameters<typeof canPush>[1],
   dedupeKey: string,
   deliver: () => Promise<boolean | void>,
+  validateAfterWrite?: () => Promise<void>,
 ): Promise<boolean> {
-  return db.transaction('rw', db.settings, db.coachPushes, async () => {
+  return db.transaction('rw', db.settings, db.coachPushes, db.coachInsights, async () => {
     const state = await getPushControlState();
     if (!await canPush(state, pushType)) return false;
     if (pushType === 'evening_review' && !shouldShowEveningReview((await readPersistedReminderSettings()).eveningReviewTime)) return false;
@@ -126,6 +127,7 @@ export async function deliverControlledPush(
     await setSetting('pushControlCount', state.todayPushCount + 1);
     if (pushType === 'positive') await setSetting('todayPositiveCount', state.todayPositiveCount + 1);
     await setSetting(key, state.todayDate);
+    await validateAfterWrite?.();
     return true;
   });
 }

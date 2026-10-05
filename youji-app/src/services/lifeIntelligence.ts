@@ -48,12 +48,12 @@ async function computeWeeklyExpenseStats() {
     db.expenses.where('date').between(lastWeekStart, lastWeekEnd, true, true).toArray(),
   ]);
 
-  const thisTotal = thisWeek.filter((e) => !e.isIncome).reduce((s, e) => s + e.amount, 0);
-  const lastTotal = lastWeek.filter((e) => !e.isIncome).reduce((s, e) => s + e.amount, 0);
+  const thisTotal = thisWeek.filter((e) => !e.isIncome && e.category !== 'income').reduce((s, e) => s + e.amount, 0);
+  const lastTotal = lastWeek.filter((e) => !e.isIncome && e.category !== 'income').reduce((s, e) => s + e.amount, 0);
 
   const catMap = new Map<string, number>();
   for (const e of thisWeek) {
-    if (!e.isIncome) catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amount);
+    if (!e.isIncome && e.category !== 'income') catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amount);
   }
   const sorted = [...catMap.entries()].sort((a, b) => b[1] - a[1]);
 
@@ -195,9 +195,9 @@ export async function generateRealInsights(): Promise<LifeInsight[]> {
     const direction = stats.weekOverWeekPct > 0 ? '上升' : '下降';
     const emoji = stats.weekOverWeekPct > 15 ? '📈' : stats.weekOverWeekPct < -15 ? '📉' : '';
     insights.push({
-      type: stats.weekOverWeekPct > 20 ? 'anomaly' : 'pattern',
+      type: 'pattern',
       title: `近7天消费比前7天${direction}${emoji}`,
-      description: `近7天记录支出¥${(stats.expenseTotalFen / 100).toFixed(0)}，${stats.weekOverWeekPct > 0 ? '比前7天多' : '比前7天少'}了${Math.abs(stats.weekOverWeekPct)}%。${stats.topCategory ? `大头是${getCategoryLabel(stats.topCategory)}（¥${(stats.topCategoryAmountFen / 100).toFixed(0)}）。` : ''}`,
+      description: `近7天记录支出¥${(stats.expenseTotalFen / 100).toFixed(2)}，${stats.weekOverWeekPct > 0 ? '比前7天多' : '比前7天少'}了${Math.abs(stats.weekOverWeekPct)}%。${stats.topCategory ? `大头是${getCategoryLabel(stats.topCategory)}（¥${(stats.topCategoryAmountFen / 100).toFixed(2)}）。` : ''}`,
       dataSources: ['expense'],
       actionSuggested: stats.weekOverWeekPct > 20
         ? `看看${stats.topCategory ? getCategoryLabel(stats.topCategory) : '消费'}明细，找出增长点`
@@ -267,13 +267,13 @@ export async function generateWeeklyReview(): Promise<string> {
   const lines: string[] = [];
   lines.push('## 近7天回顾\n');
 
-  lines.push(`📊 消费：¥${(stats.expenseTotalFen / 100).toFixed(0)}`);
+  lines.push(`📊 消费：¥${(stats.expenseTotalFen / 100).toFixed(2)}`);
   if (stats.weekOverWeekPct !== null) {
     const arrow = stats.weekOverWeekPct > 0 ? '↑' : '↓';
     lines.push(`   ${arrow}${Math.abs(stats.weekOverWeekPct)}% vs 前7天`);
   }
   if (stats.topCategory) {
-    lines.push(`   最大支出：${getCategoryLabel(stats.topCategory)} ¥${(stats.topCategoryAmountFen / 100).toFixed(0)}`);
+    lines.push(`   最大支出：${getCategoryLabel(stats.topCategory)} ¥${(stats.topCategoryAmountFen / 100).toFixed(2)}`);
   }
 
   if (stats.habitExpectedCount > 0) {

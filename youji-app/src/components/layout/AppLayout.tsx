@@ -11,6 +11,7 @@ export function AppLayout() {
   const isMobile = !isDesktop && !isTablet;
   const location = useLocation();
   const outlet = useOutlet();
+  const conversation = location.pathname === '/coach';
   const immersive = ['/quick-note', '/quick-note/result'].includes(location.pathname);
 
   return (
@@ -21,7 +22,7 @@ export function AppLayout() {
       <main
         className={`flex-1 min-w-0 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           !immersive && isDesktop ? 'ml-[260px]' : !immersive && isTablet ? 'ml-[76px]' : ''
-        } ${isMobile && !immersive ? 'pb-24' : 'pb-8'}`}
+        } ${conversation ? 'pb-0' : isMobile && !immersive ? 'pb-24' : 'pb-8'}`}
       >
         {/* A live Outlet in an exiting transformed parent can mount the new
             fixed capture page inside a zero-height, transparent old route.
@@ -29,8 +30,8 @@ export function AppLayout() {
         {immersive ? (
           <div data-route-surface="capture">{outlet}</div>
         ) : (
-          <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12" data-route-surface="workspace">
-            <LegacyDataNotice />
+          <div className={conversation ? "mx-auto flex h-[calc(100dvh-6rem-env(safe-area-inset-bottom))] min-h-0 w-full max-w-5xl flex-col min-[769px]:h-dvh" : "mx-auto w-full max-w-5xl px-4 sm:px-6 py-5 sm:py-8 lg:px-12"} data-route-surface="workspace">
+            {conversation ? <div className="max-h-[25dvh] shrink-0 overflow-y-auto"><LegacyDataNotice /></div> : <LegacyDataNotice />}
             {outlet}
           </div>
         )}

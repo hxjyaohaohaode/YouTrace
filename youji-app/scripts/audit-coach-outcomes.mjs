@@ -39,15 +39,13 @@ export async function runCoachOutcomes(h) {
     return saved;
   }
   async function card(page, title) {
-    const selector = await page.evaluate(title => {
-      const articles = [...document.querySelectorAll('main article')], target = articles.find(el => el.querySelector('h3')?.textContent === title);
-      if (!target) return null;
-      return `main article:nth-child(${[...target.parentElement.children].indexOf(target) + 1})`;
+    const located = await page.evaluate(title => {
+      const matches = [...document.querySelectorAll('[data-component="historical-observations"] article')].filter(el => el.querySelector('h3')?.textContent === title);
+      return { count: matches.length, selector: matches.length === 1 ? `[data-component="historical-observations"] article:nth-child(${[...matches[0].parentElement.children].indexOf(matches[0]) + 1})` : null };
     }, title);
-    assert.ok(selector, `Visible observation card missing: ${title}`);
-    assert.equal(await page.$$eval(selector, rows => rows.length), 1, 'Observation card selector must be unique');
-    assert.equal(await page.$eval(`${selector} h3`, el => el.textContent), title);
-    return selector;
+    assert.equal(located.count, 1, `Historical observation title must be unique in this fixture: ${title}`); assert.ok(located.selector);
+    assert.equal(await page.$$eval(located.selector, rows => rows.length), 1); assert.equal(await page.$eval(`${located.selector} h3`, el => el.textContent), title);
+    return located.selector;
   }
   function comparisonExpectations(rows) {
     const currentStart = businessDate(-6), previousStart = businessDate(-13), previousEnd = businessDate(-7), today = businessDate();
@@ -56,19 +54,6 @@ export async function runCoachOutcomes(h) {
     const currentFen = current.reduce((sum, row) => sum + row.amount, 0), previousFen = previous.reduce((sum, row) => sum + row.amount, 0);
     const exactIncreasePercent = previousFen ? ((currentFen - previousFen) / previousFen) * 100 : null;
     return { currency: 'CNY', currentStart, currentEnd: today, previousStart, previousEnd, currentIds: current.map(row => row.id), previousIds: previous.map(row => row.id), excludedIncomeIds: rows.filter(row => row.isIncome || row.category === 'income').map(row => row.id), currentFen, previousFen, currentYuan: (currentFen / 100).toFixed(2), previousYuan: (previousFen / 100).toFixed(2), exactIncreasePercent, roundedWholePercent: exactIncreasePercent === null ? null : Math.round(exactIncreasePercent) };
-  }
-  async function operateOptionalControl(page, selector, index, purpose) {
-    const elements = await page.$$(`${selector} a,${selector} button`);
-    try {
-      const target = elements[index]; assert.ok(target, 'Observed card control disappeared before native operation');
-      await page.bringToFront(); await target.scrollIntoView();
-      await page.waitForFunction(el => { const r = el.getBoundingClientRect(); return !el.disabled && el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, {}, target);
-      const before = await state(page); await target.asLocator().click();
-      actions.push({ kind: 'native-pointer-observed-card-control', index, purpose, sourcePath: before.path });
-      await page.waitForFunction(text => document.body.innerText !== text, {}, before.text);
-      await observe(page, purpose, null, 'Actual native click and resulting UI retained. Independent inspection must judge the reached source or task; control presence alone does not pass the outcome.');
-      if (new URL(page.url()).pathname !== '/insights') { await page.goBack({ waitUntil: 'networkidle0' }); actions.push({ kind: 'browser-history-back', purpose: 'Return from diagnostic source/action operation' }); await waitPath(page, '/insights'); }
-    } finally { await Promise.all(elements.map(element => element.dispose())); }
   }
   async function readCard(page, selector) {
     // Ordinary wheel reading, never DOM/CSS repositioning. Re-read geometry so
@@ -80,94 +65,157 @@ export async function runCoachOutcomes(h) {
     }
     await page.waitForFunction(selector => { const el = document.querySelector(selector); return el && Number(getComputedStyle(el).opacity) > 0.99 && !el.getAnimations({ subtree: true }).some(a => a.playState === 'running'); }, {}, selector);
   }
+  const currentSurface = '[data-component="current-record-observations"]';
+  const comparisonSurface = `${currentSurface} article[aria-label="已记录支出变化"]`;
+  async function historyToggle(page) {
+    const text = await page.$$eval('summary', rows => rows.find(el => el.textContent.startsWith('查看已保存的历史观察'))?.textContent);
+    assert.ok(text); await pointer(page, 'summary', text);
+  }
+  async function returnToObservation(page) {
+    const text = await page.$$eval('button', rows => rows.find(el => el.textContent.includes('返回这份观察'))?.textContent.trim());
+    assert.ok(text, 'The source editor must expose its actual return context'); await pointer(page, 'button', text); await waitPath(page, '/insights');
+  }
   await isolated('Y3-sparse-history-360', { width: 360, height: 800 }, async page => {
     await login(page, '13900008807', 'Synthetic Y3 Sparse'); const api = await apiFor(page);
-    await openPage(page, '/insights');
-    await observe(page, 'Y3-zero-data-observation-context', null, 'Actual new-account insights before any source record; inspect wording and actual local/cloud origins, not a fabricated empty-state assumption');
+    await openPage(page, '/insights'); await page.waitForFunction(selector => document.querySelector(selector)?.innerText.includes('还没有可核对的记录'), {}, currentSurface);
+    await observe(page, 'Y3-zero-data-no-invented-advice', !(await state(page)).text.includes('异常预警') && !(await state(page)).text.includes('0/0'), 'Actual new-account current view offers one recording option; no fabricated advice or mandatory habit denominator');
     await facts(page, api, 'Y3-zero-data'); await home(page);
     const [old] = await prepareExpenses(page, api, [{ name: 'Synthetic 45天前旧账', amount: 1379, category: 'food', date: businessDate(-45), isIncome: false }]);
     await openPage(page, '/coach'); await page.waitForSelector('textarea[aria-label="输入消息"]');
     await page.waitForFunction(() => ![...document.querySelectorAll('main p')].some(el => el.getAnimations().some(a => a.playState === 'running')));
     const welcome = (await state(page)).text;
-    await observe(page, 'Y3-historical-date-not-relationship-history', !welcome.includes('已经相处一段时间') && !welcome.includes('越来越了解你'), 'This account was just created; one 45-day-old expense is historical coverage, not evidence of 45 days of interaction');
+    await observe(page, 'Y3-historical-date-not-relationship-history', welcome.includes(old.date) && welcome.includes('不代表连续记录或相处时长') && !welcome.includes('已经相处一段时间') && !welcome.includes('越来越了解你'), 'One old source is coverage, not relationship history; actual recorded date is visible');
     await facts(page, api, 'Y3-sparse-first-coach', { oldSourceId: old.id, accountCreatedInThisRun: true, noPriorConversation: true });
     const geometry = await page.$eval('textarea[aria-label="输入消息"]', el => { const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { box: r.toJSON(), centerHitsInput: el.contains(hit), hitTag: hit?.tagName, hitLabel: hit?.closest('button')?.getAttribute('aria-label') }; });
     await observe(page, 'Y3-first-input-natural-center-unobstructed', geometry.centerHitsInput, JSON.stringify(geometry));
-    await segment(page, 'Y3-input-alternative-real-hit', async () => {
-      // Preserve the central obstruction. If needed, use a genuinely visible
-      // left-hand text area to inspect typing; this does not turn the center green.
-      const point = await page.$eval('textarea[aria-label="输入消息"]', el => { const r = el.getBoundingClientRect(), x = r.x + 24, y = r.y + r.height / 2; return { x, y, hitsInput: el.contains(document.elementFromPoint(x, y)) }; });
-      assert.ok(point.hitsInput, 'Even the alternative visible input area is obstructed');
-      await page.mouse.click(point.x, point.y); actions.push({ kind: 'native-pointer-alternative-visible-input-area', point, centralObstructionPreserved: !geometry.centerHitsInput });
-      await page.keyboard.sendCharacter('Synthetic 我想核对这条旧记录');
-      await observe(page, 'Y3-unsent-input-visible-after-real-click', await page.$eval('textarea[aria-label="输入消息"]', el => el.value === 'Synthetic 我想核对这条旧记录'), 'Typing only; no send, model response or complete conversation is claimed');
+    await segment(page, 'Y3-input-actual-pointer-and-keyboard', async () => {
+      await fill(page, 'textarea[aria-label="输入消息"]', 'Synthetic 我想核对这条旧记录');
+      const send = await page.$eval('button[aria-label="发送消息"]', el => { const r = el.getBoundingClientRect(); return { enabled: !el.disabled, hits: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), box: r.toJSON() }; });
+      await observe(page, 'Y3-input-and-enabled-send-visible', send.enabled && send.hits, JSON.stringify({ send, boundary: 'Unsent typing and hit geometry only; no model response or actual conversation-completion claim' }));
     });
   });
 
-  await isolated('Y3-observation-action-1280', { width: 1280, height: 900 }, async page => {
-    await login(page, '13900008808', 'Synthetic Y3 Action'); const api = await apiFor(page);
+  async function completeObservation(page) {
+    const narrow = page.viewport().width < 769, label = narrow ? 'Y3N' : 'Y3';
+    await login(page, narrow ? '13900008809' : '13900008808', `Synthetic ${label} Action`); const api = await apiFor(page);
     const sources = await prepareExpenses(page, api, [
       { name: 'Synthetic 本期核对午饭', amount: 5025, category: 'food', date: businessDate(-1), isIncome: false },
       { name: 'Synthetic 前期核对午饭', amount: 2010, category: 'food', date: businessDate(-10), isIncome: false },
       { name: 'Synthetic 非支出收入反例', amount: 90000, category: 'income', date: businessDate(-2), isIncome: true },
     ]);
-    let local = await waitLocal(page, api, rows => rows.coachInsights.some(row => row.title.startsWith('近7天消费比前7天')) && rows.coachInsights.some(row => row.title === '按适合你的节奏记录'), 'application-generated comparison and optional capture advice');
-    const comparison = local.coachInsights.find(row => row.title.startsWith('近7天消费比前7天')), suggestion = local.coachInsights.find(row => row.title === '按适合你的节奏记录');
-    await facts(page, api, 'Y3-generated-observations', { sources, independentExpectedComparison: comparisonExpectations(sources), comparisonId: comparison.id, suggestionId: suggestion.id });
-    await openPage(page, '/insights');
-    await segment(page, 'Y3-source-reading', async () => {
-      const selector = await card(page, comparison.title); await readCard(page, selector);
-      const text = await page.$eval(selector, el => el.innerText);
-      await observe(page, 'Y3-comparison-amount-precision-context', null, JSON.stringify({ rendered: text, independentExpectedComparison: comparisonExpectations(sources), limitation: 'Precision diagnostic only. Any approximate wording does not establish correct amounts, denominator, percentage or income exclusion.' }));
-      const links = await page.$$eval(`${selector} a,${selector} button`, rows => rows.map(el => ({ text: el.textContent, label: el.getAttribute('aria-label'), href: el.getAttribute('href') })));
-      const sourceIndex = links.findIndex(row => /依据|来源|明细|记录/.test(`${row.text} ${row.label}`) && !String(row.label).startsWith('去完成'));
-      await observe(page, 'Y3-evidence-source-controls', sourceIndex < 0 ? false : null, JSON.stringify({ cardText: text, controls: links, limitation: 'Exact-card discoverability only; a present control is operated below and still needs independent source inspection.' }));
-      if (sourceIndex >= 0) await operateOptionalControl(page, selector, sourceIndex, 'Y3-actual-source-control-destination');
+    const before = await waitLocal(page, api, rows => rows.coachInsights.some(row => row.title.startsWith('近7天消费比前7天')), 'application-generated immutable history');
+    const originalHistory = structuredClone(before.coachInsights), historyComparison = originalHistory.find(row => row.title.startsWith('近7天消费比前7天'));
+    await facts(page, api, `${label}-initial`, { sources, independentExpectedComparison: comparisonExpectations(sources), originalHistory });
+    await openPage(page, '/insights'); await page.waitForSelector(comparisonSurface);
+    await segment(page, `${label}-understand-current-evidence`, async () => {
+      await readCard(page, comparisonSurface); const text = await page.$eval(comparisonSurface, el => el.innerText), expected = comparisonExpectations(sources);
+      await observe(page, `${label}-exact-current-period-comparison`, text.includes('50.25') && text.includes('20.10') && text.includes('约150%') && [expected.currentStart, expected.currentEnd, expected.previousStart, expected.previousEnd].every(date => text.includes(date)) && (text.match(/1笔支出/g) ?? []).length === 2 && text.includes('1笔收入') && !text.includes('异常预警'), JSON.stringify({ expected, displayed: text, limitation: 'Same-period arithmetic from recorded sources, not behavior or causal inference' }));
+      await pointer(page, `${comparisonSurface} button`, '查看依据并核对原记录');
+      const evidence = await page.$eval('[data-observation-evidence]', el => el.innerText);
+      await observe(page, `${label}-source-period-structure-context`, null, JSON.stringify({ expandedText: evidence, limitation: 'Structure only; each source row is actually brought into the viewport below' }));
+      for (const [index, periodName] of ['current', 'previous'].entries()) {
+        const selector = `button[data-observation-record="${sources[index].id}"]`; await readCard(page, selector);
+        const row = await page.$eval(selector, el => { const r = el.getBoundingClientRect(); return { text: el.innerText, period: el.closest('section')?.getAttribute('aria-label'), rect: r.toJSON(), fullyVisible: r.top >= 0 && r.bottom <= innerHeight - 85, hit: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)) }; });
+        await observe(page, `${label}-${periodName}-source-reading-viewport`, row.fullyVisible && row.hit && row.period === (index === 0 ? `${expected.currentStart} 至 ${expected.currentEnd}` : `${expected.previousStart} 至 ${expected.previousEnd}`) && row.text.includes(sources[index].date) && row.text.includes((sources[index].amount / 100).toFixed(2)) && row.text.includes(sources[index].name) && row.text.includes('已收到云端版本确认'), JSON.stringify(row));
+      }
+      await pointer(page, 'summary', '查看已排除的收入（1笔）');
+      const incomeSelector = `button[data-observation-record="${sources[2].id}"]`; const income = await page.$(incomeSelector); assert.ok(income); await income.dispose(); await readCard(page, incomeSelector);
+      await observe(page, `${label}-excluded-income-actual-source`, await page.$eval(incomeSelector, el => el.innerText.includes('900.00') && el.innerText.includes('收入')), 'The actual excluded counterexample is readable without changing it');
     });
-    await segment(page, 'Y3-accept-and-continue', async () => {
-      const selector = await card(page, comparison.title); await pointer(page, `${selector} button`, '采纳建议');
-      local = await waitLocal(page, api, rows => rows.coachInsights.some(row => row.id === comparison.id && row.actionTaken), 'acceptance persisted for the exact observation ID');
-      await facts(page, api, 'Y3-accepted-intent', { comparisonId: comparison.id, noExecutionClaimed: true });
-      await observe(page, 'Y3-acceptance-not-fake-completion', (await state(page)).text.includes('未代替你完成任务') && !local.coachInsights.find(row => row.id === comparison.id)?.actionResult, 'Exact persisted acceptance is intent, not execution or an invented result');
-      const next = await page.$$eval(`${selector} a,${selector} button`, rows => rows.map(el => ({ text: el.textContent, label: el.getAttribute('aria-label') })));
-      const nextIndex = next.findIndex(row => /去完成|继续行动|查看行动|执行建议/.test(`${row.text} ${row.label}`));
-      await observe(page, 'Y3-accepted-action-still-executable', nextIndex < 0 ? false : null, JSON.stringify({ controlsAfterAccept: next, task: comparison.actionSuggested, alternateConversationIsNotDirectExecution: true, limitation: 'Presence alone never proves executable task completion' }));
-      if (nextIndex >= 0) await operateOptionalControl(page, selector, nextIndex, 'Y3-actual-accepted-action-destination');
-    });
-    await segment(page, 'Y3-optional-record-advice-destination', async () => {
-      if (new URL(page.url()).pathname !== '/insights') await openPage(page, '/insights');
-      const selector = await card(page, suggestion.title); await readCard(page, selector);
-      await pointer(page, `${selector} button[aria-label^="去完成："]`);
-      await page.waitForFunction(() => location.pathname !== '/insights' && (document.querySelector('textarea[aria-label="速记内容"]') || document.querySelector('main h1')?.textContent !== '教练洞察'));
-      await page.waitForFunction(() => { const heading = document.querySelector('main h1'), input = document.querySelector('textarea[aria-label="速记内容"]'); return input || heading && heading.getBoundingClientRect().height > 0 && heading.textContent !== '教练洞察'; });
-      await observe(page, 'Y3-record-advice-opens-capture', Boolean(await page.$('textarea[aria-label="速记内容"]')), `The action says “${suggestion.actionSuggested}”; actual destination ${new URL(page.url()).pathname}. Actual form capability, not a hardcoded URL, is the task criterion`);
-      await page.goBack({ waitUntil: 'networkidle0' }); actions.push({ kind: 'browser-history-back', purpose: 'Return from actual suggested action destination' }); await waitPath(page, '/insights');
-    });
-    await segment(page, 'Y3-reject-remains-rejected', async () => {
-      if (new URL(page.url()).pathname !== '/insights') await openPage(page, '/insights');
-      const selector = await card(page, suggestion.title); await pointer(page, `${selector} button`, '忽略');
-      await waitLocal(page, api, rows => rows.coachInsights.some(row => row.id === suggestion.id && row.dismissed), 'exact dismissed observation saved');
-      await page.waitForFunction(title => ![...document.querySelectorAll('main article h3')].some(el => el.textContent === title), {}, suggestion.title);
-      await observe(page, 'Y3-dismiss-immediate-feedback', true, 'The exact suggestion is hidden after the user rejects it');
-      // Arm before navigation: old visible brief text can survive in the store
-      // and must not stand in for completion of this new Home generation.
-      const homeBrief = page.waitForResponse(response => response.url().endsWith('/api/coach/brief') && response.request().method() === 'GET' && response.status() === 200);
-      await home(page); await homeBrief;
-      await waitLocal(page, api, rows => rows.coachInsights.some(row => row.id === suggestion.id && row.dismissed), 'dismissed original retained');
-      await openPage(page, '/insights'); await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'user-reload-after-feedback', purpose: 'Check persisted rejection and regenerated suggestions' }); await waitPath(page, '/insights');
-      const reread = await facts(page, api, 'Y3-rejected-after-home-and-reload', { rejectedId: suggestion.id });
-      await observe(page, 'Y3-rejection-not-recreated-as-new-advice', !reread.local.coachInsights.some(row => row.title === suggestion.title && !row.dismissed), 'Same source and same suggestion must not return under a new ID just because Home is revisited');
-    });
-    await segment(page, 'Y3-correct-source-and-return', async () => {
-      actions.push({ kind: 'explicit-independent-source-correction-fallback', note: 'Uses normal navigation; does not claim the missing accepted-action continuation worked' });
-      await openPage(page, '/expense'); await pointer(page, `button[id="expense-record-${sources[0].id}"]`);
+    await segment(page, `${label}-source-action-correct-return`, async () => {
+      const source = `button[data-observation-record="${sources[0].id}"]`, handle = await page.$(source); assert.ok(handle); await handle.dispose(); await readCard(page, source);
+      const position = await h.capture(page, `${label}-source-before-open`); await pointer(page, source); await waitPath(page, '/expense'); await page.waitForSelector('#expense-amount');
+      await observe(page, `${label}-exact-source-editor`, await page.$eval('#expense-amount', el => Number(el.value)) === 50.25 && await page.$eval('#expense-name', el => el.value) === sources[0].name && await page.$eval('#expense-date', el => el.value) === sources[0].date, 'The source CTA opened the exact name/date/amount editor, not a module list');
       await fill(page, '#expense-amount', '40.25'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
-      local = await settledRows(page, api); const remote = (await api('/expenses')).expenses;
-      await saveRecordEvidence('Y3-corrected-observation-source', local, { expenses: remote }, { expenses: sources.map(row => row.id) });
-      await observe(page, 'Y3-source-correction-real-ack', local.outbox.length === 0 && remote.length === 3 && remote.find(row => row.id === sources[0].id)?.amount === 4025 && remote.find(row => row.id === sources[1].id)?.amount === 2010 && remote.find(row => row.id === sources[2].id)?.amount === 90000, 'Exact source corrected at real server; previous-period and income counterexamples unchanged');
-      await openPage(page, '/insights'); const selector = await card(page, comparison.title); await readCard(page, selector);
-      const final = await facts(page, api, 'Y3-return-after-correction', { comparisonId: comparison.id, independentExpectedComparison: comparisonExpectations(remote) });
-      await observe(page, 'Y3-source-changed-review-context', null, JSON.stringify({ original: comparison, currentObservation: final.local.coachInsights.find(row => row.id === comparison.id), rendered: await page.$eval(selector, el => el.innerText), note: 'Inspect whether the old snapshot is distinguishable and there is a usable current review/action outcome; do not rewrite old evidence to manufacture success.' }));
+      const local = await settledRows(page, api), remote = (await api('/expenses')).expenses;
+      await saveRecordEvidence(`${label}-corrected-observation-source`, local, { expenses: remote }, { expenses: sources.map(row => row.id) });
+      await observe(page, `${label}-same-source-correction-cloud-ack`, local.outbox.length === 0 && remote.length === 3 && remote.find(row => row.id === sources[0].id)?.amount === 4025 && remote.find(row => row.id === sources[1].id)?.amount === 2010 && remote.find(row => row.id === sources[2].id)?.amount === 90000, 'Exact original source corrected at real server; prior-period and income counterexamples unchanged');
+      await returnToObservation(page);
+      await page.waitForFunction(selector => document.querySelector(selector)?.innerText.includes('40.25') && document.querySelector(selector)?.innerText.includes('约100%'), {}, comparisonSurface);
+      await page.waitForFunction(id => document.activeElement?.getAttribute('data-observation-record') === id, {}, sources[0].id);
+      const returnState = await state(page), focused = await page.$eval(source, el => { const r = el.getBoundingClientRect(); return { focused: document.activeElement === el, visible: r.top >= 0 && r.bottom <= innerHeight - 85, rect: r.toJSON(), label: el.getAttribute('aria-label') }; });
+      await observe(page, `${label}-return-current-result-and-source-focus`, focused.focused && focused.visible && Math.abs(returnState.scroll.y - position.state.scroll.y) < 50, JSON.stringify({ beforeScroll: position.state.scroll.y, afterScroll: returnState.scroll.y, focused, expected: comparisonExpectations(remote) }));
+      await pointer(page, `${comparisonSurface} button`, '收起本次依据'); await readCard(page, comparisonSurface);
+      await observe(page, `${label}-returned-current-comparison-reading`, await page.$eval(comparisonSurface, el => el.innerText.includes('40.25') && el.innerText.includes('20.10') && el.innerText.includes('约100%')), 'After inspecting the corrected source, the user closes its evidence and reads the updated current comparison');
+      const final = await facts(page, api, `${label}-returned-current`, { originalHistory, independentExpectedComparison: comparisonExpectations(remote) });
+      for (const original of originalHistory) assert.deepEqual(final.local.coachInsights.find(row => row.id === original.id), original, 'Existing historical snapshots must not be rewritten by live evidence');
+      await historyToggle(page); const selector = await card(page, historyComparison.title); await readCard(page, selector);
+      await observe(page, `${label}-immutable-history-readable`, await page.$eval(selector, el => el.innerText.includes('150%')), 'Original snapshot remains separately readable after actual source correction; it is not current arithmetic');
+      await historyToggle(page);
     });
-  });
+    await segment(page, `${label}-choice-quota-and-recovery`, async () => {
+      await page.evaluate(owner => { const original = IDBObjectStore.prototype.put; window.__choicePutOriginal = original; window.__choiceQuotaHits = 0; IDBObjectStore.prototype.put = function(value, ...args) { if (this.transaction.db.name === `youtrace:user:${owner}` && this.name === 'settings' && String(value?.key).startsWith('observation-choice:')) { window.__choiceQuotaHits++; throw new DOMException('Synthetic choice quota', 'QuotaExceededError'); } return original.call(this, value, ...args); }; }, api.ownerId);
+      actions.push({ kind: 'synthetic-choice-quota-boundary', owner: api.ownerId, scope: 'settings observation-choice only' });
+      try {
+        await pointer(page, `${currentSurface} button`, '在此设备隐藏本期间支出观察'); await page.waitForFunction(() => window.__choiceQuotaHits > 0 && document.body.innerText.includes('显示选择未保存'));
+        const local = await localRows(page, api.ownerId); assert.equal(local.settings.some(row => row.key.startsWith('observation-choice:v1:spending-comparison:')), false);
+        await observe(page, `${label}-failed-choice-explains-no-save`, (await state(page)).text.includes('存储空间不足'), 'Native storage failure reached the real handler; no device choice row was committed and source records remain');
+      } finally { await page.evaluate(() => { IDBObjectStore.prototype.put = window.__choicePutOriginal; delete window.__choicePutOriginal; }); }
+      await pointer(page, 'button', '重新读取当前观察'); await page.waitForSelector(comparisonSurface);
+    });
+    await segment(page, `${label}-hide-survives-revisit-reload-source-change`, async () => {
+      await pointer(page, `${currentSurface} button`, '在此设备隐藏本期间支出观察'); await page.waitForSelector(comparisonSurface, { hidden: true });
+      await page.waitForFunction(() => document.activeElement?.getAttribute('data-observation-choice') === 'spending-comparison:false');
+      await observe(page, `${label}-device-hide-clear-scope-and-focus`, (await state(page)).text.includes('其他设备不受影响'), 'Hidden current observation replaced by an explicit same-device restore control, with keyboard focus retained');
+      await home(page); await openPage(page, '/insights'); await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'user-reload-after-device-choice', label }); await waitPath(page, '/insights');
+      await page.waitForFunction(selector => document.querySelector(selector)?.innerText.includes('此设备已隐藏'), {}, currentSurface);
+      await observe(page, `${label}-hide-survives-home-reload`, !await page.$(comparisonSurface), 'The current same-period observation stays hidden after Home generation and reload');
+      actions.push({ kind: 'independent-hidden-source-change', note: 'This separate preference test uses normal navigation; the earlier correction already used the observation evidence CTA' });
+      await openPage(page, '/expense'); await pointer(page, `button[id="expense-record-${sources[0].id}"]`); await fill(page, '#expense-name', 'Synthetic 隐藏后核对午饭'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
+      const local = await settledRows(page, api), remote = (await api('/expenses')).expenses; await saveRecordEvidence(`${label}-hidden-source-change`, local, { expenses: remote }, { expenses: sources.map(row => row.id) });
+      assert.equal(local.outbox.length, 0); assert.equal(remote.find(row => row.id === sources[0].id)?.name, 'Synthetic 隐藏后核对午饭');
+      await openPage(page, '/insights'); await page.waitForFunction(selector => document.querySelector(selector)?.innerText.includes('此设备已隐藏'), {}, currentSurface);
+      await observe(page, `${label}-source-change-does-not-revoke-choice`, !await page.$(comparisonSurface), 'Editing the source does not silently revoke this period’s device hide');
+      await pointer(page, `${currentSurface} button`, '在此设备恢复本期间支出观察'); await page.waitForSelector(comparisonSurface);
+      await readCard(page, comparisonSurface);
+      await observe(page, `${label}-explicit-restore-current-cents`, await page.$eval(comparisonSurface, el => el.innerText.includes('40.25') && el.innerText.includes('约100%')), 'User explicitly restored the current view, which uses actual source content');
+    });
+    await segment(page, `${label}-read-failure-clears-current-and-recovers`, async () => {
+      if (!await page.$('[data-observation-evidence]')) await pointer(page, `${comparisonSurface} button`, '查看依据并核对原记录');
+      const sourceSelector = `button[data-observation-record="${sources[0].id}"]`, sourceHandle = await page.$(sourceSelector); assert.ok(sourceHandle); await sourceHandle.dispose(); await readCard(page, sourceSelector);
+      await observe(page, `${label}-before-read-failure-current-source-ack`, await page.$eval(sourceSelector, el => el.innerText.includes('40.25') && el.innerText.includes('已收到云端版本确认')), 'Current source and its matching confirmed status are actually shown before the injected later read failure');
+      await page.evaluate(owner => {
+        const original = IDBDatabase.prototype.transaction, deadline = Date.now() + 15000;
+        const diagnostic = window.__observationOutage = { owner, deadline, hits: [], expired: false, restoredAt: null };
+        let restored = false; const restore = () => { if (restored) return; restored = true; IDBDatabase.prototype.transaction = original; clearTimeout(timer); diagnostic.restoredAt = Date.now(); };
+        const timer = setTimeout(() => { diagnostic.expired = true; restore(); }, 15000); window.__restoreObservationRead = restore;
+        IDBDatabase.prototype.transaction = function(names, mode, ...rest) {
+          const tables = typeof names === 'string' ? [names] : Array.from(names);
+          if (this.name === `youtrace:user:${owner}` && mode === 'readonly' && tables.length === 7 && ['expenses','habitCheckins','diary','quickNotes','settings','outbox','coachInsights'].every(name => tables.includes(name)) && Date.now() < deadline) { diagnostic.hits.push({ at: Date.now(), db: this.name, mode, tables }); throw new DOMException('Synthetic bounded observation read outage', 'UnknownError'); }
+          return original.call(this, names, mode, ...rest);
+        };
+      }, api.ownerId);
+      actions.push({ kind: 'synthetic-native-IDB-observation-transaction-outage', label, hardLimitMs: 15000 });
+      try {
+        await pointer(page, `${currentSurface} button`, '重新核对本机记录'); await page.waitForFunction(() => window.__observationOutage.hits.length > 0 && document.body.innerText.includes('当前金额和同步确认已撤下'));
+        assert.equal(await page.evaluate(() => window.__observationOutage.expired), false, 'Expired fault window is harness-blocked, never product failure');
+        await observe(page, `${label}-read-failure-withdraws-old-result`, !await page.$(comparisonSurface) && await page.$eval(currentSurface, el => !el.innerText.includes('40.25') && !el.innerText.includes('已收到云端版本确认')), 'The previously visible amount and current ACK are removed on a confirmed native read failure');
+        await historyToggle(page); const history = await card(page, historyComparison.title); await readCard(page, history); await observe(page, `${label}-historical-snapshot-survives-read-failure`, await page.$eval(history, el => el.innerText.includes('150%')), 'Existing immutable history stays readable with its non-current meaning'); await historyToggle(page);
+        assert.equal(await page.evaluate(() => window.__observationOutage.expired), false);
+        await page.evaluate(() => window.__restoreObservationRead()); await pointer(page, 'button', '重新读取当前观察'); await page.waitForSelector(comparisonSurface);
+        const recoveredSource = await page.$(sourceSelector); assert.ok(recoveredSource); await recoveredSource.dispose(); await readCard(page, sourceSelector);
+        await observe(page, `${label}-actual-reread-source-ack`, await page.$eval(sourceSelector, el => el.innerText.includes('Synthetic 隐藏后核对午饭') && el.innerText.includes('40.25') && el.innerText.includes('已收到云端版本确认')), 'Recovered actual current source and ACK are readable after storage returns and user retry');
+        await pointer(page, `${comparisonSurface} button`, '收起本次依据'); await readCard(page, comparisonSurface);
+        await observe(page, `${label}-actual-reread-latest-result`, await page.$eval(comparisonSurface, el => el.innerText.includes('40.25') && el.innerText.includes('约100%')), 'Real retry recovers the current source calculation, not the old historical snapshot');
+        await facts(page, api, `${label}-reread-current`);
+      } finally { const diagnostic = await page.evaluate(() => { window.__restoreObservationRead?.(); return window.__observationOutage; }); await writeFile(join(artifacts, `${label}-read-outage.json`), JSON.stringify(diagnostic, null, 2)); }
+    });
+    await segment(page, `${label}-optional-capture-reaches-real-saved-record`, async () => {
+      const beforeCapture = await localRows(page, api.ownerId), serverExpensesBefore = (await api('/expenses')).expenses;
+      await pointer(page, `${currentSurface} button`, '写一句速记'); await waitPath(page, '/quick-note');
+      const input = 'Synthetic 从记录观察回看后的一句话'; await fill(page, 'textarea[aria-label="速记内容"]', input); await pointer(page, 'button', '查看确认稿'); await waitPath(page, '/quick-note/result');
+      for (const label of ['将这段文字记入日记', '我愿意记录这次心情']) { const selector = `input[aria-label="${label}"]`; if (await page.$(selector) && await page.$eval(selector, el => el.checked)) await pointer(page, selector); }
+      await pointer(page, 'button', '确认保存所选记录'); await page.waitForFunction(() => location.search.includes('receipt='));
+      const local = await settledRows(page, api), notes = (await api('/quicknote')).notes;
+      const serverExpensesAfter = (await api('/expenses')).expenses;
+      for (const table of ['todos', 'habits', 'habitCheckins', 'diary']) assert.deepEqual(local[table], beforeCapture[table], `Pure original note must not alter ${table}`);
+      const stableExpenses = rows => rows.map(({ id, name, amount, date, category, isIncome, note, relatedMood, source }) => ({ id, name, amount, date, category, isIncome, note, relatedMood, source })).sort((a, b) => a.id.localeCompare(b.id));
+      assert.deepEqual(stableExpenses(local.expenses), stableExpenses(beforeCapture.expenses)); assert.deepEqual(serverExpensesAfter.sort((a, b) => a.id.localeCompare(b.id)), serverExpensesBefore.sort((a, b) => a.id.localeCompare(b.id)));
+      await writeFile(join(artifacts, `${label}-capture-side-effects.json`), JSON.stringify({ syntheticOnly: true, before: { todos: beforeCapture.todos, habits: beforeCapture.habits, checkins: beforeCapture.habitCheckins, diary: beforeCapture.diary, expenses: stableExpenses(beforeCapture.expenses), serverExpenses: serverExpensesBefore }, after: { todos: local.todos, habits: local.habits, checkins: local.habitCheckins, diary: local.diary, expenses: stableExpenses(local.expenses), serverExpenses: serverExpensesAfter } }, null, 2));
+      await saveRecordEvidence(`${label}-actual-optional-capture`, local, { quickNotes: notes }, { quickNotes: local.quickNotes.map(row => row.id) });
+      await observe(page, `${label}-optional-action-real-result`, local.outbox.length === 0 && local.quickNotes.length === 1 && local.quickNotes[0].rawInput === input && local.diary.length === 0 && local.expenses.length === 3 && notes.length === 1 && notes[0].id === local.quickNotes[0].id && notes[0].content === input, 'The optional action actually saved exactly one raw note at the isolated server, without extra diary or expense writes');
+    });
+  }
+  await isolated('Y3-observation-action-1280', { width: 1280, height: 900 }, completeObservation);
+  await isolated('Y3-observation-action-360', { width: 360, height: 800 }, completeObservation);
 }

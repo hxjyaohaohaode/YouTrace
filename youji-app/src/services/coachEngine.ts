@@ -171,7 +171,7 @@ export async function generatePushesFromInsights(
 
     let pushType: CoachPushRecord['type'] = 'anomaly';
     if (insight.type === 'positive') pushType = 'positive';
-    else if (insight.type === 'correlation') pushType = 'follow_up';
+    else if (insight.type === 'correlation' || insight.type === 'pattern') pushType = 'follow_up';
     else if (insight.type === 'suggestion') pushType = 'follow_up';
 
     if (!await canPush(control, pushType)) continue;
