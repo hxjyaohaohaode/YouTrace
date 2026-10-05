@@ -415,3 +415,53 @@ for (const [version, expected] of [[undefined, '待同步'], ['0', '待同步'],
     await store.getState().loadFromDB(); assert.equal(store.getState().statuses[row().id], expected);
   });
 }
+
+for (const initial of ['superseded', 'read-error'] as const) test(`goal integrity: ${initial} observation still follows later ACK without a manual reload`, async () => Dexie.ignoreTransaction(async () => {
+  const source = { ...row(), syncScope: 'account' as const };
+  await storage.db.goalRecords.put(source);
+  const queued = await storage.db.outbox.add({ entity: 'goals', op: 'upsert', payload: source, baseVersion: '0', queuedAt: 1, status: 'pending' });
+  const gate = barrier(), get = storage.db.settings.get; let first = true;
+  storage.db.settings.get = function (...args: Parameters<typeof get>) {
+    return get.apply(this, args).then(value => {
+      if (first && args[0] === storage.LOCAL_DATA_EPOCH_KEY) {
+        first = false; gate.entered();
+        return Dexie.Promise.resolve(gate.waiting).then(() => {
+          if (initial === 'read-error') throw new Error('Synthetic initial epoch read error');
+          return value;
+        });
+      }
+      return value;
+    });
+  } as typeof get;
+  const stop = startGoalObservation();
+  try {
+    await gate.started;
+    if (initial === 'superseded') await store.getState().loadFromDB();
+    gate.release(); await new Promise(resolve => setTimeout(resolve, 40));
+    storage.db.settings.get = get;
+    if (initial === 'read-error') { assert.ok(store.getState().readError); await store.getState().loadFromDB(); }
+    assert.equal(store.getState().statuses[source.id], '待同步');
+    // Same actual IndexedDB mutations as an accepted ACK; no store refresh call.
+    await Dexie.ignoreTransaction(() => storage.db.transaction('rw', storage.db.outbox, storage.db.settings, async () => {
+      await storage.db.outbox.delete(queued);
+      await storage.db.settings.put({ key: `sync-version:goals:${source.id}`, value: '1' });
+    }));
+    await settled(() => store.getState().statuses[source.id] === '已同步');
+    assert.equal(store.getState().items[0].progress, 25);
+  } finally { gate.release(); storage.db.settings.get = get; stop(); }
+}));
+
+test('goal integrity: shared observation survives one consumer closing and unsubscribes after the last', async () => {
+  const source = { ...row(), syncScope: 'account' as const };
+  await storage.db.goalRecords.put(source); await storage.db.settings.put({ key: `sync-version:goals:${source.id}`, value: '0' });
+  const stopPage = startGoalObservation(), stopRecovery = startGoalObservation();
+  try {
+    await settled(() => store.getState().statuses[source.id] === '待同步'); stopPage();
+    await storage.db.settings.put({ key: `sync-version:goals:${source.id}`, value: '1' });
+    await settled(() => store.getState().statuses[source.id] === '已同步');
+    stopRecovery();
+    await storage.db.settings.put({ key: `sync-version:goals:${source.id}`, value: 'not-a-version' });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(store.getState().statuses[source.id], '已同步', 'no new observer publication after every consumer closes');
+  } finally { stopPage(); stopRecovery(); }
+});

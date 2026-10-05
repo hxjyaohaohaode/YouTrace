@@ -1,4 +1,4 @@
-import { liveQuery } from 'dexie';
+import Dexie, { type ObservabilitySet } from 'dexie';
 import { create } from 'zustand';
 import { generateLocalId, LOCAL_DATA_EPOCH_KEY, type GoalRecord, type OutboxRecord, type SettingRecord } from '../db';
 import { commitLocalMutation } from '../services/localMutation';
@@ -425,7 +425,7 @@ export async function resolveLegacyGoalChange(preview: LegacyGoalChange, choice:
 
 let observation: { unsubscribe: () => void } | null = null;
 let observers = 0;
-function requestRefresh() { void useGoalStore.getState().loadFromDB().catch(() => undefined); }
+function requestRefresh() { void Dexie.ignoreTransaction(() => useGoalStore.getState().loadFromDB()).catch(() => undefined); }
 /** Both Goal and Settings recovery use this one coherent, actor-guarded reader.
  * A read fault keeps the existing snapshot/error visible and does not terminate
  * observation, so an explicit retry or later real DB change can recover it.
@@ -433,7 +433,19 @@ function requestRefresh() { void useGoalStore.getState().loadFromDB().catch(() =
 export function startGoalObservation(): () => void {
   observers += 1;
   if (!observation) {
-    observation = liveQuery(async () => { await useGoalStore.getState().loadFromDB().catch(() => undefined); }).subscribe({ error: () => recordDiagnostic('runtime-error', 'goals') });
+    // A cancelled or failed load may read only the epoch. Using that load as a
+    // liveQuery would replace its dynamic dependencies with epoch-only reads,
+    // silently losing later outbox/version ACK updates. Observe committed table
+    // mutations independently; all publication still uses the guarded reader.
+    const onMutation = (parts: ObservabilitySet) => {
+      let prefix: string;
+      try { prefix = `idb://${captureLocalActor().database.name}/`; }
+      catch { requestRefresh(); return; }
+      if (Object.keys(parts).some(key => ['goalRecords', 'goals', 'outbox', 'settings'].some(table => key.startsWith(`${prefix}${table}/`)))) requestRefresh();
+    };
+    Dexie.on('storagemutated', onMutation);
+    observation = { unsubscribe: () => Dexie.on.storagemutated.unsubscribe(onMutation) };
+    requestRefresh();
     window.addEventListener('storage', requestRefresh);
     window.addEventListener(UNAUTHORIZED_EVENT, requestRefresh);
     window.addEventListener('youtrace:data-updated', requestRefresh);
