@@ -103,3 +103,16 @@
 两宽完整current/physical/server/events以及下载原键、未知privateMemo、所有副本字段、settings/outbox逐项一致。来源任务没有Goal同步请求，因此此段只证明本机处理不自动上传，空wire继续记为上下文；标准字段过滤与选择上传由629的真实请求和原件支持。e90应用字节与629完全相同，引用629的已验收enrollment原件不等于声称e90另行下载并逐帧审查过该分片。
 
 这完成上述声明的旧账号格式与当前代来源夹具合同。拒绝后的设置帮助fallback仍未触发；旧b5b8初始化原因、匿名共享归属、任意历史格式、完整备份导入以及真实旧JavaScript的并发自动恢复仍未完成。下一独立初始会话任务见[INITIAL_SESSION_TASK_BASELINE](INITIAL_SESSION_TASK_BASELINE.md)。
+
+
+## fb991首run的新设备登录观察阻断
+
+同一fb991应用树的首个[CI37358956850](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37358956850)十项成功、旧来源分片失败；后一个[CI37359003937](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37359003937)十一项成功。首run失败没有被后run覆盖。独立核验该旧来源包全部284份成员：Y6L-retained-360在实际验证码验证之后的15秒等待超时，原图093/094已完整可读地位于`/onboarding`。
+
+原始trace证实唯一verify POST200，14.856ms收到响应、15.502ms正常结束，随后新主document和身份GET均200。录像3秒、8秒、16秒已稳定显示欢迎页，因此不是验证未点击、验证码页面滞留或初始化错误页。证据说明跨整页导航的测试等待没有承认已满足的页面条件；不臆测Puppeteer内部机制，不改应用。这个profile的新设备四步引导与后续旧目标任务尚未执行，不能用同SHA另一run补作本次通过。
+
+窄修在原唯一验证click前注册只读HTTP响应及主框架导航观察；click返回后仍只有原15秒总上限。测试进程每100ms发起一次对当前document的真实path/shell读取，要求唯一实际verify200之后的新document200与主框架导航、同源且变化的performance.timeOrigin，以及原来的onboarding或首页导航条件。记录每次响应/导航/读取的顺序和时间；只对导航销毁执行上下文做窗口内重新观察，不重复验证码或验证动作，不延长截止，不写浏览器状态。退出时移除监听器，失败也保留读取记录。
+
+原四步引导、确认同owner、原生导航及完整旧Goal比较/取消/quota/副本/只读恢复/保留/下载/删后旧页拒绝合同全部保留。纯观察合同用合成page事件与测试进程时钟覆盖正常返回、上下文替换、缺少实际响应/导航、旧document、错源、超时后才就绪及真实HTTP失败；不代替下一精确SHA的浏览器结果。Login、Splash和初始化修复源码不变。
+
+此观察候选本地前端637项及lint、类型、构建通过，新增4项均为合成观察合同；应用/服务端/schema没有变化。原生新设备引导与完整旧目标链仍须新精确SHA原件验证。

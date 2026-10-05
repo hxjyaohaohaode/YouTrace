@@ -3,6 +3,7 @@
 // verifies the owner. It is not UI-created content or evidence of running old JS.
 // Current-generation retained-source fixtures and actual old-physical DB writes
 // are distinct scenarios. No app/auth store calls, cookie injection or API writes.
+import { observeExistingLoginReturn } from './audit-login-return.mjs';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
@@ -233,8 +234,15 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
     // Receipt of HTTP bytes can precede React's rendered next step. Wait for
     // the real control, then retain the original painted/clip/hit checks.
     await page.waitForSelector('#login-code', { visible: true, timeout: 7000 });
-    await fill(page, '#login-code', challenge.devCode); await tap(page, 'button', '验证');
-    await page.waitForFunction(() => location.pathname === '/onboarding' || location.pathname === '/' && Boolean(document.querySelector('aside nav,nav[aria-label="主导航"]')), { polling: 100, timeout: 15000 });
+    await fill(page, '#login-code', challenge.devCode);
+    try {
+      const returned = await observeExistingLoginReturn(page, () => tap(page, 'button', '验证'));
+      await writeFile(join(artifacts, `${surfaceNames.get(page)}-existing-login-return.json`), JSON.stringify(returned, null, 2));
+      actions.push({ kind: 'observed-existing-login-current-document', surface: surfaceNames.get(page), ...returned });
+    } catch (error) {
+      if (error.loginReturnEvidence) await writeFile(join(artifacts, `${surfaceNames.get(page)}-existing-login-return.json`), JSON.stringify(error.loginReturnEvidence, null, 2));
+      throw error;
+    }
     if (new URL(page.url()).pathname === '/onboarding') {
       for (let step = 0; step < 4; step++) { await capture(page, `${surfaceNames.get(page)}-existing-account-new-device-onboarding-${step + 1}`); await tap(page, 'button', step < 3 ? '下一步' : '开始使用'); await sleep(650); }
       actions.push({ kind: 'native-existing-account-new-profile-onboarding', surface: surfaceNames.get(page), steps: 4, note: 'Actual first-visit controls; no localStorage flag injection' });

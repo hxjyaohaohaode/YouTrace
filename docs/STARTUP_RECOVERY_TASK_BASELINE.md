@@ -71,3 +71,16 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 原12秒期限、一次恢复、必需store顺序、现有Retry控件、Login/Splash与品牌字节保持不变。actor、数据库、同步引擎及store写入代码没有改动；资料清除epoch仍由原store/事务门禁处理，不声称本包覆盖任意新数据更新、清除或全部初始化竞态。
 
 该六文件核心/回归候选与独立技术审的冻结字节逐项一致。独立检查覆盖重叠成功/失败、取消/会话变化及存储访问变化，使用真实模块与fake-indexeddb、确定性React/router调度替身；不代替真正React DOM或浏览器结果。合入当前测试树后，前端633项、后端55项及双端lint、类型/构建通过；下一精确SHA原生修复验收仍待执行。原生四profile脚本、故障边界、期限、同ID见证和结果断言未放宽。
+
+
+## fb991四profile限定验收
+
+[`fb991ce`](https://github.com/hxjyaohaohaode/YouTrace/commit/fb991ce14e189204fea25a095a986544dcd9aba9)的首个[CI37358956850](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37358956850)中，startup-recovery已成功，独立核验137份成员、官方ZIP/分片/完整归档与312份源码起止固定值。关键PNG、录像片段和归档内原始trace的顺序一致，两宽各两条指定用户链通过：
+
+- 真实12秒期限后，initial完整成功再遇到晚recovery error，原标题、同ID原行和可用入口保留；确实用原生指针打开原待办，读到原标题/中优先/无日期/未完成，再取消回原行
+- 两次读取均失败时仍有清楚错误与可用Retry，明确解除故障后实际单击重试，进入新的原路径document、真实auth200及同owner原待办
+- 完整Todo含字段存在性和lossless表示、整个outbox、schema、版本回执与完整服务端ledger均与原ACK相同；四个场景各只有原始seq1–4中的自身一次业务事件，故障document之后没有新业务POST。打开/取消的草稿元数据单独核对，本轮前后均空，不据此外推新输入草稿恢复
+
+这关闭525f指定的不变来源重叠竞态用户链，原红工件保留。存储访问变化、其他身份/资料代次边界的技术测试仍与原生场景区分，旧b5b8原因、任意规模和全无障碍不在此结论内。
+
+同SHA出现两个官方push型CI记录：首run十项成功、旧目标来源分片一项失败；后一个[CI37359003937](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37359003937)十一项成功。本次独立startup验收只引用首run原件。首run的Y6L-retained-360在验证后等待阶段超时；后续原图/trace证实早已进入可读onboarding，测试等待未承认，准确证据及窄观察修正见[旧来源记录](LEGACY_GOAL_TASK_BASELINE.md#fb991首run的新设备登录观察阻断)。该profile后续旧目标任务未执行，不能用后run绿色覆盖该失败，或称所有本轮用户任务都已独立通过。
