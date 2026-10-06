@@ -56,7 +56,7 @@ function DiaryEntryCard({ item, onEdit, onDelete }: { item: DiaryRecord; onEdit:
           </div>
         </div>
 
-        <p className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[var(--text-1)] ${!expanded ? 'line-clamp-3' : ''}`}>
+        <p className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[var(--text-1)] ${item.content.length > 100 && !expanded ? 'line-clamp-3' : ''}`}>
           {item.content}
         </p>
 

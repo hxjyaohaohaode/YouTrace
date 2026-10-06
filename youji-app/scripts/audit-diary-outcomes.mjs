@@ -400,7 +400,12 @@ export async function runDiaryOutcomes(h, { scenarioSet } = {}) {
   async function timeline(page, api, target, label) {
     const before = await facts(page, api, `${label}-before-timeline`);
     await navigate(page, '/timeline', '时间线'); await tap(page, '[role=group][aria-label="时间范围"] button', '全部记录');
+    await page.waitForFunction(() => {
+      const url = new URL(location.href), selected = [...document.querySelectorAll('[role=group][aria-label="时间范围"] button[aria-pressed=true]')];
+      return url.pathname === '/timeline' && url.searchParams.get('range') === 'all' && selected.length === 1 && selected[0].textContent.trim() === '全部记录';
+    }, { timeout: 7000 });
     const origin = new URL(page.url()).pathname + new URL(page.url()).search;
+    actions.push({ kind: 'diary-timeline-all-range-observed', surface: surfaceNames.get(page), path: origin, selected: '全部记录', note: 'Read after the original single range click commits its actual URL and selected state; no second click or route assignment.' });
     const selector = await page.evaluate(({ date, title }) => {
       const matches = [...document.querySelectorAll('section[aria-label] button')].filter(el => el.closest('section').getAttribute('aria-label') === date && el.getAttribute('aria-label') === `日记: ${title}`);
       if (matches.length !== 1) throw new Error(`Expected exactly one real dated Diary preview, got ${matches.length}`);

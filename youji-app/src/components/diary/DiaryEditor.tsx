@@ -8,6 +8,7 @@ import { Button } from '../ui/Button';
 import { toast } from '../../services/toastBus';
 import { useDiaryEditorDraft } from './useDiaryEditorDraft';
 import type { DiaryForm } from './diaryDraft';
+import { diaryWriteFailure } from './diaryPresentation';
 
 interface Props {
   item?: DiaryRecord;
@@ -68,7 +69,7 @@ export function DiaryEditor({ item, recoveryId, onClose, onOpenRecord }: Props) 
       toast.success(`已保存 ${saved.date} 的日记到本机`); onClose(saved);
     } catch (reason) {
       if (reason instanceof DiaryDateConflict) setConflicting(reason.records);
-      setError(reason instanceof Error ? reason.message : '日记未保存，输入已保留，请重试');
+      setError(diaryWriteFailure(reason, 'save'));
       void useDiaryStore.getState().loadFromDB().catch(() => undefined);
     } finally { guard.current = false; setBusy(false); }
   };
@@ -80,11 +81,11 @@ export function DiaryEditor({ item, recoveryId, onClose, onOpenRecord }: Props) 
       const context = await draft.prepare();
       await useDiaryStore.getState().removeItem(item.id, form.base, context);
       setDeleted(true); setConfirmDelete(false); toast.success('日记已删除，本机编辑稿保留');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '删除未完成，输入已保留'); }
+    } catch (reason) { setError(diaryWriteFailure(reason, 'delete')); }
     finally { guard.current = false; setBusy(false); }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(fullCopy); setCopied(true); setError('输入已复制；本机草稿仍未确认保留'); }
+    try { await navigator.clipboard.writeText(fullCopy); setCopied(true); setError('完整输入已复制，可在需要时粘贴备份'); }
     catch { setShowCopy(true); setError('请在下方全选、复制备份，再关闭页面'); }
   };
 
