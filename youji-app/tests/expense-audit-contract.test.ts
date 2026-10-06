@@ -193,3 +193,60 @@ test('Independent witness: creating a previous-month row while rewriting Sunday 
   assert.equal(checks.expectedTotals([sunday, previousMonth]).month, 321);
   assert.equal(checks.createdOnlyDeclared(before, after, previousMonth), false);
 });
+
+const initialPattern = { from: '2026-09-08', through: '2026-10-07', count: 5, total: 3467, weekday: { name: '周三', amount: 1690, percent: 49 }, category: { key: 'food', name: '餐饮', amount: 1456, percent: 42 } };
+const correctedPattern = { from: '2026-09-08', through: '2026-10-07', count: 5, total: 3220, weekday: { name: '周二', amount: 1456, percent: 45 }, category: { key: 'transport', name: '交通', amount: 1234, percent: 38 } };
+test('Thirty-day pattern uses inclusive boundaries and expenses only, then changes both integer-cent winners after the one correction', () => {
+  const rows = [record('today', 1234, '2026-10-07'), { ...record('neighbor', 1234, '2026-10-06'), category: 'transport' }, { ...record('sunday', 321, '2026-10-04'), category: 'other' }, { ...record('previous-month', 456, '2026-09-30'), category: 'other' }, { ...record('future', 567, '2026-10-08'), category: 'other' }, record('income', 10001, '2026-10-07', true), record('income-neighbor', 1002, '2026-10-06', true), record('first-day', 222, '2026-09-08'), { ...record('before-window', 9999, '2026-09-07'), category: 'other' }];
+  const original = structuredClone(rows);
+  assert.deepEqual(checks.expectedSpendingPattern(rows), initialPattern);
+  assert.deepEqual(rows, original, 'Excluded income, future and pre-window records remain completely intact');
+  rows[0].amount = 987;
+  assert.deepEqual(checks.expectedSpendingPattern(rows), correctedPattern);
+  assert.deepEqual(checks.expectedTotals(rows), { today: 987, week: 2221, month: 2542, monthIncome: 11003, weekStart: '2026-10-05', through: '2026-10-07' });
+  const yearBoundary = [record('first', 101, '2026-12-09'), record('last', 202, '2027-01-07'), record('before', 9999, '2026-12-08'), record('future', 8888, '2027-01-08'), record('income', 7777, '2027-01-07', true)];
+  assert.deepEqual(checks.expectedSpendingPattern(yearBoundary, '2027-01-07'), { from: '2026-12-09', through: '2027-01-07', count: 2, total: 303, weekday: { name: '周四', amount: 202, percent: 67 }, category: { key: 'food', name: '餐饮', amount: 303, percent: 100 } });
+  assert.throws(() => checks.expectedSpendingPattern([record('fractional', 1.1, '2026-10-07')]));
+});
+test('Readable pattern scope rejects ambiguous dates, wrong counts, income/future/boundary inclusion and a non-expense denominator', () => {
+  const scope = '近30天（2026-09-08 至 2026-10-07）5笔支出，支出合计 ¥34.67';
+  assert.equal(checks.patternScopeMatches(scope, initialPattern), true);
+  assert.equal(checks.patternScopeMatches('2026年9月8日至2026年10月7日，共5笔支出，支出总额 CNY 34.67', initialPattern), true);
+  for (const wrong of [
+    '基于近30天真实记录', scope.replace('2026-09-08', '09-08'), scope.replace('2026-09-08', '2025-09-08'), scope.replace('2026-09-08', '2026-09-09'), scope.replace('2026-10-07', '2026-10-08'),
+    scope.replace('5笔', '9笔'), scope.replace('5笔', '4笔').replace('34.67', '32.45'), // first day wrongly excluded
+    scope.replace('5笔', '6笔').replace('34.67', '134.66'), // preceding day wrongly included
+    scope.replace('5笔', '6笔').replace('34.67', '40.34'), // future expense wrongly included
+    scope.replace('5笔', '7笔').replace('34.67', '144.70'), // both incomes wrongly included
+    scope.replace('支出合计', '收支合计'), scope.replace('5笔支出', '5笔记录'), scope.replace('¥', '€'), scope.replace('¥', ''), scope.replace('34.67', '34.670'), scope.replace('34.67', '-34.67'), scope.replace('34.67', '34.68'), `${scope}，收入 ¥110.03`,
+  ]) assert.equal(checks.patternScopeMatches(wrong, initialPattern), false, wrong);
+});
+test('Separate pattern rows bind weekday-aggregate meaning, winner, exact cents and the same expense denominator', () => {
+  const weekday = '按星期汇总的最高支出 周三 ¥16.90，占本期支出 49%', category = '最大支出类别 餐饮 ¥14.56，占本期支出 42%';
+  assert.equal(checks.patternRowMatches(weekday, 'weekday', initialPattern), true);
+  assert.equal(checks.patternRowMatches('最高消费日（按星期汇总） ¥16.90 周三 占本期支出49%', 'weekday', initialPattern), true);
+  assert.equal(checks.patternRowMatches(category, 'category', initialPattern), true);
+  for (const wrong of [weekday.replace('按星期汇总的最高支出', '最高消费日'), weekday.replace('周三', '周二'), weekday.replace('16.90', '17'), weekday.replace('16.90', '16.900'), weekday.replace('16.90', '-16.90'), weekday.replace('16.90', '+16.90'), weekday.replace('¥', '$'), weekday.replace('¥', ''), weekday.replace('49%', '50%'), weekday.replace('占本期支出', '占本期收入'), weekday.replace('占本期支出 49%', ''), `${weekday} 周二 ¥14.56`]) assert.equal(checks.patternRowMatches(wrong, 'weekday', initialPattern), false, wrong);
+  for (const wrong of [category.replace('餐饮', '交通'), category.replace('¥14.56', ''), category.replace('14.56', '14.55'), category.replace('42%', '43%'), category.replace('占本期支出', '占全部记录'), '最大支出类别 餐饮 42%']) assert.equal(checks.patternRowMatches(wrong, 'category', initialPattern), false, wrong);
+  assert.equal(checks.patternRowMatches(weekday, 'weekday', { ...initialPattern, total: 10001 }), false, 'A different denominator cannot retain the same row share');
+  assert.equal(checks.patternRowMatches('按星期汇总的最高支出 周二 ¥14.56 占本期支出45%', 'weekday', correctedPattern), true);
+  assert.equal(checks.patternRowMatches('按星期汇总的最高支出 周三 ¥14.43 占本期支出45%', 'weekday', correctedPattern), false, 'Rounded 45% tie cannot choose the wrong weekday');
+  assert.equal(checks.patternRowMatches('最大支出类别 交通 ¥12.34 占本期支出38%', 'category', correctedPattern), true);
+  assert.equal(checks.patternRowMatches('最大支出类别 餐饮 ¥12.09 占本期支出38%', 'category', correctedPattern), false, 'Rounded 38% tie cannot choose the wrong category');
+  assert.equal(checks.patternRowMatches('最高消费日\n¥17\n周三', 'weekday', initialPattern), false, 'Actual baseline copy lacks aggregate meaning, cents and a readable share');
+});
+test('External pre-editor source witness catches unknown-field changes that a later correction snapshot would miss', () => {
+  const { before, after } = correction(), tooLate = structuredClone(before);
+  tooLate.local.expenses[0].note = 'unexpected edit before internal snapshot';
+  after.local.expenses[0].note = tooLate.local.expenses[0].note;
+  assert.equal(checks.changedOnlyTarget(tooLate, after, 'one', 987), true);
+  assert.equal(checks.changedOnlyTarget(before, after, 'one', 987), false);
+});
+test('Complete ledger page requires explicit boolean completion and exact page-end cursor without requiring contiguous global sequences', () => {
+  const body = { protocol: 2, features: ['goals-v1'], events: [{ ...sources().events[0], seq: '7' }, { ...sources().events[1], seq: '19' }], nextCursor: '19', hasMore: false };
+  assert.equal(checks.completeLedgerPage(body, '3'), true);
+  assert.equal(checks.completeLedgerPage({ ...body, hasMore: true }, '3'), true);
+  assert.equal(checks.completeLedgerPage({ ...body, events: [], nextCursor: '19' }, '19'), true);
+  for (const invalid of [{ ...body, hasMore: undefined }, { ...body, hasMore: 'false' }, { ...body, nextCursor: '20' }, { ...body, nextCursor: '7' }, { ...body, events: [] }, { ...body, events: [], nextCursor: '3', hasMore: true }, { ...body, events: [...body.events].reverse() }, { ...body, protocol: 1 }, { ...body, features: [] }]) assert.equal(checks.completeLedgerPage(invalid, '3'), false);
+  assert.equal(checks.completeLedgerPage(body, '7'), false, 'Page must not repeat a sequence at the incoming cursor');
+});

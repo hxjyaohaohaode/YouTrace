@@ -77,6 +77,15 @@ function expenseRowsFromLedger(events) {
   }
   return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
+function completeLedgerPage(body, cursor) {
+  if (!(cursor === '0' || validVersion(cursor)) || body?.protocol !== 2 || !Array.isArray(body.features) || !body.features.includes('goals-v1') || typeof body.hasMore !== 'boolean' || !Array.isArray(body.events)) return false;
+  let previous = BigInt(cursor);
+  const ordered = body.events.every(event => {
+    if (!validVersion(event.seq) || BigInt(event.seq) <= previous) return false;
+    previous = BigInt(event.seq); return true;
+  });
+  return ordered && body.nextCursor === (body.events.at(-1)?.seq ?? cursor) && (body.events.length > 0 || body.hasMore === false);
+}
 function expectedTotals(rows, today = TODAY) {
   assert.match(today, /^\d{4}-\d{2}-\d{2}$/);
   const reference = new Date(`${today}T12:00:00Z`), monday = new Date(reference);
@@ -87,6 +96,47 @@ function expectedTotals(rows, today = TODAY) {
     assert.ok(Number.isSafeInteger(total + row.amount), 'Audit total must remain an exact integer'); return total + row.amount;
   }, 0);
   return { today: sum(today, false), week: sum(weekStart, false), month: sum(`${month}-01`, false), monthIncome: sum(`${month}-01`, true), weekStart, through: today };
+}
+function expectedSpendingPattern(rows, today = TODAY) {
+  const reference = new Date(`${today}T12:00:00Z`);
+  assert.equal(reference.toISOString().slice(0, 10), today);
+  const from = new Date(reference.getTime() - 29 * 86400000).toISOString().slice(0, 10);
+  const eligible = rows.filter(row => !row.isIncome && row.date >= from && row.date <= today);
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const categories = { food: '餐饮', transport: '交通', entertainment: '娱乐', study: '学习', daily: '日用', other: '其他' };
+  const byWeekday = new Map(), byCategory = new Map(); let total = 0;
+  for (const row of eligible) {
+    assert.ok(Number.isSafeInteger(row.amount) && row.amount > 0 && Number.isSafeInteger(total + row.amount), 'Pattern amounts and denominator must remain positive exact cents');
+    total += row.amount;
+    const weekday = weekdays[new Date(`${row.date}T12:00:00Z`).getUTCDay()];
+    byWeekday.set(weekday, (byWeekday.get(weekday) ?? 0) + row.amount);
+    byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + row.amount);
+  }
+  const winner = groups => [...groups].sort((left, right) => right[1] - left[1])[0];
+  const weekday = winner(byWeekday), category = winner(byCategory);
+  return { from, through: today, count: eligible.length, total,
+    weekday: weekday ? { name: weekday[0], amount: weekday[1], percent: Math.round(weekday[1] * 100 / total) } : null,
+    category: category ? { key: category[0], name: categories[category[0]] ?? '其他', amount: category[1], percent: Math.round(category[1] * 100 / total) } : null };
+}
+const patternSeparator = '[\\s,，·；;：:（）()]*';
+const patternMoney = fen => `(?:¥|￥|CNY|人民币)\\s*${yuan(fen).replace('.', '\\.')}\\s*(?:元)?`;
+function patternScopeMatches(text, expected) {
+  if (typeof text !== 'string' || !Number.isSafeInteger(expected?.count) || expected.count < 1 || !Number.isSafeInteger(expected.total) || expected.total < 1) return false;
+  const date = value => { const [year, month, day] = value.split('-'); return `(?:${value}|${year}年0?${Number(month)}月0?${Number(day)}日)`; };
+  if (![expected.from, expected.through].every(value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value))) return false;
+  // One bounded scope statement binds the absolute period, expense count and
+  // exact expense-only denominator. Unrelated card/body numbers cannot supply it.
+  return new RegExp(`^(?:基于\\s*)?(?:近\\s*30\\s*天${patternSeparator})?${date(expected.from)}\\s*(?:至|到|—|～|~)\\s*${date(expected.through)}${patternSeparator}(?:含首尾${patternSeparator})?(?:共\\s*)?${expected.count}\\s*笔\\s*支出${patternSeparator}(?:本期)?支出(?:合计|总额)\\s*[:：]?\\s*${patternMoney(expected.total)}$`).test(text.trim());
+}
+function patternRowMatches(text, kind, expected) {
+  const row = expected?.[kind];
+  if (typeof text !== 'string' || !row || !Number.isSafeInteger(row.amount) || row.amount < 1 || !Number.isSafeInteger(expected.total) || expected.total < row.amount || row.percent !== Math.round(row.amount * 100 / expected.total)) return false;
+  const label = kind === 'weekday' ? '(?:支出最多的星期|按星期汇总的最高支出|最高消费日[（(]按星期汇总[）)])' : kind === 'category' ? '最大支出类别' : null;
+  if (!label || !(kind === 'weekday' ? /^周[日一二三四五六]$/ : /^(?:餐饮|交通|娱乐|学习|日用|其他)$/).test(row.name)) return false;
+  const value = `(?:${row.name}\\s*${patternMoney(row.amount)}|${patternMoney(row.amount)}\\s*${row.name})`;
+  // Each separately painted row must state its meaning, winner, exact cents and
+  // share of this period's expenditure. A visual bar width is not readable copy.
+  return new RegExp(`^${label}${patternSeparator}${value}${patternSeparator}占(?:本期|该期间)支出(?:总额)?\\s*${row.percent}%$`).test(text.trim());
 }
 function acknowledged(facts, id) {
   const local = facts.local.expenses.find(row => row.id === id), remote = facts.server.find(row => row.id === id);
@@ -140,14 +190,15 @@ function dailySummaryMatches(text, spent, income) {
   if (label === '净支出') return net <= 0 && magnitude === -net && sign !== '+';
   return (sign === '-' ? -magnitude : magnitude) === net && !(net === 0 && sign === '-');
 }
-export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, budgetSpentMatches, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, expectedTotals, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches };
+export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, budgetSpentMatches, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, completeLedgerPage, expectedTotals, expectedSpendingPattern, patternScopeMatches, patternRowMatches, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches };
 
 export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Expense native evidence runs only in authorized hosted CI');
   assert.ok(['records', 'budget'].includes(scenarioSet), 'Select one bounded Expense task');
   const { isolated, login, waitPath, capture, observe, apiFor, sleep, actions, artifacts, writeFile, join, surfaceNames } = h;
   const prefix = scenarioSet === 'records' ? 'YE-records' : 'YE-budget';
-  const scope = { applicationBaseline: '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['No native month/category filter exists at this source; unsupported/untested, no fabricated click or pass', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
+  const scope = { applicationBaseline: scenarioSet === 'records' ? 'd531b7d616da0a6f5b350f8b72f88640acf920b6' : '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['No native month/category filter exists at this source; unsupported/untested, no fabricated click or pass', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
+  if (scenarioSet === 'records') scope.patternDifferential = 'Preserve the original seven inputs and initial totals/net, then create exactly two boundary controls (Sep 8: 222 cents; Sep 7: 9999 cents). Read the actual 30-day card before/after the existing 1234→987 correction and on return. New clarity contract requires absolute scope/count/expense denominator, weekday aggregate meaning and exact row amounts/shares; missing native copy remains red. No additional correction, fault, profile or timeout.';
   await writeFile(join(artifacts, `${prefix}-scope.json`), JSON.stringify(scope, null, 2));
 
   // Shared read-only geometry includes viewport-fixed navigation; the pointer
@@ -241,7 +292,7 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
   }
   async function ledger(api) {
     const events = []; let cursor = '0';
-    for (let i = 0; i < 20; i++) { const result = await api(`/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=500`); assert.ok(Array.isArray(result.events)); events.push(...result.events); if (!result.hasMore) return events; assert.notEqual(result.nextCursor, cursor); cursor = result.nextCursor; }
+    for (let i = 0; i < 20; i++) { const result = await api(`/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=500`); assert.ok(completeLedgerPage(result, cursor), 'Boolean completion and exact page-end cursor are required for a complete ledger'); events.push(...result.events); if (result.hasMore === false) return events; cursor = result.nextCursor; }
     throw new Error('Read-only audit ledger exceeded 20 bounded pages');
   }
   async function facts(page, api, label, { settle = true, extra = {} } = {}) {
@@ -294,6 +345,37 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
     }
     await budgetReading(page, `${label}-spent-and-income-stay-separate`, text => budgetSpentMatches(text, expected.month) && text.includes(`本月收入 ¥${yuan(expected.monthIncome)}`));
     return expected;
+  }
+  async function spendingPattern(page, api, label, expected, before) {
+    assert.deepEqual(expectedSpendingPattern(before.local.expenses), expected, 'Pattern oracle must agree with the fixed declared fixture, not accept an altered source as its own expectation');
+    const located = await page.evaluate(() => {
+      const path = el => {
+        if (!el) return null;
+        const parts = []; for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(row => row.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); }
+        return 'body > ' + parts.join(' > ');
+      };
+      const headings = [...document.querySelectorAll('main h3')], matches = headings.filter(el => el.textContent.trim() === '消费模式');
+      if (matches.length !== 1) return { headingCount: matches.length, actualHeadings: headings.map(el => ({ path: path(el), text: el.innerText })), card: null, title: null, scope: [], rows: [] };
+      const title = matches[0], header = title.parentElement?.parentElement, card = header?.parentElement;
+      // The actual current card has a heading block followed by two direct row
+      // blocks. Resolve and save their real paths; do not invent test attributes.
+      return { headingCount: 1, card: path(card), title: path(title), scope: [...(header?.querySelectorAll('p') ?? [])].map(path), rows: [...(card?.children[1]?.children ?? [])].map(path) };
+    });
+    const card = located.card ? await read(page, located.card) : null;
+    const title = located.title ? await read(page, located.title) : null;
+    await observe(page, `${label}-pattern-card-readable`, Boolean(card?.visible && title?.visible && title.text === '消费模式'), JSON.stringify({ located, card, title }));
+    const scopeReadings = [];
+    for (const selector of located.scope) scopeReadings.push({ selector, ...await read(page, selector) });
+    const scopeText = scopeReadings.map(row => row.text).join(' '), scopePass = Boolean(title?.visible && scopeReadings.length && scopeReadings.every(row => row.visible) && patternScopeMatches(scopeText, expected));
+    await observe(page, `${label}-pattern-absolute-period-count-and-expense-denominator`, scopePass, JSON.stringify({ expected, located, scopeReadings, note: 'New readable-evidence contract: inclusive absolute period, expense count and expense-only total in exact CNY cents. Missing native scope copy is a reader failure, not manufactured content.' }));
+    for (const [index, kind] of ['weekday', 'category'].entries()) {
+      const selector = located.rows[index], reading = selector ? await read(page, selector) : null;
+      const rowPass = Boolean(reading?.visible && patternRowMatches(reading.text, kind, expected));
+      await observe(page, `${label}-pattern-${kind}-meaning-winner-cents-and-share`, located.rows.length === 2 && scopePass && rowPass, JSON.stringify({ expected: expected[kind], denominator: { from: expected.from, through: expected.through, count: expected.count, total: expected.total, readable: scopePass }, selector: selector ?? null, reading, rowPass, note: 'Read this actual row separately. Explicit weekday aggregation is required; calendar-day wording, rounded money, a bar without textual share or category without its amount cannot satisfy the new clarity contract.' }));
+    }
+    const after = await facts(page, api, `${label}-after-pattern-read`), preserved = businessSourcesPreserved(before, after);
+    await observe(page, `${label}-pattern-read-preserves-three-tables-and-complete-ledger`, preserved, JSON.stringify({ settingsDifferences: settingsDifferences(before, after), sourceArtifact: `${label}-after-pattern-read-full-source.json`, note: 'Read-only pattern steps preserve captured expenses/settings/outbox, canonical Expense rows and the complete ledger; only the existing explained lastPullAt rule applies. This is not a full-database sample.' }));
+    assert.ok(preserved, 'Pattern reading must not change captured sources or the ledger'); return after;
   }
   async function installQuota(page, owner, table, key) {
     assert.ok(table === 'expenses' || table === 'settings' && key === 'monthBudget');
@@ -395,11 +477,31 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
     await observe(page, `${label}-seven-records-still-match-original-declared-inputs`, allDeclared, JSON.stringify({ declared, sourceArtifact: `${label}-all-native-records-full-source.json` })); assert.ok(allDeclared, 'Do not calculate accepted totals from sources that changed away from the original seven declared inputs');
     for (const item of [created[0], created[1], created[4]]) { const row = await visibleRow(page, item); await observe(page, `${label}-dated-identity-${item.date}`, true, JSON.stringify({ idForCorroborationOnly: item.id, visibleIdentity: row })); }
     await statistics(page, before.local.expenses, `${label}-initial`); await dailyMeaning(page, created[0], before.local.expenses, label);
+    const boundaryValues = [
+      { name: 'Synthetic 近30天首日', amount: 222, date: '2026-09-08', category: 'food', isIncome: false },
+      { name: 'Synthetic 近30天之前', amount: 9999, date: '2026-09-07', category: 'other', isIncome: false },
+    ];
+    for (const [index, value] of boundaryValues.entries()) created.push(await create(page, api, `${label}-record-${index + 8}`, value));
+    const allValues = [...values, ...boundaryValues], ids = created.map(row => row.id), allDeclaredInputs = allValues.map((value, index) => ({ id: ids[index], ...value }));
+    const nine = await facts(page, api, `${label}-nine-native-records`, { extra: { declaredOriginalInputs: allDeclaredInputs } }), nineMatch = declaredRecordsMatch(nine, ids, allValues);
+    await observe(page, `${label}-nine-records-match-fixed-original-inputs`, nineMatch, JSON.stringify({ declared: allDeclaredInputs, sourceArtifact: `${label}-nine-native-records-full-source.json` })); assert.ok(nineMatch, 'All nine IDs must still match fixed original inputs before pattern reads');
+    const initialPattern = { from: '2026-09-08', through: TODAY, count: 5, total: 3467, weekday: { name: '周三', amount: 1690, percent: 49 }, category: { key: 'food', name: '餐饮', amount: 1456, percent: 42 } };
+    // This independent full source snapshot precedes opening/typing in correct();
+    // its internal later snapshot must not hide an earlier unknown-field change.
+    const beforeCorrection = structuredClone(await spendingPattern(page, api, `${label}-before-correction`, initialPattern, nine));
     const changed = await correct(page, api, created[0], `${label}-exact-correction`, 987);
+    const correctedValues = allValues.map((value, index) => index === 0 ? { ...value, amount: 987 } : value);
+    const fixedCorrection = changedOnlyTarget(beforeCorrection, changed.after, ids[0], 987) && declaredRecordsMatch(changed.after, ids, correctedValues);
+    await observe(page, `${label}-correction-matches-external-freeze-and-nine-fixed-inputs`, fixedCorrection, JSON.stringify({ declared: correctedValues.map((value, index) => ({ id: ids[index], ...value })), beforeSourceArtifact: `${label}-before-correction-after-pattern-read-full-source.json`, afterSourceArtifact: `${label}-exact-correction-saved-full-source.json`, settingsDifferences: settingsDifferences(beforeCorrection, changed.after) })); assert.ok(fixedCorrection);
+    const correctedPattern = { from: '2026-09-08', through: TODAY, count: 5, total: 3220, weekday: { name: '周二', amount: 1456, percent: 45 }, category: { key: 'transport', name: '交通', amount: 1234, percent: 38 } };
+    await spendingPattern(page, api, `${label}-after-correction`, correctedPattern, changed.after);
     const future = changed.after.local.expenses.find(row => row.id === created[4].id); assert.deepEqual(future, created[4]); await visibleRow(page, future);
     await observe(page, `${label}-future-record-retained-after-correction`, true, JSON.stringify({ future, note: 'A future-dated record remains visible with its original ID. Separately recorded expenditure assertions decide whether 已花 scope is accurate.' }));
     await home(page); await enter(page); const returned = await facts(page, api, `${label}-returned`); assert.ok(businessSourcesPreserved(changed.after, returned)); await visibleRow(page, changed.changed);
+    const returnedMatch = declaredRecordsMatch(returned, ids, correctedValues);
+    await observe(page, `${label}-returned-nine-records-match-fixed-corrected-inputs`, returnedMatch, JSON.stringify({ declared: correctedValues.map((value, index) => ({ id: ids[index], ...value })), sourceArtifact: `${label}-returned-full-source.json` })); assert.ok(returnedMatch);
     await statistics(page, returned.local.expenses, `${label}-returned`);
+    await spendingPattern(page, api, `${label}-returned`, correctedPattern, returned);
     await observe(page, `${label}-month-category-filters-not-exercised`, null, 'Unsupported/untested at the application baseline. No native month/category filter exists; no invented action or inherited Timeline/Capture acceptance. Current category selection is only an editor choice.');
   }
   async function startBudgetEdit(page) {
