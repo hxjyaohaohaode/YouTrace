@@ -1,6 +1,6 @@
 # 账号偏好：选择、保存与恢复的原生任务基线
 
-状态：1c475的普通设置持久化与写入拒绝后实际重试两组已获两宽限定独立验收；冲突仅前半机械端点通过，身份说明及后半选择仍待复验；提交后读失败问题继续保留，详见末节。最早应用基线为d54249d1d93da6bd2bddb1c73ff3e2dc38ba8b1d；首个测试提交只增加脚本、CI入口和合同，不含偏好实现修复，不更改Login、Splash、品牌资源、业务schema或服务端。
+状态：1c475的普通设置持久化与写入拒绝后实际重试两组已获两宽限定独立验收；冲突在c5db两宽已验明确账号/旧框拒绝/重新选择，手机完整链通过，桌面最后备份对照仍待查明；提交后读失败问题继续保留，详见末节。最早应用基线为d54249d1d93da6bd2bddb1c73ff3e2dc38ba8b1d；首个测试提交只增加脚本、CI入口和合同，不含偏好实现修复，不更改Login、Splash、品牌资源、业务schema或服务端。
 
 ## 四组独立任务，每组1280/360
 
@@ -69,3 +69,16 @@
 后半另一个真实冲突中，peer已把上限改为0并ACK到revision3，而主profile仍是revision2。原bringToFront之后没有新的主window focus/blur/visibilitychange，也没有主页面的设置GET；随后唯一GET来自peer。结束时visible/focused不等于发生过新的返回事件，因此不能据此判“回到应用同步”产品故障。旧比较的本机选择尚未点击，过期拒绝、重新打开后本机选择以及未确认请求备份尾项均未到达，原2≠3失败保留。
 
 下个窄候选只在比较界面显示打开时保存的昵称/掩码，并将云端侧标明“打开比较时”；不改变决策或状态发布。取证用同profile的真实空白标签页确认主页面实际离开，再返回同一document、路径和保留的比较框，须观察可信window focus。随后仅靠应用自行发出的GET200与原readonly持久revision核对；此区间不发旁证GET、不派发焦点事件、不调用应用刷新。新增真实tab返回前置最多五秒，随后保留原五十次readonly probe；没有把新前置称作原五秒等待。辅助页和监听在finally收口，原210秒任务、八分钟CI及旧选择断言保留。没有真实返回事件就停在未到达，不能用脚本准备通过替代新原件。
+
+
+## c5db：真实返回与冲突决策已到达，桌面备份对照待补证
+
+[`c5db0ca`](https://github.com/hxjyaohaohaode/YouTrace/commit/c5db0ca214439c90a9f15cecb8d3529cb7d480af)的[CI37391062884](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37391062884)最终十三项成功、preferences-read与preferences-conflict两项失败。冲突包361份成员、官方ZIP/分片/完整归档和精确源码固定值已独立核验；read仍是原已提交后缺少已保存事实的失败，未被此次显示/观察改动解决。
+
+两宽关键原图可读完整昵称/掩码及“打开比较时”的云端说明。原事件账与trace证实，同profile空白标签页使主页面真实blur、hidden，再visible与可信window focus，原document和比较框保留；新的应用GET200使持久server从2到3。旧弹窗仍按打开时快照显示3条，实际点击旧本机选择只有中文“偏好已变化”提示，没有新增主页面写请求；重开显示新0条，实际选择保留本机gentle并采用新0，完整ACK到revision4。两份完整原conflict回执与实际13表原始备份均已逐字段/键核对。
+
+手机继续完成全部最后步骤：离线选择1条后，真实导出包含完整queued意图；13表/键及lossless原值与实际边界相等。恢复网络后同意图收到revision5确认，两设备完整canonical一致，原非settings表与恢复回执不变。该手机冲突/备份链在声明范围内通过，不替代桌面的未完成结果。
+
+桌面在相同revision4之后，最后未确认请求备份的全状态对照失败。实际下载保留本次完整active意图：baseRevision4、仅上限1的变更、完整base以及与导出时记录到的离线请求相同的mutationId，尚无ACK；导出还包含localRevision22、attempts0、readFailures1及Failed to fetch。原包没有保存断言前pending或下载后afterDownload变量，因此不能判断完整差异字段，也不能宣称备份丢失或只是重试次数变化。首失败后原wire账停止，而浏览器trace仍录到后续多次离线PATCH失败或无响应，不能把导出时的一条请求说成全时段唯一，也不算服务端已提交写入。原图可见备份成功及偏好尚未确认，桌面恢复online与最终确认未执行。
+
+下一最小诊断只把已经取得的两端完整源、导出完整raw/actualPending、导出时间及实际请求响应边界在断言前无条件保存。原全状态相等、完整意图、回执和最后ACK门槛全部保留，不删attempts、readFailures或localRevision，不新增事务观察hook、等待、业务动作或应用修改。新原件仍须说明桌面这次差异；原失败不会被手机通过覆盖。
