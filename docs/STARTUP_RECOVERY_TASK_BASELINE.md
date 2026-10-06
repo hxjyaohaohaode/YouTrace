@@ -84,3 +84,18 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 这关闭525f指定的不变来源重叠竞态用户链，原红工件保留。存储访问变化、其他身份/资料代次边界的技术测试仍与原生场景区分，旧b5b8原因、任意规模和全无障碍不在此结论内。
 
 同SHA出现两个官方push型CI记录：首run十项成功、旧目标来源分片一项失败；后一个[CI37359003937](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37359003937)十一项成功。本次独立startup验收只引用首run原件。首run的Y6L-retained-360在验证后等待阶段超时；后续原图/trace证实早已进入可读onboarding，测试等待未承认，准确证据及窄观察修正见[旧来源记录](LEGACY_GOAL_TASK_BASELINE.md#fb991首run的新设备登录观察阻断)。该profile后续旧目标任务未执行，不能用后run绿色覆盖该失败，或称所有本轮用户任务都已独立通过。
+
+
+## 普通整页进入的等待：另行收集连接与页面生命周期
+
+267888的[普通浏览器原件](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37392561776)在真实注册后首次进入Todo出现加载错误；认证与两个同步GET均已结束，但全表readwrite事务的首个settings读取没有终态。其254条事件与765条存储元数据无丢弃，具体计数与未证明事项见[偏好取证记录](PREFERENCE_TASK_BASELINE.md#267888完整边界证实中间导出快照)。这与上述525f“完整成功后被晚失败撤销”的已验场景不同，当前没有证明锁源或相同根因。
+
+下一份仅测试采集器的候选补充：已观察账号连接的数值编号、首次被观察、原close成功调用、实际close事件、已观察事务总数/尚无终态数/complete与abort数；再观察原页面的pagehide/pageshow、persisted布尔、freeze/resume、可见性与wasDiscarded。保持现有存储专用4096条环形账与丢弃计数，仍不记录数据库名、账号、key、值或响应内容。初始化、初次会话及启动恢复三个既有入口复用同一采集器，原动作和时限不变。连接/页面事件的mode为none、transaction/request为0，表示非事务事件；不能把这些保留值算成一笔等待事务。documentElapsedMs记录原文档performance时间，另有timeOrigin和接收时的外层时间，避免把连接或事务自己的elapsedMs误作整篇文档时钟。
+
+这些字段有明确限度：connection-seen是首次看见已有对象，不是证明刚建立连接；页面事件汇总本document已观察过的连接，其中可能早已请求关闭，不能把条目数当仍打开的连接数；只有观测到complete/abort才减少“尚无终态”计数，error不是终态，也不能把未终态直接称持锁。close调用只是请求关闭，close事件另记实际异常关闭；正常显式close并不触发该事件，规范要求等待当前事务结束。[IndexedDB规范](https://w3c.github.io/IndexedDB/#close-a-database-connection)说明这些不同阶段，因此本候选不会把close调用当作已结束全部事务。
+
+页面事件只读取浏览器原值，不自行触发freeze/resume或调整缓存；不增加unload/beforeunload处理器。persisted可以说明相应页面事件的缓存状态，但缺事件仍可能是卸载交付被截断；必须按timeOrigin区分原文档，不能把接收时document序号或跨文档重复的数值DB编号当成同一物理连接。[Chrome生命周期文档](https://developer.chrome.com/docs/web-platform/page-lifecycle-api)是字段语义依据，并不是本项目已发生缓存阻塞的证据。
+
+为保持观察边界，不向IDBDatabase新增versionchange、abort或error监听；[IndexedDB接口规范](https://w3c.github.io/IndexedDB/#database-interface)明确这些监听会影响连接垃圾回收条件，单用WeakMap不足以排除这种影响。候选只新增不属于该保留条件的close监听，连接汇总只保留标量；原应用已有的事件处理照常执行。原方法先调用一次、返回原对象/结果，观察错误隔离，未增加业务读写、数据库关闭操作或等待。
+
+纯投影与fake-IDB合同验证了原返回/异常、原处理器、主动close时未结束事务仍能正常完成、属性只读取一次及未添加上述保留型监听。它们不是新的原生因果证明。当前普通等待仍开放；权限与清除代次的暂停审查、偏好提交后读失败也没有被这份观察候选解决。
