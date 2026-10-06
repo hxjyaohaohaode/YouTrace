@@ -1,10 +1,10 @@
 # 键盘编辑待办：连续用户任务红基线
 
-应用基线 `918adacd78826c7c5b533be2b251b0b8029c7fe2`。本包只有原生取证模块、四项有针对性的纯合同、本文及必要的单分片接线；没有应用修复或原生运行结果。现有 Todo 任务的来源保全/确认与错误文案证据继续按各自精确 SHA 记账，不能继承为整条键盘体验通过。旧 B→Todo 初始化原因仍未关闭。
+应用基线 `918adacd78826c7c5b533be2b251b0b8029c7fe2`。首次基线只含原生取证模块、四项有针对性的纯合同、本文及必要的单分片接线；47fb 原生结果与后继窄候选见下。现有 Todo 任务的来源保全/确认与错误文案证据继续按各自精确 SHA 记账，不能继承为整条键盘体验通过。旧 B→Todo 初始化原因仍未关闭。
 
 ## 集成与限定范围
 
-入口 `runKeyboardOutcomes(ctx, options = {}) -> { media }`，`scenarioSet` 为 `records` 或省略。ctx 沿用 Todo/Diary：`isolated`, `login`, `waitPath`, `capture`, `observe`, `apiFor`, `sleep`, `actions`, `artifacts`, `writeFile`, `join`, `surfaceNames`, 可选 `clock`。集成至唯一 `keyboard-records` 分片；原应用和服务端不改。
+入口 `runKeyboardOutcomes(ctx, options = {}) -> { media }`，`scenarioSet` 为 `records` 或省略。ctx 沿用 Todo/Diary：`isolated`, `login`, `waitPath`, `capture`, `observe`, `apiFor`, `sleep`, `actions`, `artifacts`, `writeFile`, `join`, `surfaceNames`, 可选 `clock`。集成至唯一 `keyboard-records` 分片；首次基线未改应用或服务端。
 
 媒体名 `YK-records-1280` / `YK-records-360`，各自全新隔离 profile；1280×900 使用 `13900008911` / `Synthetic YK 1280`，360×800 使用 `13900008912` / `Synthetic YK 360`。两宽有真实差别：Modal 采用居中面板与底部滑入/内部滚动，均保留原动画；360 只是桌面浏览器窄视口，不能代表手机触摸、虚拟键盘或操作系统辅助功能。
 
@@ -50,6 +50,24 @@
 
 新增四项纯合同检查真实误绿风险：日期 segment 与语义环的区别；pseudo-state/透明/装饰/错节点/裁切不能假装可见焦点；早期正确帧不能遮住延迟 row 抢焦点，且 Save 的同记录可用重挂载按钮与邻居必须区分；稳定后 Tab 真正转移及控制键可信实达与单纯发送意图分开。既有 Todo 合同继续负责 codec、全字段/账本/版本、草稿精确身份与 quota，不再克隆一套。
 
-初稿的实际节点、下一 Tab 转移和控制键实达三个取证缺口已补严格判据。当前四项键盘与六项既有 Todo 专项共十项通过；前端 lint/build、733 项测试、后端 lint/build 与 57 项测试通过，均无跳过或取消。前后端 npm audit 实际均为 0 漏洞。原生、截图/视频独立审阅尚未运行，不能声明任务 PASS，也不凭源码推断确定 WCAG 失败。集成后的全套检查与精确提交由主任务另行记录。
+初稿的实际节点、下一 Tab 转移和控制键实达三个取证缺口已补严格判据。当前四项键盘与六项既有 Todo 专项共十项通过；前端 lint/build、733 项测试、后端 lint/build 与 57 项测试通过，均无跳过或取消。前后端 npm audit 实际均为 0 漏洞。以上为首次发布前检查，不构成原生任务 PASS 或 WCAG 结论；47fb 新原件结果如下。
 
 未覆盖及继续暂停：偏好权限/clear-generation/发布安全审查和依赖提交后读取修复；owner/cookie/generation 注入、连接/生命周期、启动或调度实验；删除、账号切换、reload/清除、stale peer、postcommit 故障；所有页面/键盘快捷键/长文/缩放/AT/真实手机/离线/两设备/生产。旧 B→Todo 初始化问题仍开放。
+
+## 47fb 首轮原生：两个焦点缺口与两处未到达
+
+提交 `47fbdd28c4cdb5f2e0d2a623750fc181e9ab7222`、tree `b866ea47f595c815893b42ae742ba4df846e0f2c` 的 [CI 37452736147](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37452736147) 全21个job已终态：18成功、3失败（keyboard-records、暂停修复的preferences-read、普通verify）。verify已实际通过双端依赖审计，之后在跨tab退出后的C登录等待页面标题超时；不是本轮B首次进入Todo的断点。summary `11407216122`、分片 `11407475879` 的官方 ZIP、完整归档及 155 个成员已独立核验。两段录像完整解码，并结合关键原图、真实键事件和来源对照分类，不能将红统一解释为产品错误或脚本已走完。
+
+桌面真实 Enter 打开原记录，正反 Tab 均按同节点完整循环。012/034 的优先级与 017/029 的“已完成”框虽然实际聚焦，原图没有可辨焦点指示；同节点未聚焦/已聚焦 CSS 都是 outline none、shadow none、边框未变。这两个读者缺口成立，其他控件的计算候选不等于全站无障碍通过。
+
+随后 Home/选择键已将 priority 置 high，新增的 Enter 打开浏览器原生 select 列表。应用 document 的只读账只有可信 keydown 到原 select、无 keyup，且丢弃/观察错误均为零；040 原图仍显示展开的原生列表。原 Chrome trace 同时在 ListPicker 新 frame 记录 keyup 调度，不能称浏览器未发 keyup，也不能把该无具体 key/target 的 trace 项代入应用 receipt 授绿。Escape 关闭保稿、重新打开、Quota 和保存尾项均未到达。两条已提交 Todo 与旧账未变，当前草稿只有标题/高优先级变动，日期仍 10-07。
+
+手机停在准备阶段的全部功能页，Todo 入口 y746–828，视口高800且底栏占736–800；入口未滚入可点击区域。原049图与中心命中旁证不支持“弹窗一直移动”的产品归因。该 profile 尚无 Todo/账本，也未安装键盘观察器；不能授手机键盘、保存或返回结果。
+
+当前后继最小候选只给优先级与已完成框添加和既有 Button 一致的键盘焦点 outline，不改表单事件、Modal、草稿、保存或250ms返回行为。取证侧在显式 setup 内沿既有 Todo 的有界真实滚轮准备入口，再保留原完整绘制/裁切/命中/稳定和唯一单击；键盘边界之后继续禁止滚轮/滚动补救。关闭状态的 select 用 Home/ArrowDown 选择后真实 Tab 离开，仍要求可信 down/up 与完整字段/草稿值，不再额外 Enter 打开原生列表；所有按钮的 Enter/Space 和 Escape 判据不放宽。
+
+候选仍须新精确 SHA 的两宽完整原件。原生焦点返回风险目前只来自源码线索，不能将未到达的 Escape 或错误恢复尾项写成已复现或已修。
+
+此两控件样式与取证窄候选的前端 lint/build、733 项测试通过，无跳过或取消。依赖锁文件未变；本轮47fb官方前后端audit均为0，未把旧审计阻碍说成产品修复。新像素与完整键盘任务仍待后继原件。
+
+普通小包 `11407976113` 另经独立被动分类：failure-1在根路径实际为“目标库存在未确认资料，未自动覆盖”的本地资料升级保护页，failure-2才是另一页Synthetic C首页。page1/doc89的auth-me为200且finished，留存元数据未捕获该document的useAppInit阶段事件；两笔readonly事务、29次请求均success/complete，随后只观察到close-requested。chronology/storage分别丢弃10154/48628；没有原业务库值或实际Retry结果，不能据此归因，也不把close请求当物理连接终态。此新普通红保留，未沿暂停的权限/代次/发布机制继续复现或修复。

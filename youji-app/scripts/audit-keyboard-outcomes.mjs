@@ -7,7 +7,7 @@ import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { todoOutcomeChecks as todo, readTodoSource, installTodoQuota } from './audit-todo-outcomes.mjs';
 
-const BASELINE = '918adacd78826c7c5b533be2b251b0b8029c7fe2';
+const BASELINE = '47fbdd28c4cdb5f2e0d2a623750fc181e9ab7222';
 const PROFILES = [{ width: 1280, phone: '13900008911', nickname: 'Synthetic YK 1280' }, { width: 360, phone: '13900008912', nickname: 'Synthetic YK 360' }];
 const DECLARED = [{ text: '合成：归还图书', priority: 'low', dueDate: '2026-10-07', done: false }, { text: '合成：归还图书', priority: 'medium', dueDate: '2026-10-08', done: false }];
 const TYPED = { text: '合成：归还两本书', priority: 'high', dueDate: '2026-10-09', done: false };
@@ -136,15 +136,28 @@ export async function runKeyboardOutcomes(h, options = {}) {
   }
   async function setupTap(page, selector, text) {
     assert.equal(phases.get(page), 'setup', 'Pointer actions are prohibited after keyboard phase starts');
-    const resolved = await exact(page, selector, text), probes = [], point = await preparePreferencePointer(page, resolved, selector, text, probes);
-    actions.push({ kind: 'keyboard-task-explicit-pointer-setup', surface: surfaceNames.get(page), selector, text, resolved, probes }); await page.mouse.click(point.x, point.y);
+    const resolved = await exact(page, selector, text);
+    // Same bounded native-wheel preparation used by the ordinary Todo task.
+    // This remains before the explicitly recorded keyboard-only boundary.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const box = await page.evaluate(initialSessionGeometry, resolved); assert.equal(box.unique, true);
+      if (box.visible) break;
+      const x = Math.max(box.clip.left + 8, Math.min(box.rect.x + box.rect.width / 2, box.clip.right - 8)), y = Math.max(20, Math.min((box.clip.top + box.clip.bottom) / 2, page.viewport().height - 20)), deltaY = box.rect.y + box.rect.height / 2 - y;
+      if (Math.abs(deltaY) > 1) { await page.mouse.move(x, y); await page.mouse.wheel({ deltaY }); actions.push({ kind: 'keyboard-task-native-wheel-setup', surface: surfaceNames.get(page), selector, resolved, pointer: { x, y }, deltaY, clip: box.clip, scroller: box.scroller }); }
+      await sleep(150);
+    }
+    assert.ok((await page.evaluate(initialSessionGeometry, resolved)).visible, 'Setup target must actually be fully readable before its single click');
+    const probes = []; let point;
+    try { point = await preparePreferencePointer(page, resolved, selector, text, probes); }
+    finally { actions.push({ kind: 'keyboard-task-setup-preclick-observations', surface: surfaceNames.get(page), selector, text, resolved, probes }); }
+    actions.push({ kind: 'keyboard-task-explicit-pointer-setup', surface: surfaceNames.get(page), selector, text, resolved }); await page.mouse.click(point.x, point.y);
   }
   async function ready(page) { await page.waitForFunction(() => { const dialog = document.querySelector('[role=dialog]'); return dialog?.querySelector('#todo-text') && !dialog.querySelector('fieldset').disabled && !/正在读取草稿|正在保留草稿/.test(dialog.innerText); }, { timeout: 7000 }); }
   async function editor(page) { return page.$eval('[role=dialog]', el => ({ text: el.querySelector('#todo-text').value, priority: el.querySelector('select').value, dueDate: el.querySelector('#todo-date').value, done: el.querySelector('fieldset input[type=checkbox]')?.checked ?? false })); }
   async function replaceText(page, text) { assert.equal(await page.$eval('#todo-text', el => el === document.activeElement && !el.matches(':disabled')), true, 'Type only into the observed enabled content field'); await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace'); await page.keyboard.sendCharacter(text); if (phases.get(page) === 'keyboard') actions.push({ kind: 'chromium-native-text-insertion', surface: surfaceNames.get(page), method: 'Input.insertText via sendCharacter', text, limitation: 'Not per-character keydown or real IME evidence' }); }
   async function priorityKeys(page, value) {
     const index = await page.$eval('[role=dialog] select', (el, value) => { if (el !== document.activeElement || el.matches(':disabled')) throw new Error('Priority must remain the actual enabled keyboard focus'); const enabled = [...el.options].filter(option => !option.disabled && option.value === value); if (enabled.length !== 1) throw new Error('Unique enabled priority required'); return [...el.options].indexOf(enabled[0]); }, value);
-    await page.keyboard.press('Home'); for (let i = 0; i < index; i++) await page.keyboard.press('ArrowDown'); if (phases.get(page) === 'keyboard') await controlKey(page, 'Enter', 'confirm-native-priority'); else await page.keyboard.press('Enter');
+    await page.keyboard.press('Home'); for (let i = 0; i < index; i++) await page.keyboard.press('ArrowDown'); if (phases.get(page) === 'keyboard') await controlKey(page, 'Tab', 'leave-selected-priority'); else await page.keyboard.press('Enter');
   }
   async function facts(page, api, label, { settle = true, extra = {} } = {}) {
     const localRead = async () => JSON.parse(await page.evaluate(readTodoSource, api.ownerId)); let local = await localRead();
