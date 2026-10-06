@@ -29,7 +29,7 @@
 | Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、花销分金额、周统计、证据时间；路由入口、响应式截图 | 用户pin/hide/reorder/reset尚无完整实现；卡片级状态和动效观测、阅读位置/加载布局稳定 |
 | Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收：日视图边缘时段、单次重复移动/取消、Home与日周月例外结果、旧稿/peer保护、失败后同ID保存重开，见SCHEDULE_TASK_PACKAGE | 所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；提醒执行与仅有remind字段严格区分 |
 | Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | 07bc两宽独立验收截至今天的精确支出/净额、同名纠错、预算未设/0/超额、提交前拒绝后的中文说明/保稿/实际重试和重载；c4原红与独立换行误判保留，见EXPENSE_TASK_PACKAGE | 所有图表/消费模式、月份分类筛选、完整键盘、跨页预算草稿与第二设备预算仍未完成；整体普通启动红保持开放 |
-| Todo / TodoList / AddTodoModal / Checkbox | 真实指针、焦点/逃逸/重开保留、刷新、撤销、源快照CAS | 大列表性能、截止日跨日刷新、编辑/筛选的发现入口；组件级观测 |
+| Todo / TodoList / AddTodoModal / Checkbox | d0b 两宽五条原输入/精确分组、按实际完成时间的Timeline找回与完成撤销、编辑取消/重开、无日期及提交前拒绝后的原Save机械链已独立核验；Quota英文仍为读者红，中文展示候选待新原件，见 TODO_TASK_BASELINE | 大列表、实际跨日/完整日期边界、跨重载撤销和两设备、删除恢复、全键盘/组件级观测未验；新的普通成功不解释旧B首次Todo启动错误 |
 | Habit / HabitList | 11a233d在1280/360独立实测每周一次/自然周、精确补记撤销、同名隔离、quota原稿保留与实际错误区重试删除；9a9fdc1的Y5b即时当前频率调整在1280/360独立限定验收，见HABIT_TASK_PACKAGE与HABIT_CURRENT_FREQUENCY_PACKAGE | 指定未来生效、完整历次规则回溯与历史目标达成率为Unsupported/未完成；长时间跨日与完整无障碍未完成 |
 | Diary / DiaryContent | 79f 两宽指定日记链独立验收：完整短/长文阅读、每日一篇保第二稿并直达原文、同 ID 纠错、put/delete 提交前拒绝后的中文保稿/原控件重试、旧墓碑保留的新 ID 副本及真实 Timeline 返回；e69 原红保留，见 DIARY_TASK_BASELINE | 真正撤销删除、跨页已删稿发现、双设备同日比较/合并未验；新 ID 副本不等于恢复原编号，三表/全账旁证不等于全库恢复；不授全部日记组件、OS 剪贴板或完整无障碍通过 |
 | Goal / GoalCard / Goal编辑与旧来源恢复 | ccba258在1280/360独立验收新账号同名目标、可逆手动进度、全部统计、字段取消保存、日期清空、写失败重试和已提交后读恢复；原0f77/9aaa/18bc/0ee失败证据保留。629已独立验收声明旧账号选择上传/空日期原稿保全，e90已独立验收当前代保留源比较/副本/原始备份/旧页删后拒绝；见GOAL_TASK_PACKAGE与LEGACY_GOAL_TASK_BASELINE | 匿名共享归属、首次无缓存读故障、设置失败帮助fallback、多设备/换号全部时间窗、恢复抽屉键盘及任意旧格式未完成 |

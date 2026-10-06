@@ -7,6 +7,7 @@ import { generateLocalId } from '../../db';
 import { toast } from '../../services/toastBus';
 import { addDays, getToday } from '../../utils/date';
 import { useTodoEditorDraft } from './useTodoEditorDraft';
+import { todoSaveFailure } from './todoPresentation';
 
 interface AddTodoModalProps { open: boolean; onClose: () => void; item?: TodoItem; draftId?: string }
 interface TodoForm { id: string; text: string; priority: Priority; dueDate: string; done: boolean; base: TodoItem | null }
@@ -41,7 +42,7 @@ function TodoEditor({ onClose, item, draftId }: Omit<AddTodoModalProps, 'open'>)
       else await useTodoStore.getState().addItem(values, deleted ? copyId.current : form.id, context);
       toast.success('待办已保存到本机');
       onClose();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '未保存，输入已保留，请重试'); }
+    } catch (reason) { setError(todoSaveFailure(reason)); }
     finally { guard.current = false; setSaving(false); }
   };
   const remove = async () => {
