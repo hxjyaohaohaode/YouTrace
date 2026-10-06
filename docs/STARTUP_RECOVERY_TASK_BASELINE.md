@@ -111,3 +111,13 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 旧document79仍有9笔已观察而无终态的transaction76–84。其close-requested回执只记录了旧database1的3笔已complete事务；没有旧database2的close或pagehide回执，不足以断言它未关闭、仍持锁或被缓存。两个document的数值编号不能连接成同一物理DB身份；该次全局chronology丢弃9076条、storage丢弃45185条，事件缺席不能当作不存在。没有普通B业务库的完整来源旁证，也没有本次错误页Retry后结果，不能据此声称资料丢失、串号或已恢复。
 
 本包只对原件进行读取和分类，未进一步实施权限/清除代次/发布时序复现或修复。它与267888存在相似的首读未完成形态，但尚未证明同一锁源或根因；e947的升级保护页、525f的晚失败撤回界面也继续按各自证据区分。同期通过的两条花销指定链见 [EXPENSE_TASK_PACKAGE.md](EXPENSE_TASK_PACKAGE.md)，不转授本项或整体产品上线通过。
+
+## e69另一次普通Todo错误与79f普通流程成功
+
+`e69e0b4ab9bc022069f38b342f4a651a9cd83589` 的 [CI 37437937293](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37437937293) 再停于 B 根页就绪后首次整页进入 `/todo` 的原标题等待。官方 browser 工件 `11399947599` ZIP SHA256 `e7481a358c766ad435cf59ceef04bd2461170a2561a273d63cfeff2503299aeb` 已独立核验；failure-1 原图实际为1280宽“加载遇到问题 / 重试”，不是标题选择器误差。
+
+该次元数据须用自己的计数：document79 initial成功的elapsedMs为136；document80 settings成功为44，auth/settings/pull均200且finished，sync无成功事件，initial于12032ms超时后8项恢复start。36笔已观察事务中26笔complete、0笔abort；最早无终态的是database2/transaction27、documentElapsedMs107的全14表readwrite，首个settings.get65只有开始事件，随后transaction28和恢复transaction29–36也无终态。
+
+前document79共84笔已观察事务、75complete，76–84没有终态；留存账只见database1 close-requested，没有database2/pagehide回执。chronology丢弃9078、storage丢弃45254，缺回执不证明连接仍活、持锁或缓存，更不能把跨document编号当同一物理身份。未操作Retry、没有完整B业务来源快照、没有新增复现；与07bc的transaction30/38笔计数不可混用，根因仍未知。
+
+后续日记显示修正 `79f9735386df7c558940e8473f84ef1ddfb59fca` 的 [CI 37440700282](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37440700282) 通用 verify 实际成功。其小包只独立核了25项报告与Diary360/Todo1280关键像素；既未改启动/DB机制，也未重新证明旧错误根因，因此不凭新绿关闭e69、07bc或其他旧原件的开放问题。日记指定任务的限定验收另见 [DIARY_TASK_BASELINE.md](DIARY_TASK_BASELINE.md)。
