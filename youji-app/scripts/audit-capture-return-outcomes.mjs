@@ -7,8 +7,9 @@ import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
 
-const BASELINE = '1ba450e3509df2e4334791aeefc7593cf43c898b';
+const BASELINE = '786c76eac3c6c02b59f44f85194d9e48657e7b0e';
 const RAW = '明天要交报销单；午饭15；地铁3；后天要取快递；合成原文尾记';
+const RAW_CHANGED = '明天要交报销单；午饭18；地铁3；后天要取快递；合成原文尾记';
 const DECLARED = { raw: RAW, name: '合成退餐', amount: '16.25', date: '2026-10-05', direction: 'income', category: 'food', todo: '合成：交蓝色报销单', dueDate: '2026-10-09' };
 const PROFILES = [{ width: 1280, height: 900, phone: '13900008891', nickname: 'Synthetic YC1280' }, { width: 360, height: 800, phone: '13900008892', nickname: 'Synthetic YC360' }];
 const COMPOSER = '[data-component="capture-composer"]', REVIEW = '[data-component="capture-review"]';
@@ -95,6 +96,22 @@ function continuity(a, b, originalId, openedId) {
   const original = draft(a, originalId), opened = draft(b, openedId);
   return Boolean(original) && originalId === openedId && equal(original, opened) && draftBound(b, openedId, original);
 }
+function freshBranchDraft(id, inputKey, context, actor, branch) {
+  assert.ok(['original', 'raw', 'date'].includes(branch));
+  const date = branch === 'date' ? '2026-10-06' : '2026-10-07';
+  assert.equal(context.date, date);
+  // Only IDs and already-frozen input/actor metadata are supplied. Every parsed
+  // field is declared here, independently of the newly observed review.
+  return { id, inputKey, input: branch === 'original' ? RAW : RAW_CHANGED, context,
+    ownerId: actor.ownerId, dataEpoch: actor.dataEpoch, sessionRevision: actor.sessionRevision, sessionActive: actor.sessionActive,
+    expenses: [{ id: 'exp-0', name: '午饭', amount: branch === 'original' ? 1500 : 1800, category: 'food', confirmed: true, date, currency: 'CNY', isIncome: false }, { id: 'exp-1', name: '地铁', amount: 300, category: 'transport', confirmed: true, date, currency: 'CNY', isIncome: false }],
+    todos: [{ id: 'todo-0', text: '交报销单', confirmed: true, dueDate: branch === 'date' ? '2026-10-07' : '2026-10-08', dateUncertain: false }, { id: 'todo-1', text: '取快递', confirmed: true, dueDate: branch === 'date' ? '2026-10-08' : '2026-10-09', dateUncertain: false }],
+    habits: [], diary: '合成原文尾记', diaryDate: date, mood: null, moodScore: null, moodConfirmed: false };
+}
+function newReviewExactly(before, after, expected) {
+  return typeof expected.id === 'string' && expected.id.length > 0 && !setting(before, `capture-review:${expected.id}`) && !setting(before, `capture-source:${expected.id}`) && !setting(before, `capture-applied:${expected.id}`) && !before.local.quickNotes.some(row => row.id === expected.id) &&
+    draftBound(after, expected.id, expected) && preserved(before, after, { writes: { [`capture-review:${expected.id}`]: expected, quicknote_review: expected } });
+}
 function selectedNote(value, at) {
   return { id: value.id, rawInput: value.input, createdAt: at, expenses: value.expenses.filter(row => row.confirmed).map(row => ({ id: row.id, name: row.name, amount: row.amount, category: row.category, confirmed: true, date: row.date, currency: 'CNY', isIncome: row.isIncome === true })), diary: null, mood: null, moodScore: null, habits: [], todos: value.todos.filter(row => row.confirmed).map(row => ({ id: row.id, text: row.text, confirmed: true, dueDate: row.dueDate ?? null })), confirmed: true, captureContext: value.context };
 }
@@ -139,7 +156,7 @@ function committedExactly(a, b, value, window) {
   }
   return settingsAllowed(a, b, { writes, deletes: [`capture-review:${value.id}`, 'quicknote_review', value.inputKey, `${value.inputKey}:context`], committed: true }) && equal(setting(b, `capture-source:${value.id}`), { key: `capture-source:${value.id}`, value }) && !draft(b, value.id) && !setting(b, 'quicknote_review') && !setting(b, value.inputKey) && !setting(b, `${value.inputKey}:context`);
 }
-export const captureReturnChecks = { profiles: PROFILES, declared: DECLARED, corrected, setting, draft, draftBound, continuity, preserved, preservedAfterHome, settingsDifferences, refusalExact, selectedNote, committedExactly, completeLedgerPage, refusalExplained };
+export const captureReturnChecks = { profiles: PROFILES, declared: DECLARED, corrected, setting, draft, draftBound, continuity, freshBranchDraft, newReviewExactly, preserved, preservedAfterHome, settingsDifferences, refusalExact, selectedNote, committedExactly, completeLedgerPage, refusalExplained };
 
 // Self-contained native IDB boundary, same pattern as the existing Todo quota.
 // Throwing synchronously lets Dexie abort its real transaction naturally.
@@ -178,7 +195,7 @@ export async function runCaptureReturnOutcomes(h) {
   const { isolated, login, waitPath, capture, observe, sleep, actions, artifacts, writeFile, join, surfaceNames, origin } = h;
   assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/, 'Existing disposable hosted-CI origin only');
   const media = [];
-  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-native-RED-baseline', syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden review URL, browser history substitute, business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
+  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-and-changed-input-outcomes', changedInputExtension: { statusAtAuthoring: 'prepared-only; O/R/D native execution not yet performed', startingPoint: 'accepted blank next-note/input-pointer endpoint', branches: ['O original raw with amount correction', 'R raw-only 15→18; original context', 'D date-only 2026-10-07→2026-10-06; raw18/capturedAt/timeZone unchanged', 'Actual D composer Return and unchanged primary re-entry'], end: 'D uncommitted; O/R physically retained; no old-draft visible rediscovery claim' }, syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden review URL, browser history substitute, business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
   for (const profile of PROFILES) {
     const label = `YQ-return-${profile.width}`; media.push(label);
     await isolated(label, { width: profile.width, height: profile.height }, async page => {
@@ -282,17 +299,18 @@ export async function runCaptureReturnOutcomes(h) {
       const inputsAdded = (before, after, raw, context) => {
         const added = after.local.settings.filter(row => row.key.startsWith('capture-input:') && !setting(before, row.key)), textRows = added.filter(row => !row.key.endsWith(':context'));
         assert.equal(textRows.length, 1); assert.equal(added.length, 2); const key = textRows[0].key, basis = setting(after, `${key}:context`)?.value;
-        assert.equal(textRows[0].value, raw); assert.equal(basis?.date, '2026-10-07'); assert.equal(basis?.timeZone, 'Asia/Shanghai'); assert.ok(Number.isSafeInteger(basis?.capturedAt)); if (context) assert.deepEqual(basis, context);
+        assert.equal(textRows[0].value, raw); assert.equal(basis?.timeZone, 'Asia/Shanghai'); assert.ok(Number.isSafeInteger(basis?.capturedAt)); if (context) assert.deepEqual(basis, context); else assert.equal(basis?.date, '2026-10-07');
         return { key, context: basis, writes: { [key]: raw, [`${key}:context`]: basis } };
       };
-      const inventory = async name => {
+      const inventory = async (name, note = 'DOM inventory is discovery, not proof of reading. Composer top Return exists and can traverse its existing navigation history; this task does not exercise it or claim every route to A is unavailable. Each review-specific continuation below receives a painted geometry observation.') => {
         const controls = await page.$$eval(`${COMPOSER} button, ${COMPOSER} a, ${COMPOSER} summary`, rows => rows.map(el => ({ label: el.getAttribute('aria-label') || el.textContent.trim(), tag: el.tagName, href: el.getAttribute('href'), disabled: el.matches(':disabled'), rendered: el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0 })));
         const continuation = controls.filter(row => row.rendered && /确认稿|继续|恢复|重试/.test(row.label));
-        await save(`${name}-all-ordinary-controls`, { controls, continuation, note: 'DOM inventory is discovery, not proof of reading. Composer top Return exists and can traverse its existing navigation history; this task does not exercise it or claim every route to A is unavailable. Each review-specific continuation below receives a painted geometry observation.' });
+        await save(`${name}-all-ordinary-controls`, { controls, continuation, note });
         await read(`${COMPOSER} > header button[aria-label="返回"]`);
         for (const item of continuation) { assert.equal(item.tag, 'BUTTON'); await read(`${COMPOSER} button`, item.label); }
         assert.deepEqual(continuation.map(row => row.label), ['查看确认稿'], 'New review-specific continuation/recovery control requires inspection; stop without asserting overall unavailability or substituting a hidden URL');
         await capture(page, `${label}-${name}-visible-continue`);
+        return controls;
       };
       const correctReview = async (before, id, name) => {
         mark(name); const source = draft(before, id); assert.ok(source && draftBound(before, id, source));
@@ -452,6 +470,106 @@ export async function runCaptureReturnOutcomes(h) {
         const navigationKey = `youtrace:input:${owner}`, currentInputKey = await page.evaluate(key => sessionStorage.getItem(key), navigationKey);
         await save('new-note-current-input-navigation', { currentInputKey, expectedKey: emptyInput.key, matches: currentInputKey === emptyInput.key });
         assert.equal(currentInputKey, emptyInput.key, 'The ordinary composer pointer must now identify the actual new empty input, not a retained old fork');
+        await changedInputBranches(nextInput, emptyInput, value);
+      }
+
+      async function changedInputBranches(start, emptyInput, actor) {
+        const promise = '原文和记录基准未改时，继续刚才的确认稿及修正；改动后会重新整理为新稿，原确认稿仍保留。';
+        const discovery = 'Only the currently rendered composer/review controls are inventoried. No old-draft list is exposed here. Physical retention of O/R is not simultaneous visible rediscovery; no constructed old URL, injected history or pointer write is used. The final D cancel uses the real composer Return control.';
+        const composerSaved = () => page.waitForFunction(() => document.querySelector('[data-component="capture-composer"] [role=status]')?.textContent === '原文已保留在本机', { timeout: 7000 });
+        const composerInventory = async (name, context) => {
+          const controls = await inventory(name, discovery);
+          assert.deepEqual(controls.filter(row => row.rendered).map(row => row.label).sort(), ['返回', '文本输入', '语音输入', `记录基准：${context.date}（Asia/Shanghai）`, '复制原文', '查看确认稿'].sort(), 'Unknown composer control needs inspection before continuing');
+        };
+        const readBranch = async (value, name) => {
+          const controls = await page.$$eval(`${REVIEW} button, ${REVIEW} a, ${REVIEW} summary`, rows => rows.map(el => ({ label: el.getAttribute('aria-label') || el.textContent.trim(), tag: el.tagName, href: el.getAttribute('href'), rendered: el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0 })));
+          await save(`${name}-review-controls`, { controls, note: discovery });
+          assert.deepEqual(controls.filter(row => row.rendered).map(row => row.label).sort(), ['返回', '查看原文与本机确认稿', '添加收支', '移除第1笔收支', '移除第2笔收支', '添加待办', '移除第1个待办', '移除第2个待办', '不设截止日期', '不设截止日期', '添加习惯打卡', '确认保存所选记录'].sort(), 'Unknown review control needs inspection before continuing');
+          await read(`${REVIEW} p`, `日期基准：${value.context.date} · Asia/Shanghai。各项实际写入日期如下，可以逐项修改。`);
+          for (const [i, row] of value.expenses.entries()) {
+            for (const [suffix, expected] of [['收支名称', row.name], ['金额（人民币元）', row.amountText ?? String(row.amount / 100)], ['记录日期', row.date], ['收支方向', 'expense'], ['分类', row.category]]) {
+              const actual = await readValue(field(`第${i + 1}笔${suffix}`), expected, `${name}-expense-${i + 1}-${suffix}`);
+              if (suffix === '分类') assert.equal(actual.selectedText, i === 0 ? '餐饮' : '交通');
+            }
+          }
+          for (const [i, row] of value.todos.entries()) {
+            await readValue(field(`第${i + 1}个待办内容`), row.text, `${name}-todo-${i + 1}-text`);
+            await readValue(field(`第${i + 1}个待办截止日期`), row.dueDate, `${name}-todo-${i + 1}-date`);
+          }
+          await readValue(field('日记日期'), value.diaryDate, `${name}-diary-date`); await readValue(field('日记内容'), '合成原文尾记', `${name}-diary-text`);
+          const selections = [];
+          for (const [name, expected] of [...value.expenses.map((row, i) => [`记录第${i + 1}笔收支`, row.confirmed]), ...value.todos.map((row, i) => [`记录第${i + 1}个待办`, row.confirmed]), ['将这段文字记入日记', true], ['我愿意记录这次心情', false]]) {
+            const selector = field(name), checkbox = await exact(selector), labelSelector = await page.$eval(checkbox, el => `label[for="${CSS.escape(el.id)}"]`);
+            // Verification never calls check(): wrong fresh/reopened choices
+            // must fail before a click could repair the state being tested.
+            const checked = await page.$eval(selector, el => el.checked); assert.equal(checked, expected);
+            selections.push({ name, checked, expected, paintedLabel: await read(labelSelector) });
+          }
+          await tap(`${REVIEW} summary`, '查看原文与本机确认稿'); const raw = await read(`${REVIEW} details[open] > p`); assert.equal(raw.text, value.input);
+          await observe(page, `${label}-${name}-full-original`, true, JSON.stringify({ raw, id: value.id })); await tap(`${REVIEW} summary`, '查看原文与本机确认稿');
+          const scope = await read(field('本次保存范围')), status = await retained();
+          assert.equal(scope.text, `原文 + ${value.expenses.filter(row => row.confirmed).length} 笔收支 · ${value.todos.filter(row => row.confirmed).length} 个待办 · 记入日记 · 不记录情绪`);
+          await observe(page, `${label}-${name}-read-choices-and-scope`, true, JSON.stringify({ id: value.id, selections, scope, status }));
+        };
+        const returnComposer = async (before, value, name) => {
+          mark(`changed-input-${name}`); await tap(`${REVIEW} > header button[aria-label="返回"]`); await waitPath(page, '/quick-note'); await composerSaved();
+          const returned = await facts(`${name}-source`), fork = inputsAdded(before, returned, value.input, value.context);
+          await preserve(before, returned, `${name}-only-exact-input-fork`, { writes: fork.writes });
+          await readValue(`${COMPOSER} textarea`, value.input, `${name}-raw`); await read(`${COMPOSER} p`, promise); await composerInventory(name, value.context);
+          const frozen = await facts(`${name}-after-reading`); await preserve(returned, frozen, `${name}-reading-preserves-all`); return { frozen, fork };
+        };
+        let frozen = start, source = emptyInput; const reviewed = [];
+        for (const branch of ['original', 'raw', 'date']) {
+          const name = branch === 'original' ? 'O' : branch === 'raw' ? 'R' : 'D'; mark(`${name}-changed-input-branch`);
+          if (reviewed.length) {
+            const returned = await returnComposer(frozen, reviewed.at(-1), `${name}-from-previous-review`); frozen = returned.frozen; source = returned.fork;
+          }
+          let context = source.context;
+          if (branch === 'date') {
+            await tap(`${COMPOSER} summary`, '记录基准：2026-10-07（Asia/Shanghai）');
+            await readValue(`${COMPOSER} input[aria-label="记录基准日期"]`, '2026-10-07', `${name}-prior-basis`);
+            await date(`${COMPOSER} input[aria-label="记录基准日期"]`, '2026-10-06'); context = { ...source.context, date: '2026-10-06' };
+          } else await input(`${COMPOSER} textarea[aria-label="速记内容"]`, branch === 'original' ? RAW : RAW_CHANGED);
+          await composerSaved(); const typed = await facts(`${name}-changed-composer`), inputText = branch === 'original' ? RAW : RAW_CHANGED;
+          await preserve(frozen, typed, `${name}-only-declared-${branch === 'date' ? 'date' : 'raw'}-change`, { writes: branch === 'date' ? { [`${source.key}:context`]: context } : { [source.key]: inputText } });
+          await readValue(`${COMPOSER} textarea`, inputText, `${name}-full-composer-raw`);
+          if (branch === 'original') await composerInventory(`${name}-composer`, context);
+          if (branch === 'date') await readValue(`${COMPOSER} input[aria-label="记录基准日期"]`, '2026-10-06', `${name}-changed-basis`);
+          const beforeOpen = await facts(`${name}-before-primary`); await preserve(typed, beforeOpen, `${name}-composer-read-keeps-full-source`);
+          mark(`changed-input-${name}-fresh-review`); await tap(`${COMPOSER} button`, '查看确认稿'); await waitPath(page, '/quick-note/result'); await retained();
+          const id = new URL(page.url()).searchParams.get('draft'); assert.ok(id); const expected = freshBranchDraft(id, source.key, context, actor, branch), opened = await facts(`${name}-fresh-review`);
+          assert.ok(newReviewExactly(beforeOpen, opened, expected), 'A new complete independently declared draft is required; every old review/input/context and committed record stays intact');
+          await preserve(beforeOpen, opened, `${name}-only-new-review`, { writes: { [`capture-review:${id}`]: expected, quicknote_review: expected } });
+          await readBranch(expected, `${name}-fresh`); const readFresh = await facts(`${name}-fresh-read`); await preserve(opened, readFresh, `${name}-fresh-reading-preserves-all`);
+          mark(`changed-input-${name}-explicit-correction`); let corrected;
+          if (branch === 'raw') {
+            await input(field('第1个待办内容'), '合成：改文后的报销单'); await check('记录第2个待办', false);
+            corrected = { ...expected, todos: expected.todos.map((row, i) => i === 0 ? { ...row, text: '合成：改文后的报销单' } : { ...row, confirmed: false }) };
+          } else {
+            await input(field(branch === 'original' ? '第1笔金额（人民币元）' : '第1笔收支名称'), branch === 'original' ? '16.25' : '合成：改基准午饭'); await check('记录第2笔收支', false);
+            corrected = { ...expected, expenses: expected.expenses.map((row, i) => i === 0 ? { ...row, ...(branch === 'original' ? { amount: 1625, amountText: '16.25' } : { name: '合成：改基准午饭' }) } : { ...row, confirmed: false }) };
+          }
+          await retained(); const changed = await facts(`${name}-corrected-retained`); assert.ok(draftBound(changed, id, corrected));
+          await preserve(readFresh, changed, `${name}-only-explicit-correction`, { writes: { [`capture-review:${id}`]: corrected, quicknote_review: corrected } });
+          await readBranch(corrected, `${name}-corrected`); frozen = await facts(`${name}-frozen-after-reading`); await preserve(changed, frozen, `${name}-corrected-reading-preserves-all`); reviewed.push(corrected);
+        }
+        const current = reviewed.at(-1);
+        // Actual composer Return follows the navigation history created above.
+        // It reopens D, and makes no claim that O/R have a visible entry here.
+        let returned = await returnComposer(frozen, current, 'D-before-real-cancel');
+        mark('changed-input-D-real-cancel'); await tap(`${COMPOSER} > header button[aria-label="返回"]`); await waitPath(page, '/quick-note/result'); await retained(); assert.equal(new URL(page.url()).searchParams.get('draft'), current.id);
+        const cancelled = await facts('D-real-cancel-reopened'); assert.ok(draftBound(cancelled, current.id, current)); await preserve(returned.frozen, cancelled, 'D-real-cancel-exact-reopen');
+        await readBranch(current, 'D-after-real-cancel'); frozen = await facts('D-after-cancel-reading'); await preserve(cancelled, frozen, 'D-cancel-reading-preserves-all');
+        returned = await returnComposer(frozen, current, 'D-before-unchanged-primary');
+        mark('changed-input-D-unchanged-primary'); await tap(`${COMPOSER} button`, '查看确认稿'); await waitPath(page, '/quick-note/result'); await retained(); assert.equal(new URL(page.url()).searchParams.get('draft'), current.id);
+        const resumed = await facts('D-unchanged-primary-reopened'); assert.ok(draftBound(resumed, current.id, current)); await preserve(returned.frozen, resumed, 'D-unchanged-primary-exact-reopen');
+        await readBranch(current, 'D-after-unchanged-primary'); const end = await facts('changed-branches-final-uncommitted'); await preserve(resumed, end, 'changed-branches-final-reading-preserves-all');
+        for (const value of reviewed) {
+          for (const [key, expected] of [[`capture-review:${value.id}`, value], [value.inputKey, value.input], [`${value.inputKey}:context`, value.context]]) assert.deepEqual(setting(end, key), { key, value: expected });
+          assert.ok(!setting(end, `capture-source:${value.id}`) && !setting(end, `capture-applied:${value.id}`) && !end.local.quickNotes.some(row => row.id === value.id));
+        }
+        const currentInputKey = await page.evaluate(key => sessionStorage.getItem(key), `youtrace:input:${owner}`); assert.equal(currentInputKey, current.inputKey);
+        await save('changed-branches-outcome', { ids: reviewed.map(value => value.id), currentInputKey, expectedKey: current.inputKey, oldDraftsPhysicallyRetained: true, currentDraftUncommitted: true, note: discovery });
       }
     });
   }

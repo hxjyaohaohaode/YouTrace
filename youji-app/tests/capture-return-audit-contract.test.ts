@@ -54,6 +54,70 @@ test('Ordinary re-entry cannot pass A continuity by opening an identical B; old 
   assert.equal(checks.continuity(before, wrongBody, a.id, a.id), false);
 });
 
+test('Raw-only and date-only branches require new literal parses, fresh choices and complete preservation of old drafts and receipts', () => {
+  const { after: saved, b: committed } = committedFixture();
+  const raw18 = '明天要交报销单；午饭18；地铁3；后天要取快递；合成原文尾记';
+  const context = { capturedAt: at + 1000, timeZone: 'Asia/Shanghai', date: '2026-10-07' };
+  const original: CaptureDraft = { id: 'O', inputKey: 'capture-input:O', input: body.raw, ownerId: 'capture-contract', dataEpoch: 'initial', sessionRevision: 'synthetic-revision', sessionActive: true, context,
+    expenses: [{ id: 'exp-0', name: '午饭', amount: 1500, category: 'food', confirmed: true, date: '2026-10-07', currency: 'CNY', isIncome: false }, { id: 'exp-1', name: '地铁', amount: 300, category: 'transport', confirmed: true, date: '2026-10-07', currency: 'CNY', isIncome: false }],
+    todos: [{ id: 'todo-0', text: '交报销单', confirmed: true, dueDate: '2026-10-08', dateUncertain: false }, { id: 'todo-1', text: '取快递', confirmed: true, dueDate: '2026-10-09', dateUncertain: false }],
+    habits: [], diary: '合成原文尾记', diaryDate: '2026-10-07', mood: null, moodScore: null, moodConfirmed: false };
+  assert.deepEqual(checks.freshBranchDraft('O', original.inputKey, context, committed, 'original'), original);
+  const oldO = { ...original, expenses: [{ ...original.expenses[0], amount: 1625, amountText: '16.25' }, { ...original.expenses[1], confirmed: false }] };
+  const retained = [oldO]; let previous = clone(saved);
+  for (const [key, value] of [[`capture-review:O`, oldO], [oldO.inputKey!, oldO.input], [`${oldO.inputKey}:context`, context], ['quicknote_review', oldO]] as [string, unknown][]) putSetting(previous, key, value);
+  for (const [branch, id, day, due1, due2] of [['raw', 'R', '2026-10-07', '2026-10-08', '2026-10-09'], ['date', 'D', '2026-10-06', '2026-10-07', '2026-10-08']]) {
+    const nextContext = { ...context, date: day }, inputKey = `capture-input:${id}`, before = clone(previous);
+    // The composer has already made exactly one input/context fork and changed
+    // raw or date. Creation may write only a new review and its current pointer.
+    putSetting(before, inputKey, raw18); putSetting(before, `${inputKey}:context`, nextContext);
+    const expected: CaptureDraft = { id, inputKey, input: raw18, ownerId: 'capture-contract', dataEpoch: 'initial', sessionRevision: 'synthetic-revision', sessionActive: true, context: nextContext,
+      expenses: [{ id: 'exp-0', name: '午饭', amount: 1800, category: 'food', confirmed: true, date: day, currency: 'CNY', isIncome: false }, { id: 'exp-1', name: '地铁', amount: 300, category: 'transport', confirmed: true, date: day, currency: 'CNY', isIncome: false }],
+      todos: [{ id: 'todo-0', text: '交报销单', confirmed: true, dueDate: due1, dateUncertain: false }, { id: 'todo-1', text: '取快递', confirmed: true, dueDate: due2, dateUncertain: false }],
+      habits: [], diary: '合成原文尾记', diaryDate: day, mood: null, moodScore: null, moodConfirmed: false };
+    assert.deepEqual(checks.freshBranchDraft(id, inputKey, nextContext, committed, branch), expected);
+    const after = clone(before); putSetting(after, `capture-review:${id}`, expected); putSetting(after, 'quicknote_review', expected);
+    assert.equal(checks.newReviewExactly(before, after, expected), true);
+    for (const old of retained) assert.deepEqual(checks.draft(after, old.id), old);
+    assert.equal(checks.draftBound(after, oldO.id, oldO), false, 'An old retained review is not the current review; requiring its current pointer would misstate retention');
+    const wrongParses: ((draft: CaptureDraft) => void)[] = [
+      value => { value.expenses[0].amount = 1625; value.expenses[0].amountText = '16.25'; },
+      value => { value.expenses[1].confirmed = false; },
+      value => { value.todos[0].text = '合成：改文后的报销单'; value.todos[1].confirmed = false; },
+      value => { value.expenses[0].date = '2026-10-05'; },
+      value => { value.todos[0].dueDate = '2026-10-09'; },
+      value => { value.diaryDate = '2026-10-05'; },
+      value => { value.diary = null; value.moodConfirmed = true; },
+      value => { value.context!.capturedAt = at + 2000; },
+    ];
+    for (const mutate of wrongParses) {
+      const wrong = clone(after), value = clone(expected); mutate(value); putSetting(wrong, `capture-review:${id}`, value); putSetting(wrong, 'quicknote_review', value);
+      assert.equal(checks.newReviewExactly(before, wrong, expected), false);
+    }
+    const corruptions: ((facts: Facts) => void)[] = [
+      value => putSetting(value, `capture-review:O`, { ...oldO, expenses: original.expenses }),
+      value => putSetting(value, oldO.inputKey!, raw18),
+      value => putSetting(value, `${oldO.inputKey}:context`, { ...context, capturedAt: context.capturedAt + 1 }),
+      value => { value.local.settings.find(row => row.key === `capture-review:${retained.at(-1)!.id}`)!.unexpected = undefined; },
+      value => putSetting(value, `capture-applied:${committed.id}`, { lostReceipt: true }),
+      value => putSetting(value, `capture-source:${committed.id}`, { ...committed, input: raw18 }),
+      value => { value.local.outbox.push({ entity: 'quickNotes', id }); },
+      value => { value.allEvents[0].data!.text = 'changed old ledger'; },
+    ];
+    for (const corrupt of corruptions) { const wrong = clone(after); corrupt(wrong); assert.equal(checks.newReviewExactly(before, wrong, expected), false); }
+    for (const reusedId of [...retained.map(value => value.id), committed.id]) {
+      const wrong = clone(before), reused = { ...expected, id: reusedId }; putSetting(wrong, `capture-review:${reusedId}`, reused); putSetting(wrong, 'quicknote_review', reused);
+      assert.equal(checks.newReviewExactly(before, wrong, reused), false, 'Replacing an old draft or reusing a committed ID is never creation');
+    }
+    const occupied = clone(before); putSetting(occupied, `capture-review:${id}`, undefined);
+    assert.equal(checks.newReviewExactly(occupied, after, expected), false, 'An existing physical key cannot become a declared new review even if its value is undefined');
+    if (branch === 'raw') {
+      const corrected = { ...expected, todos: [{ ...expected.todos[0], text: '合成：改文后的报销单' }, { ...expected.todos[1], confirmed: false }] };
+      previous = clone(after); putSetting(previous, `capture-review:${id}`, corrected); putSetting(previous, 'quicknote_review', corrected); retained.push(corrected);
+    }
+  }
+});
+
 test('Refusal source checks reject neighbor/old-review/metadata/outbox/receipt/prior-ledger changes; no capture-prefix exemption', () => {
   const { facts, a, b } = sources(); assert.equal(checks.preserved(facts, clone(facts)), true);
   const mutations: ((value: Facts) => void)[] = [
