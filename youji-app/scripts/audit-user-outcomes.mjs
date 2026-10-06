@@ -16,16 +16,18 @@ import { runLegacyGoalOutcomes, waitForStableModalTarget } from './audit-legacy-
 import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs';
 import { runStartupRecoveryOutcomes } from './audit-startup-recovery-outcomes.mjs';
 import { runPreferenceOutcomes } from './audit-preference-outcomes.mjs';
+import { runExpenseOutcomes } from './audit-expense-outcomes.mjs';
 import { preferenceEvidenceErrorName } from './audit-preference-contract.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
+const expenseClock = taskSet.startsWith('expense-') ? createHabitAuditClock() : null;
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
 await mkdir(artifacts, { recursive: true });
 const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
@@ -116,6 +118,18 @@ if (taskSet.startsWith('preferences-')) {
   metadata.interactions = 'Native pointer/keyboard/wheel; initial OTP Login, normal onboarding, actual reload and second profile. GET-only and existing-IDB readonly evidence. Declared bounded native put quota, postcommit readonly abort and offline mode only; no app/auth state injection or business-write API setup.';
   metadata.untested = ['Actual reminder delivery and per-device usage counters', 'Unknown historical formats, arbitrary account transitions and all Settings components', 'Manual human/mobile OS/accessibility or live SMS/model providers', 'Production data and deployment'];
 }
+if (taskSet.startsWith('expense-')) {
+  metadata.kind = 'expense-budget-native-RED-baseline';
+  metadata.applicationBaseline = '48ea881908b433bdd0222a82f93a4f3417c0e5a0';
+  metadata.redEvidenceCommit = null;
+  delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
+  metadata.controlledClock = { ...expenseClock, scope: 'browser Date only; server and database audit timestamps remain real' };
+  metadata.scenarioScope = taskSet === 'expense-records'
+    ? ['Native dated income and expense creation, exact actual-spend day/natural-week/month meaning', 'Visible same-name identification, cancelled retained draft and same-ID correction', 'Neighbor/source/ledger/ACK preservation and visible recalculation after return']
+    : ['Unset device budget, explicit zero, exact-cent budget and overspend meaning', 'Cancel/reopen preserves the stated page draft and committed budget', 'Exact precommit budget-key refusal, readable cause and retained input, actual inline Save retry', 'Separate Expense-ID refusal: desktop direct Save retry, narrow-screen retained-draft cancel/reopen then Save; exact ACK and same-device reload'];
+  metadata.interactions = 'Native pointer/keyboard/wheel with declared advancing browser Date at Wednesday 2026-10-07 Asia/Shanghai; normal synthetic registration; GET-only and existing-IDB readonly evidence; exact bounded native precommit quota only. No business-record seeding, account-state injection, live provider or production operation.';
+  metadata.untested = ['Month/category filtering and all chart/keyboard states', 'Actual midnight/calendar transition and arbitrary scale', 'Account authority, clear-epoch or postcommit publication races', 'Manual human/mobile OS/accessibility or live providers', 'Production data, deployment and all-product readiness'];
+}
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -163,7 +177,7 @@ async function login(page, phone, nickname) {
   await waitPath(page, '/'); await page.waitForSelector('main'); await capture(page, `${nickname}-home`);
 }
 async function finishPreferenceEvidence(name, stage, operation) {
-  if (!name.startsWith('YP-')) return operation();
+  if (!name.startsWith('YP-') && !name.startsWith('YE-')) return operation();
   actions.push({ kind: 'preference-evidence-finish-start', surface: name, stage, at: new Date().toISOString() });
   await checkpoint(`${name}: ${stage} started`).catch(() => undefined);
   try { return await operation(); }
@@ -639,8 +653,11 @@ try {
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
-  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet.startsWith('preferences-')) {
+  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  if (taskSet.startsWith('expense-')) {
+    const { media } = await runExpenseOutcomes({ isolated, login, waitPath, apiFor, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames, clock: expenseClock }, { scenarioSet: taskSet.slice('expense-'.length) });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet.startsWith('preferences-')) {
     const { media, peerMedia } = await runPreferenceOutcomes({ isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames }, { branch: taskSet.slice('preferences-'.length) });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
     for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Second preference profile requires its own video and target identity in the scenario browser-global trace');
