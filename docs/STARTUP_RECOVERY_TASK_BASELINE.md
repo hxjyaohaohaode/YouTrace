@@ -99,3 +99,15 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 为保持观察边界，不向IDBDatabase新增versionchange、abort或error监听；[IndexedDB接口规范](https://w3c.github.io/IndexedDB/#database-interface)明确这些监听会影响连接垃圾回收条件，单用WeakMap不足以排除这种影响。候选只新增不属于该保留条件的close监听，连接汇总只保留标量；原应用已有的事件处理照常执行。原方法先调用一次、返回原对象/结果，观察错误隔离，未增加业务读写、数据库关闭操作或等待。
 
 纯投影与fake-IDB合同验证了原返回/异常、原处理器、主动close时未结束事务仍能正常完成、属性只读取一次及未添加上述保留型监听。它们不是新的原生因果证明。当前普通等待仍开放；权限与清除代次的暂停审查、偏好提交后读失败也没有被这份观察候选解决。
+
+## 07bc普通B登录后首次Todo进入：仍开放的原生错误
+
+`07bc198487a883fc9e508520a2eaef6d2bd1dd74` 的 [CI 37431507130](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37431507130) 中，通用脚本完成此前记录操作、响应式与reduced-motion检查后，实际退出A并正常登录B。B根页已记录初始化成功及就绪；随后第一次整页进入 `/todo` 在原期限内等不到标题。脚本停于 `e2e-recovery.mjs` 的该次route调用，之后B隔离断言、返回A与跨标签页退出/注销尾项未执行。没有自动重试或延长期限。
+
+[本次小包](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37431507130/artifacts/11396879374) ZIP SHA256为 `c0bdf9357b7222d19bb7a595bf83e906f0ccea8ab5175323999b3dafa6de7f6b`，已独立核官方hash及原图：failure-0是单独的800×600空白页；failure-1才是1280×900、路径 `/todo` 的“加载遇到问题 / 重试”。不能把两张图当同一页面先后状态，也不能把错误页称为标题选择器误报。
+
+本次留存的普通被动元数据支持以下有限定位：page1/document79根页initial initialization日志的elapsedMs为150时成功，实际route开始后产生document80。新document的auth-me、settings及sync-pull均200且requestfinished，settings阶段成功、sync阶段未记录success，initial initialization于12035ms超时，再开始8个store的恢复读取。38笔已观察事务中29笔complete、0笔abort；最早无终态的database2/transaction30在原documentElapsedMs148创建，为全14表readwrite，只有首个settings.get请求开始，没有success或终态。随后transaction31–38的恢复首读也没有观察到结果。
+
+旧document79仍有9笔已观察而无终态的transaction76–84。其close-requested回执只记录了旧database1的3笔已complete事务；没有旧database2的close或pagehide回执，不足以断言它未关闭、仍持锁或被缓存。两个document的数值编号不能连接成同一物理DB身份；该次全局chronology丢弃9076条、storage丢弃45185条，事件缺席不能当作不存在。没有普通B业务库的完整来源旁证，也没有本次错误页Retry后结果，不能据此声称资料丢失、串号或已恢复。
+
+本包只对原件进行读取和分类，未进一步实施权限/清除代次/发布时序复现或修复。它与267888存在相似的首读未完成形态，但尚未证明同一锁源或根因；e947的升级保护页、525f的晚失败撤回界面也继续按各自证据区分。同期通过的两条花销指定链见 [EXPENSE_TASK_PACKAGE.md](EXPENSE_TASK_PACKAGE.md)，不转授本项或整体产品上线通过。

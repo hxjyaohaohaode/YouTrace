@@ -17,17 +17,19 @@ import { runInitialSessionOutcomes } from './audit-initial-session-outcomes.mjs'
 import { runStartupRecoveryOutcomes } from './audit-startup-recovery-outcomes.mjs';
 import { runPreferenceOutcomes } from './audit-preference-outcomes.mjs';
 import { runExpenseOutcomes } from './audit-expense-outcomes.mjs';
+import { runDiaryOutcomes } from './audit-diary-outcomes.mjs';
 import { preferenceEvidenceErrorName } from './audit-preference-contract.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
 const expenseClock = taskSet.startsWith('expense-') ? createHabitAuditClock() : null;
+const diaryClock = taskSet.startsWith('diary-') ? createHabitAuditClock() : null;
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
 await mkdir(artifacts, { recursive: true });
 const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
@@ -130,6 +132,18 @@ if (taskSet.startsWith('expense-')) {
   metadata.interactions = 'Native pointer/keyboard/wheel with declared advancing browser Date at Wednesday 2026-10-07 Asia/Shanghai; normal synthetic registration; GET-only and existing-IDB readonly evidence; exact bounded native precommit quota only. No business-record seeding, account-state injection, live provider or production operation.';
   metadata.untested = ['Month/category filtering and all chart/keyboard states', 'Actual midnight/calendar transition and arbitrary scale', 'Account authority, clear-epoch or postcommit publication races', 'Manual human/mobile OS/accessibility or live providers', 'Production data, deployment and all-product readiness'];
 }
+if (taskSet.startsWith('diary-')) {
+  metadata.kind = 'daily-one-diary-native-RED-baseline';
+  metadata.applicationBaseline = '07bc198487a883fc9e508520a2eaef6d2bd1dd74';
+  metadata.redEvidenceCommit = null;
+  delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
+  metadata.controlledClock = { ...diaryClock, scope: 'browser Date only; original server and database audit timestamps remain real' };
+  metadata.scenarioScope = taskSet === 'diary-records'
+    ? ['Native optional mood and multiline diary creation, complete reading including short four-line content', 'Daily-one refusal with actual original access and retained conflicting draft', 'Cancel/reopen and same-ID correction, precise Timeline navigation and return, fixed inputs and complete source/ledger preservation']
+    : ['List-delete cancellation only; ordinary exact precommit diary put/delete refusal and visible retry', 'Editor deletion of disposable synthetic data with retained draft, explicit new-ID copy and old tombstone preserved', 'Native Diary/Timeline navigation and neighbor/current-copy consistency; no genuine undelete or old-ID resurrection claim'];
+  metadata.interactions = 'Native pointer/keyboard/wheel, declared advancing browser Date, ordinary synthetic registration and GET-only/readonly corroboration. Bounded exact precommit quota only; no direct business seeding, auth/owner/clear/publication injection, live services or private records.';
+  metadata.untested = ['Genuine undo of committed cloud deletion; multiple records per day are unsupported', 'Deleted-draft recovery after leaving the editor unless actually reached by a visible route', 'Arbitrary historical formats, scale, full keyboard/screen reader and real phone OS', 'Authority/clear-epoch/publication races, production data or deployment'];
+}
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -177,7 +191,7 @@ async function login(page, phone, nickname) {
   await waitPath(page, '/'); await page.waitForSelector('main'); await capture(page, `${nickname}-home`);
 }
 async function finishPreferenceEvidence(name, stage, operation) {
-  if (!name.startsWith('YP-') && !name.startsWith('YE-')) return operation();
+  if (!name.startsWith('YP-') && !name.startsWith('YE-') && !name.startsWith('YD-')) return operation();
   actions.push({ kind: 'preference-evidence-finish-start', surface: name, stage, at: new Date().toISOString() });
   await checkpoint(`${name}: ${stage} started`).catch(() => undefined);
   try { return await operation(); }
@@ -653,8 +667,11 @@ try {
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
-  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet.startsWith('expense-')) {
+  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') || taskSet.startsWith('diary-') ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  if (taskSet.startsWith('diary-')) {
+    const { media } = await runDiaryOutcomes({ isolated, login, waitPath, apiFor, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames, clock: diaryClock }, { scenarioSet: taskSet.slice('diary-'.length) });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet.startsWith('expense-')) {
     const { media } = await runExpenseOutcomes({ isolated, login, waitPath, apiFor, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames, clock: expenseClock }, { scenarioSet: taskSet.slice('expense-'.length) });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet.startsWith('preferences-')) {

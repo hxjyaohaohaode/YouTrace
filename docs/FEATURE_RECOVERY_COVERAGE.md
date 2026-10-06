@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、花销分金额、周统计、证据时间；路由入口、响应式截图 | 用户pin/hide/reorder/reset尚无完整实现；卡片级状态和动效观测、阅读位置/加载布局稳定 |
 | Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收：日视图边缘时段、单次重复移动/取消、Home与日周月例外结果、旧稿/peer保护、失败后同ID保存重开，见SCHEDULE_TASK_PACKAGE | 所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；提醒执行与仅有remind字段严格区分 |
-| Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | c4e82c4两宽原生新基线已完成同名精确纠错、预算0/未设/超额、提交前拒绝保稿与实际重试/重载的机械端点；独立原图确认未来金额混入已花、净额标签和英文错误缺口，见EXPENSE_TASK_PACKAGE | 当前候选修复待新精确原件；所有图表/消费模式、月份分类筛选、完整键盘与跨页预算草稿仍未完成 |
+| Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | 07bc两宽独立验收截至今天的精确支出/净额、同名纠错、预算未设/0/超额、提交前拒绝后的中文说明/保稿/实际重试和重载；c4原红与独立换行误判保留，见EXPENSE_TASK_PACKAGE | 所有图表/消费模式、月份分类筛选、完整键盘、跨页预算草稿与第二设备预算仍未完成；整体普通启动红保持开放 |
 | Todo / TodoList / AddTodoModal / Checkbox | 真实指针、焦点/逃逸/重开保留、刷新、撤销、源快照CAS | 大列表性能、截止日跨日刷新、编辑/筛选的发现入口；组件级观测 |
 | Habit / HabitList | 11a233d在1280/360独立实测每周一次/自然周、精确补记撤销、同名隔离、quota原稿保留与实际错误区重试删除；9a9fdc1的Y5b即时当前频率调整在1280/360独立限定验收，见HABIT_TASK_PACKAGE与HABIT_CURRENT_FREQUENCY_PACKAGE | 指定未来生效、完整历次规则回溯与历史目标达成率为Unsupported/未完成；长时间跨日与完整无障碍未完成 |
 | Diary / DiaryContent | 内容/心情编辑、删除取消；同日冲突原文保全 | 双版本具体合并/恢复流程、未提交输入持久恢复；不能把导出原稿等同恢复完成 |
