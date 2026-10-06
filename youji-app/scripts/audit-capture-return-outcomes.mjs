@@ -112,6 +112,21 @@ function newReviewExactly(before, after, expected) {
   return typeof expected.id === 'string' && expected.id.length > 0 && !setting(before, `capture-review:${expected.id}`) && !setting(before, `capture-source:${expected.id}`) && !setting(before, `capture-applied:${expected.id}`) && !before.local.quickNotes.some(row => row.id === expected.id) &&
     draftBound(after, expected.id, expected) && preserved(before, after, { writes: { [`capture-review:${expected.id}`]: expected, quicknote_review: expected } });
 }
+// Discovery only: a layout box can survive beneath collapsed <details>.
+// Keep every DOM entry and its exclusion reason; actual reading/clicking still
+// uses the unchanged painted, clipped and hit-tested helpers below.
+export function captureReviewControlInventory(nodes) {
+  return nodes.map(el => {
+    const rect = el.getBoundingClientRect(), closedDetailsAncestors = [];
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName !== 'DETAILS' || parent.open) continue;
+      const firstSummary = [...parent.children].find(child => child.tagName === 'SUMMARY');
+      closedDetailsAncestors.push({ withinFirstSummary: Boolean(firstSummary?.contains(el)) });
+    }
+    const hiddenByClosedDetails = closedDetailsAncestors.some(parent => !parent.withinFirstSummary);
+    return { label: el.getAttribute('aria-label') || el.textContent.trim(), tag: el.tagName, href: el.getAttribute('href'), hasLayoutBox: rect.width > 0 && rect.height > 0, closedDetailsAncestors, hiddenByClosedDetails, rendered: rect.width > 0 && rect.height > 0 && !hiddenByClosedDetails };
+  });
+}
 function selectedNote(value, at) {
   return { id: value.id, rawInput: value.input, createdAt: at, expenses: value.expenses.filter(row => row.confirmed).map(row => ({ id: row.id, name: row.name, amount: row.amount, category: row.category, confirmed: true, date: row.date, currency: 'CNY', isIncome: row.isIncome === true })), diary: null, mood: null, moodScore: null, habits: [], todos: value.todos.filter(row => row.confirmed).map(row => ({ id: row.id, text: row.text, confirmed: true, dueDate: row.dueDate ?? null })), confirmed: true, captureContext: value.context };
 }
@@ -475,14 +490,14 @@ export async function runCaptureReturnOutcomes(h) {
 
       async function changedInputBranches(start, emptyInput, actor) {
         const promise = '原文和记录基准未改时，继续刚才的确认稿及修正；改动后会重新整理为新稿，原确认稿仍保留。';
-        const discovery = 'Only the currently rendered composer/review controls are inventoried. No old-draft list is exposed here. Physical retention of O/R is not simultaneous visible rediscovery; no constructed old URL, injected history or pointer write is used. The final D cancel uses the real composer Return control.';
+        const discovery = 'The raw DOM control inventory is retained. The exposed-control gate excludes descendants hidden by closed details ancestors; every used control still requires the original painted, clipped and hit-tested reading. No old-draft list is exposed here. Physical retention of O/R is not simultaneous visible rediscovery; no constructed old URL, injected history or pointer write is used. The final D cancel uses the real composer Return control.';
         const composerSaved = () => page.waitForFunction(() => document.querySelector('[data-component="capture-composer"] [role=status]')?.textContent === '原文已保留在本机', { timeout: 7000 });
         const composerInventory = async (name, context) => {
           const controls = await inventory(name, discovery);
           assert.deepEqual(controls.filter(row => row.rendered).map(row => row.label).sort(), ['返回', '文本输入', '语音输入', `记录基准：${context.date}（Asia/Shanghai）`, '复制原文', '查看确认稿'].sort(), 'Unknown composer control needs inspection before continuing');
         };
         const readBranch = async (value, name) => {
-          const controls = await page.$$eval(`${REVIEW} button, ${REVIEW} a, ${REVIEW} summary`, rows => rows.map(el => ({ label: el.getAttribute('aria-label') || el.textContent.trim(), tag: el.tagName, href: el.getAttribute('href'), rendered: el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0 })));
+          const controls = await page.$$eval(`${REVIEW} button, ${REVIEW} a, ${REVIEW} summary`, captureReviewControlInventory);
           await save(`${name}-review-controls`, { controls, note: discovery });
           assert.deepEqual(controls.filter(row => row.rendered).map(row => row.label).sort(), ['返回', '查看原文与本机确认稿', '添加收支', '移除第1笔收支', '移除第2笔收支', '添加待办', '移除第1个待办', '移除第2个待办', '不设截止日期', '不设截止日期', '添加习惯打卡', '确认保存所选记录'].sort(), 'Unknown review control needs inspection before continuing');
           await read(`${REVIEW} p`, `日期基准：${value.context.date} · Asia/Shanghai。各项实际写入日期如下，可以逐项修改。`);

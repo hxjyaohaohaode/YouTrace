@@ -2,10 +2,29 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
-import { captureReturnChecks as checks, decodeCaptureEvidence, installCaptureReturnQuota, runCaptureReturnOutcomes } from '../scripts/audit-capture-return-outcomes.mjs';
+import { captureReturnChecks as checks, captureReviewControlInventory, decodeCaptureEvidence, installCaptureReturnQuota, runCaptureReturnOutcomes } from '../scripts/audit-capture-return-outcomes.mjs';
 import type { CaptureDraft } from '../src/services/quickNoteIntegration.ts';
 
 type Row = Record<string, unknown>;
+test('Collapsed details ancestry excludes nested backup controls despite a nonzero layout box, without hiding an exposed unknown control', () => {
+  type Element = { tagName: string; textContent: string; open: boolean; parentElement: Element | null; children: Element[]; getAttribute(name: string): string | null; getBoundingClientRect(): { width: number; height: number }; contains(node: Element): boolean };
+  const element = (tagName: string, textContent: string, parentElement: Element | null = null): Element => {
+    const value: Element = { tagName, textContent, parentElement, children: [], open: false, getAttribute: () => null, getBoundingClientRect: () => ({ width: 200, height: 30 }), contains(node) { for (let current: Element | null = node; current; current = current.parentElement) if (current === this) return true; return false; } };
+    parentElement?.children.push(value); return value;
+  };
+  const outer = element('DETAILS', ''), summary = element('SUMMARY', '查看原文与本机确认稿', outer), inline = element('BUTTON', 'summary内按钮', summary);
+  const inner = element('DETAILS', '', outer), backup = element('SUMMARY', '复制用完整确认稿', inner), bodyButton = element('BUTTON', '未知展开入口', inner), secondSummary = element('SUMMARY', '不是首个summary', outer);
+  const nodes = [summary, inline, backup, bodyButton, secondSummary];
+  let result = captureReviewControlInventory(nodes);
+  assert.deepEqual(result.map((row: { rendered: boolean }) => row.rendered), [true, true, false, false, false]);
+  assert.equal(result[2].hasLayoutBox, true); assert.equal(result[2].hiddenByClosedDetails, true);
+  assert.deepEqual(result[2].closedDetailsAncestors, [{ withinFirstSummary: true }, { withinFirstSummary: false }]);
+  inner.open = true; assert.equal(captureReviewControlInventory([backup])[0].rendered, false, 'An open inner disclosure cannot bypass its closed outer ancestor');
+  outer.open = true; result = captureReviewControlInventory(nodes);
+  assert.deepEqual(result.map((row: { rendered: boolean }) => row.rendered), [true, true, true, true, true]);
+  assert.ok(result.some((row: { label: string; rendered: boolean }) => row.rendered && row.label === '未知展开入口'), 'Exposed unknown controls remain in the exact-name gate');
+  inner.open = false; assert.equal(captureReviewControlInventory([bodyButton])[0].rendered, false); assert.equal(captureReviewControlInventory([backup])[0].rendered, true);
+});
 type Setting = { key: string; value: unknown; [key: string]: unknown };
 type Event = { seq: string; entity: string; entityId: string; operation: string; data: Row | null };
 type Facts = { databaseName: string; version: number; schema: { name: string }[]; local: Record<string, Row[]> & { settings: Setting[]; quickNotes: Row[]; expenses: Row[]; todos: Row[]; outbox: Row[] }; allEvents: Event[] };
