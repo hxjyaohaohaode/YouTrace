@@ -439,7 +439,7 @@ export async function runLegacyGoalOutcomes(h, { scenarioSet = 'all' } = {}) {
       if (await page.$(help)) {
         await tap(page, help, '检查同步状态与备份'); await waitPath(page, '/settings');
         await page.waitForSelector('section[aria-label="同步状态"]');
-        await page.waitForFunction(() => /条待确认|没有待上传修改|暂时无法读取/.test(document.querySelector('section[aria-label="同步状态"]')?.innerText ?? ''), { polling: 100, timeout: 7000 });
+        await page.waitForFunction(() => /条记录修改待确认|记录：暂无待确认修改|暂时无法读取/.test(document.querySelector('section[aria-label="同步状态"]')?.innerText ?? ''), { polling: 100, timeout: 7000 });
         await inspectInstructions(await collectInstructions('section[aria-label="同步状态"] p,section[aria-label="同步状态"] button', 'settings-sync'), true);
         await navigate(page, '/goal');
       } else await observe(page, `${label}-date-help-entry-absent`, null, 'No actual Settings help link on the selected blocked card; no guessed route used');

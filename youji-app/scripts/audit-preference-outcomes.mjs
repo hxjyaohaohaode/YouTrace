@@ -216,7 +216,10 @@ export async function runPreferenceOutcomes(h, { branch }) {
         }
         assert.ok(preferenceExportKeepsFrozenIntent(states), 'The first observed frozen request ID and complete body cannot change during export');
         assert.ok(states[0].localRevision <= actualPending.localRevision && actualPending.localRevision <= states[2].localRevision);
- const recoveryRows = raw.find(row => row.name === 'settings').rows.filter(row => row.key.startsWith('preferenceRecovery:')); assert.deepEqual(recoveryRows, preferenceRows(localBackup.before.local).filter(row => row.key.startsWith('preferenceRecovery:'))); await save('pending-backup-decoded', { pending, afterDownload, raw }); await setOffline(page, false, 'retain-and-ACK-exported-intent'); await tap(page, `${PANEL} button`, '重新核对账号偏好'); const acknowledgedExport = await settled(page, { pushLimit: 1 }); await Promise.all(pendingReads);
+ const recoveryRows = raw.find(row => row.name === 'settings').rows.filter(row => row.key.startsWith('preferenceRecovery:')); assert.deepEqual(recoveryRows, preferenceRows(localBackup.before.local).filter(row => row.key.startsWith('preferenceRecovery:'))); await save('pending-backup-decoded', { pending, afterDownload, raw });
+        await read(page, 'p', '记录：暂无待确认修改'); await shot(page, 'record-modifications-status-readable');
+        await read(page, 'p', '1 项偏好尚未获云端确认，本设备设置仍有效。立即同步可重试。'); await shot(page, 'separate-preference-pending-readable');
+        await setOffline(page, false, 'retain-and-ACK-exported-intent'); await tap(page, `${PANEL} button`, '重新核对账号偏好'); const acknowledgedExport = await settled(page, { pushLimit: 1 }); await Promise.all(pendingReads);
         const pendingRequests = requests.slice(pendingRequestsStart), frozenIntent = states.find(state => state.active)?.active;
         assert.ok(savedPreferenceMutation(localBackup.before, acknowledgedExport, 'coachPushFrequency', 1, 'pushLimit', pendingRequests, responses), 'The exported pending intent must receive one exact business ACK without another Save');
         if (frozenIntent) assert.ok(pendingRequests.every(row => frozenPreferenceRequestMatches(frozenIntent, row.body)));

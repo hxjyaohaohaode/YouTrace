@@ -141,11 +141,11 @@ function SyncPanel() {
               <span className={`h-2 w-2 rounded-full ${stats.pending > 0 ? 'bg-[var(--warning)]' : 'bg-[var(--success)]'}`} aria-hidden />
               <div>
                 <p className="text-[13px] font-semibold text-[var(--text-1)]">
-                  {stats.pending > 0 ? `${stats.pending} 条待确认${stats.blocked ? `，${stats.blocked} 条需要检查` : ''}` : '没有待上传修改'}
+                  {stats.pending > 0 ? `${stats.pending} 条记录修改待确认${stats.blocked ? `，${stats.blocked} 条需要检查` : ''}` : '记录：暂无待确认修改'}
                 </p>
                 {stats.lastPush && (
                   <p className="mt-0.5 text-xs text-[var(--text-3)]">
-                    上次推送 {new Date(stats.lastPush).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    上次记录推送 {new Date(stats.lastPush).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 )}
               </div>
