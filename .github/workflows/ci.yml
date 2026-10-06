@@ -88,7 +88,9 @@ jobs:
       - run: npm ci && npm --prefix server ci && npm --prefix server run db:generate
       - run: npm run build && npm --prefix server run build
       - name: Install recording and Chinese-font prerequisites
-        run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
+      - name: Check recording, Chinese font and browser prerequisites
+        run: timeout --signal=TERM --kill-after=2s 45s bash scripts/recording-prereq-probe.sh
       - name: Operate bounded native user-task evidence (${{ matrix.task_set }})
         # Leave job time for preserving raw evidence if the browser harness hangs.
         timeout-minutes: 8
