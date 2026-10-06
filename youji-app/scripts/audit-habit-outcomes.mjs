@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { runCurrentFrequencyJourney } from './audit-habit-frequency.mjs';
 import { installAuditDate, HABIT_AUDIT_INSTANT } from './audit-clock.mjs';
+import { expenseOutcomeChecks } from './audit-expense-outcomes.mjs';
+import { readHabitRecap } from './audit-habit-recap.mjs';
 
 const TODAY = '2026-10-07', TUESDAY = '2026-10-06', MONDAY = '2026-10-05', SUNDAY = '2026-10-11';
 // The name deliberately contains no frequency/date/status words that could
@@ -99,9 +101,9 @@ export async function runHabitOutcomes(h, { frequencyOnly = false } = {}) {
     const events = []; let cursor = '0';
     for (let page = 0; page < 20; page++) {
       const result = await api(`/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=500`);
-      assert.ok(Array.isArray(result.events)); events.push(...result.events);
-      if (!result.hasMore) return events;
-      assert.notEqual(result.nextCursor, cursor, 'Read-only server evidence must advance'); cursor = result.nextCursor;
+      assert.ok(expenseOutcomeChecks.completeLedgerPage(result, cursor), 'Boolean completion and exact page-end cursor are required for a complete habit ledger'); events.push(...result.events);
+      if (result.hasMore === false) return events;
+      cursor = result.nextCursor;
     }
     throw new Error('Synthetic ledger exceeded bounded read; server evidence is incomplete');
   }
@@ -340,14 +342,27 @@ export async function runHabitOutcomes(h, { frequencyOnly = false } = {}) {
       await observe(page, `${label}-only-actual-tuesday-recorded`, result.local.outbox.length === 0 && dayIsDone(result.local.habitCheckins, target.id, TUESDAY) && dayIsDone(result.checkins, target.id, TUESDAY) && !dayIsDone(result.local.habitCheckins, target.id, TODAY) && !dayIsDone(result.checkins, target.id, TODAY), 'Native Tuesday backfill reaches the real server while Wednesday remains unmarked; no inferred daily check-in');
       const habit = await inspectWeekly(page, target, label); await homeAgreement(page, target, label, habit);
     });
-    await segment(page, `${label}-same-name-neighbor-create`, async () => { if (new URL(page.url()).pathname !== '/habit') await enter(page); neighbor = await create(page, api, `${label}-neighbor`, '📚'); await setDay(page, neighbor, MONDAY, true); await facts(page, api, `${label}-neighbor-monday`, [neighbor.id]); });
+    let neighborFacts, undoFacts, recorded, recapSafe = false;
+    await segment(page, `${label}-same-name-neighbor-create`, async () => { if (new URL(page.url()).pathname !== '/habit') await enter(page); neighbor = await create(page, api, `${label}-neighbor`, '📚'); await setDay(page, neighbor, MONDAY, true); neighborFacts = await facts(page, api, `${label}-neighbor-monday`, [neighbor.id]); });
+    await segment(page, `${label}-yesterday-habit-recorded`, async () => {
+      assert.ok(target && neighbor && neighborFacts, 'Original parent/pair ACKs must precede the recap');
+      recorded = await readHabitRecap(h, { page, api, target, neighbor, label, phase: 'recorded', originalFacts: neighborFacts, facts, home, enter, readControl, readable }); recapSafe = true;
+    });
+    if (!recapSafe) return; // Only missing/changed sources or failed return stop dependent operations; reader RED continues.
     await segment(page, `${label}-undo-only-selected-tuesday`, async () => {
       assert.ok(target && neighbor); await closeDialogs(page); if (new URL(page.url()).pathname !== '/habit') await enter(page); await setDay(page, target, MONDAY, true);
       const before = await facts(page, api, `${label}-before-exact-date-undo`, [target.id, neighbor.id]); assert.ok(dayIsDone(before.checkins, target.id, TUESDAY), 'The actual Tuesday operation must have completed before undo');
       await setDay(page, target, TUESDAY, false, true); const after = await facts(page, api, `${label}-after-exact-date-undo`, [target.id, neighbor.id]);
       const oldVersion = checkinVersion(before.local, target.id, TUESDAY), newVersion = checkinVersion(after.local, target.id, TUESDAY), unchangedOthers = isDeepStrictEqual(before.local.habitCheckins.filter(row => row.id !== `${target.id}|${TUESDAY}`), after.local.habitCheckins.filter(row => row.id !== `${target.id}|${TUESDAY}`)) && isDeepStrictEqual(before.checkins.filter(row => row.businessKey !== `${target.id}|${TUESDAY}`), after.checkins.filter(row => row.businessKey !== `${target.id}|${TUESDAY}`));
       await observe(page, `${label}-undo-exact-date-cloud-ack-and-neighbor`, after.local.outbox.length === 0 && unchangedOthers && isDeepStrictEqual(before.local.habits, after.local.habits) && dayIsDone(after.checkins, target.id, MONDAY) && !dayIsDone(after.checkins, target.id, TODAY) && !dayIsDone(after.local.habitCheckins, target.id, TODAY) && after.local.habitCheckins.some(row => row.id === `${target.id}|${TUESDAY}` && row.done === false) && after.checkins.some(row => row.businessKey === `${target.id}|${TUESDAY}` && row.done === false) && validVersion(oldVersion) && validVersion(newVersion) && BigInt(newVersion) > BigInt(oldVersion) && isDeepStrictEqual(before.server.find(row => row.id === neighbor.id), after.server.find(row => row.id === neighbor.id)), JSON.stringify({ targetId: target.id, neighborId: neighbor.id, selectedDate: TUESDAY, oldVersion, newVersion, unchangedOthers }));
+      undoFacts = after;
     });
+    recapSafe = false;
+    await segment(page, `${label}-yesterday-habit-undone`, async () => {
+      assert.ok(undoFacts, 'Original exact-date undo must finish before the second recap');
+      await readHabitRecap(h, { page, api, target, neighbor, label, phase: 'undone', originalFacts: undoFacts, recorded, facts, home, enter, readControl, readable }); recapSafe = true;
+    });
+    if (!recapSafe) return;
     await segment(page, `${label}-weekly-without-daily-streak-pressure`, async () => {
       assert.ok(target); const dates = ['2026-10-02', '2026-10-03', '2026-10-04', MONDAY, TUESDAY];
       for (const date of dates) { const local = await localRows(page, api.ownerId); if (!dayIsDone(local.habitCheckins, target.id, date)) await setDay(page, target, date, true); }

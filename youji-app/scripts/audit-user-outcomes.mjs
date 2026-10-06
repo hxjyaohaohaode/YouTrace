@@ -84,6 +84,12 @@ if (taskSet.startsWith('habits')) {
   if (taskSet === 'habits-frequency') metadata.scenarioScope = ['native same-name weekly creation and dated facts', 'immediate daily current-progress preview, cancel without writes', 'native quota preserves original and chosen new frequency, visible retry and ACK', 'same-ID facts/version/neighbor checks, Home/current history/reopen/reload'];
   metadata.untested = ['Real calendar transition or midnight', 'Real mobile device/OS accessibility or screen reader', 'Live SMS/model/notification delivery', 'Arbitrary habit scales, all component states and all account/multi-device concurrency', 'Human-operated task execution'];
 }
+if (taskSet === 'habits') {
+  metadata.kind = 'existing-habit-task-with-yesterday-recorded-facts-RED-baseline';
+  metadata.habitRecapApplicationBaseline = 'c3d5ab1a199fc15d510bcd534c07a8e2f621f910';
+  metadata.scenarioScope.push('Existing native Tuesday check-in and its original undo: read the actual Home brief on controlled Wednesday, showing yesterday recorded habit facts 1 then 0 while both current weekly habits remain attained');
+  metadata.untested.push('Past target denominators or historical frequency versions, deleted history, activity/click counts and real-world date transitions; no new business writes or extra profile for recap evidence');
+}
 if (taskSet === 'goals') {
   metadata.kind = 'goal-user-outcome-implementation-candidate';
   metadata.goalRedEvidenceCommit = '0f77be644dbd1fc45becbc7223acd8e078cadfa4';
