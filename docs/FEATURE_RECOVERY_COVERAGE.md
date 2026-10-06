@@ -29,7 +29,7 @@
 | Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、花销分金额、周统计、证据时间；路由入口、响应式截图 | 用户pin/hide/reorder/reset尚无完整实现；卡片级状态和动效观测、阅读位置/加载布局稳定 |
 | Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收：日视图边缘时段、单次重复移动/取消、Home与日周月例外结果、旧稿/peer保护、失败后同ID保存重开，见SCHEDULE_TASK_PACKAGE | 所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；提醒执行与仅有remind字段严格区分 |
 | Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | 07bc两宽独立验收截至今天的精确支出/净额、同名纠错、预算未设/0/超额、提交前拒绝后的中文说明/保稿/实际重试和重载；c4原红与独立换行误判保留，见EXPENSE_TASK_PACKAGE | 所有图表/消费模式、月份分类筛选、完整键盘、跨页预算草稿与第二设备预算仍未完成；整体普通启动红保持开放 |
-| Todo / TodoList / AddTodoModal / Checkbox | 918两宽指定普通链独立验收：五条原输入/精确分组、实际完成时间的Timeline找回与完成撤销、编辑取消/重开、无日期，以及提交前拒绝后的中文解释/保稿/原Save重试；d0b原红保留，见 TODO_TASK_BASELINE | 大列表、实际跨日/完整日期边界、跨重载撤销和两设备、删除恢复、全键盘/组件级观测未验；新的普通成功不解释旧B首次Todo启动错误 |
+| Todo / TodoList / AddTodoModal / Checkbox | 918两宽指定普通链独立验收：五条原输入/精确分组、实际完成时间的Timeline找回与完成撤销、编辑取消/重开、无日期，以及提交前拒绝后的中文解释/保稿/原Save重试；d0b原红保留，见 TODO_TASK_BASELINE；eea另独立验收两宽指定键盘纠正/保稿/原入口返回/错误后modal内重试，见KEYBOARD_TASK_BASELINE | 大列表、实际跨日/完整日期边界、跨重载撤销和两设备、删除恢复、快速Esc→Tab/IME/AT及全部键盘组件仍未验；新的普通成功不解释旧B首次Todo启动错误 |
 | Habit / HabitList | 11a233d在1280/360独立实测每周一次/自然周、精确补记撤销、同名隔离、quota原稿保留与实际错误区重试删除；9a9fdc1的Y5b即时当前频率调整在1280/360独立限定验收，见HABIT_TASK_PACKAGE与HABIT_CURRENT_FREQUENCY_PACKAGE | 指定未来生效、完整历次规则回溯与历史目标达成率为Unsupported/未完成；长时间跨日与完整无障碍未完成 |
 | Diary / DiaryContent | 79f 两宽指定日记链独立验收：完整短/长文阅读、每日一篇保第二稿并直达原文、同 ID 纠错、put/delete 提交前拒绝后的中文保稿/原控件重试、旧墓碑保留的新 ID 副本及真实 Timeline 返回；e69 原红保留，见 DIARY_TASK_BASELINE | 真正撤销删除、跨页已删稿发现、双设备同日比较/合并未验；新 ID 副本不等于恢复原编号，三表/全账旁证不等于全库恢复；不授全部日记组件、OS 剪贴板或完整无障碍通过 |
 | Goal / GoalCard / Goal编辑与旧来源恢复 | ccba258在1280/360独立验收新账号同名目标、可逆手动进度、全部统计、字段取消保存、日期清空、写失败重试和已提交后读恢复；原0f77/9aaa/18bc/0ee失败证据保留。629已独立验收声明旧账号选择上传/空日期原稿保全，e90已独立验收当前代保留源比较/副本/原始备份/旧页删后拒绝；见GOAL_TASK_PACKAGE与LEGACY_GOAL_TASK_BASELINE | 匿名共享归属、首次无缓存读故障、设置失败帮助fallback、多设备/换号全部时间窗、恢复抽屉键盘及任意旧格式未完成 |
@@ -39,7 +39,7 @@
 | Insights / coach卡片 | 反馈先ACK、删除墓碑、迟到并发保全；过期证据不伪称今日 | 跨设备版本化删除feed尚未实现；有限分页缓存不等于完整收件箱同步 |
 | Settings / SyncConflict / Diagnostics | 预算内联无覆盖、恢复队列、完整导出；当前新增偏好比较/回执状态 | 1c475普通设置/写入拒绝重试、4c013冲突备份两宽已验；提交后读取失败及暂停的权限审查未完成；共享旧库归属仍开放 |
 | Login / Onboarding / DataInfo | 真实OTP-Cookie合成注册登录/A-B-A/注销；成人默认、真实能力说明。e723两宽首次401→注册→原路径、待办ACK→退出→保护页重入→同账号OTP→原路径/完整同ID记录与ledger均独立验收；5cce/d732原红保留，见INITIAL_SESSION_TASK_BASELINE。fb991两宽四profile另独立验收不变原源下晚恢复失败不撤界面/实际打开取消、双败后真实Retry找回原记录，见STARTUP_RECOVERY_TASK_BASELINE | 任意资料/身份代次和全部初始化失败情形、旧b5b8根因、旧凭据全面撤销的本包原生证据、真实短信服务和无障碍专项仍未完成 |
-| Modal / Button / Input / Chip / Card / ProgressBar / MiniChart / Toast | Modal焦点/取消，Checkbox真实命中，部分reduced-motion、文字token对比 | 通用按钮/点击Card语义、图表替代文本、焦点恢复、宽高动画中断、prefers-reduced-motion逐组件；全站WCAG未认证 |
+| Modal / Button / Input / Chip / Card / ProgressBar / MiniChart / Toast | eea仅对指定Todo链独立验收原触发者/同ID重挂载返回、错误后modal内Tab与11控件焦点；Checkbox真实命中、部分reduced-motion和文字token对比沿各原包 | 通用按钮/点击Card语义、图表替代文本、焦点恢复、宽高动画中断、prefers-reduced-motion逐组件；全站WCAG未认证 |
 | AppLayout / BottomNav / sidebars / headers | 修复CSS层级导致侧栏覆盖；360/768/1280布局、沉浸式入口隐藏焦点；e723独立实证响应式1280侧栏就绪后唯一点击Goal、自然页首/标题焦点，见NAVIGATION_TASK_PACKAGE | 自然空间过渡与返回连续性、各导航键盘与组件级耗时；不能统一套弹跳动画 |
 
 ## 真正需要另外批准/访问的部分

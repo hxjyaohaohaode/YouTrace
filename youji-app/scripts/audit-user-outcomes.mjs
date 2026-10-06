@@ -20,13 +20,14 @@ import { runExpenseOutcomes } from './audit-expense-outcomes.mjs';
 import { runDiaryOutcomes } from './audit-diary-outcomes.mjs';
 import { runTodoOutcomes } from './audit-todo-outcomes.mjs';
 import { runKeyboardOutcomes } from './audit-keyboard-outcomes.mjs';
+import { runCaptureReturnOutcomes } from './audit-capture-return-outcomes.mjs';
 import { preferenceEvidenceErrorName } from './audit-preference-contract.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery', 'todo-records', 'keyboard-records'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery', 'todo-records', 'keyboard-records', 'capture-return'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -34,6 +35,7 @@ const expenseClock = taskSet.startsWith('expense-') ? createHabitAuditClock() : 
 const diaryClock = taskSet.startsWith('diary-') ? createHabitAuditClock() : null;
 const todoClock = taskSet === 'todo-records' ? createHabitAuditClock() : null;
 const keyboardClock = taskSet === 'keyboard-records' ? createHabitAuditClock() : null;
+const captureReturnClock = taskSet === 'capture-return' ? createHabitAuditClock() : null;
 const artifacts = join(root, 'test-artifacts', 'user-outcomes');
 await mkdir(artifacts, { recursive: true });
 const redEvidenceCommit = '2c5e7ba365e2b06e1eeb9102cbcf4ab9c6c08b17';
@@ -168,6 +170,16 @@ if (taskSet === 'keyboard-records') {
   metadata.interactions = 'Native control keys and Chromium Input.insertText after a recorded setup boundary; no focus/scroll rescue or dispatched events. Trusted control-key events are observed separately from text-field/source values; no real IME claim. Existing Todo readonly/source/quota helpers are reused.';
   metadata.untested = ['Rapid Escape-to-Tab within 250ms; only the observed settled-return navigation is checked', 'Full accessibility/WCAG certification, actual screen-reader announcements, mobile touch/OS, zoom or reduced-motion', 'Old B-to-Todo initialization cause, paused authority/clear-generation/publication work and dependent repair', 'Deletion, reload, account switch, two-device or production operations'];
 }
+if (taskSet === 'capture-return') {
+  metadata.kind = 'capture-review-return-and-precommit-recovery-RED-baseline';
+  metadata.applicationBaseline = 'eea0f7e4c5b75a867e3eca769e68744865240655';
+  metadata.redEvidenceCommit = null;
+  delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
+  metadata.controlledClock = { ...captureReturnClock, scope: 'browser Date only; original server and ledger audit timestamps remain real' };
+  metadata.scenarioScope = ['Native corrected uncommitted review Return and ordinary composer re-entry, with complete original draft preservation', 'If re-entry opens a different draft, its explicitly separate native re-review and bounded precommit refusal/retry never erase the original continuity RED', 'One selected-record commit, exact receipt/source/generated IDs and real cross-page retrieval with prior records and full ledger preserved'];
+  metadata.interactions = 'Ordinary synthetic registration, native controls and declared browser Date; local rule parser, no model invocation. GET-only/readonly corroboration and exact current synthetic quickNote put refusal only; no business seeding or auth/generation/publication injection.';
+  metadata.untested = ['Live model/SMS/voice/IME providers, production records or deployment', 'Paused authority/clear-generation/publication review or dependent read repair', 'Committed receipt-read failure, arbitrary concurrent tabs or shared historical recovery', 'All capture types, full keyboard/accessibility/reduced-motion, real mobile OS', 'Ordinary second-device Settings initialization cause'];
+}
 async function checkpoint(stage, extra = {}) {
   const temporary = join(artifacts, 'progress-checkpoint.tmp');
   await writeFile(temporary, JSON.stringify({ partial: true, stage, checkpointAt: new Date().toISOString(), metadata, results, actions, traffic, infrastructure, ...extra }, null, 2));
@@ -215,7 +227,7 @@ async function login(page, phone, nickname) {
   await waitPath(page, '/'); await page.waitForSelector('main'); await capture(page, `${nickname}-home`);
 }
 async function finishPreferenceEvidence(name, stage, operation) {
-  if (!name.startsWith('YP-') && !name.startsWith('YE-') && !name.startsWith('YD-') && !name.startsWith('YT-') && !name.startsWith('YK-')) return operation();
+  if (!name.startsWith('YP-') && !name.startsWith('YE-') && !name.startsWith('YD-') && !name.startsWith('YT-') && !name.startsWith('YK-') && !name.startsWith('YQ-')) return operation();
   actions.push({ kind: 'preference-evidence-finish-start', surface: name, stage, at: new Date().toISOString() });
   await checkpoint(`${name}: ${stage} started`).catch(() => undefined);
   try { return await operation(); }
@@ -691,8 +703,11 @@ try {
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
-  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') || taskSet.startsWith('diary-') || taskSet === 'todo-records' || taskSet === 'keyboard-records' ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'keyboard-records') {
+  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') || taskSet.startsWith('diary-') || taskSet === 'todo-records' || taskSet === 'keyboard-records' || taskSet === 'capture-return' ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  if (taskSet === 'capture-return') {
+    const { media } = await runCaptureReturnOutcomes({ isolated, login, waitPath, apiFor, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames, clock: captureReturnClock });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet === 'keyboard-records') {
     const { media } = await runKeyboardOutcomes({ isolated, login, waitPath, apiFor, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint, surfaceNames, clock: keyboardClock });
     for (const name of media) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet === 'todo-records') {

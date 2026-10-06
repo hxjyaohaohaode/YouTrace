@@ -121,3 +121,11 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 前document79共84笔已观察事务、75complete，76–84没有终态；留存账只见database1 close-requested，没有database2/pagehide回执。chronology丢弃9078、storage丢弃45254，缺回执不证明连接仍活、持锁或缓存，更不能把跨document编号当同一物理身份。未操作Retry、没有完整B业务来源快照、没有新增复现；与07bc的transaction30/38笔计数不可混用，根因仍未知。
 
 后续日记显示修正 `79f9735386df7c558940e8473f84ef1ddfb59fca` 的 [CI 37440700282](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37440700282) 通用 verify 实际成功。其小包只独立核了25项报告与Diary360/Todo1280关键像素；既未改启动/DB机制，也未重新证明旧错误根因，因此不凭新绿关闭e69、07bc或其他旧原件的开放问题。日记指定任务的限定验收另见 [DIARY_TASK_BASELINE.md](DIARY_TASK_BASELINE.md)。
+
+## eea第二设备首次设置进入仍为开放项
+
+`eea0f7e4c5b75a867e3eca769e68744865240655` 的 [CI 37456366870](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37456366870) 普通verify停于原两设备设置流程：第二profile已正常登录并在根页初始化完成，随后第一次整页进入 `/settings` 等不到标题；之后的peer设置值/离线冲突尾项未达到。官方小包 `11408619848` ZIP SHA256 `0737772a4690889643198f2ef62d20eda3bb7041628c5307bedc8089801589a2` 已独立核验，failure-1是主设备正常设置全页，failure-2才是第二设备的“加载遇到问题 / 重试”。不能把两张图当同页恢复，也不能沿用47fb/386的根路径升级保护页分类。
+
+page3/document2根页initial初始化172ms成功；整页进入settings产生document3，settings阶段33ms成功，auth/settings/pull均200且finished，但sync无success，initial于12023ms超时后原恢复stores开始。该document留存38笔已观察事务、28complete、0abort；最早无终态的database2/transaction29与30在documentElapsedMs88均只有首个settings.get开始，随后31–38也没有终态。网络结束不等于本机事务已应用，创建事务不证明已获锁执行。
+
+本轮chronology/storage丢弃2576/19418；缺少业务原值、完整peer来源或实际Retry结果，不能推断资料丢失、锁源、物理连接存活或与旧Todo失败同根因。这里仅被动读取原件，没有新增暂停范围的权限/代次/发布机制实验。同期键盘指定链已独立限定通过，见[KEYBOARD_TASK_BASELINE.md](KEYBOARD_TASK_BASELINE.md#eea-指定键盘连续任务独立验收)，不转授本普通启动问题或整体上线通过。
