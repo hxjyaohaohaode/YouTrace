@@ -159,9 +159,9 @@ if (taskSet === 'todo-records') {
   metadata.untested = ['Old intermittent B-to-Todo initialization cause', 'Deleted-record recovery or deletion undo, reload/session-persistent undo, historical Timeline range boundaries', 'Authority/clear-generation/publication review and its paused dependent repair', 'Arbitrary scale, two-device conflicts, full accessibility, real phone OS, production data or deployment'];
 }
 if (taskSet === 'keyboard-records') {
-  metadata.kind = 'continuous-keyboard-todo-focus-indicator-candidate';
-  metadata.applicationBaseline = '47fbdd28c4cdb5f2e0d2a623750fc181e9ab7222';
-  metadata.redEvidenceCommit = '47fbdd28c4cdb5f2e0d2a623750fc181e9ab7222';
+  metadata.kind = 'continuous-keyboard-todo-focus-continuity-candidate';
+  metadata.applicationBaseline = '386cde59c2a2254d08e70df712751b55c8af2a8b';
+  metadata.redEvidenceCommit = '386cde59c2a2254d08e70df712751b55c8af2a8b';
   delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
   metadata.controlledClock = { ...keyboardClock, scope: 'browser Date only; key/animation/timeout observation and server timestamps remain real' };
   metadata.scenarioScope = ['Explicit pointer setup followed by keyboard-only entry into the visibly identified Todo editor', 'Forward/reverse Tab cycles, actual focused/unfocused styles and pixels, timed Escape return and retained Space reopen', 'Exact precommit put refusal with readable error, explicit release, one keyboard Save, source retention and usable return'];

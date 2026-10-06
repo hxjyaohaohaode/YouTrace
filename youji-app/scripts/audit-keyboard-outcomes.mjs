@@ -7,7 +7,7 @@ import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { todoOutcomeChecks as todo, readTodoSource, installTodoQuota } from './audit-todo-outcomes.mjs';
 
-const BASELINE = '47fbdd28c4cdb5f2e0d2a623750fc181e9ab7222';
+const BASELINE = '386cde59c2a2254d08e70df712751b55c8af2a8b';
 const PROFILES = [{ width: 1280, phone: '13900008911', nickname: 'Synthetic YK 1280' }, { width: 360, phone: '13900008912', nickname: 'Synthetic YK 360' }];
 const DECLARED = [{ text: '合成：归还图书', priority: 'low', dueDate: '2026-10-07', done: false }, { text: '合成：归还图书', priority: 'medium', dueDate: '2026-10-08', done: false }];
 const TYPED = { text: '合成：归还两本书', priority: 'high', dueDate: '2026-10-09', done: false };

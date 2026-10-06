@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { restoreModalFocus } from './modalFocus';
 
 export interface ModalProps {
   open: boolean;
@@ -10,6 +11,7 @@ export interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   className?: string;
+  fallbackFocus?: () => HTMLElement | null;
 }
 
 const FOCUSABLE_SELECTOR =
@@ -19,11 +21,13 @@ let openModalCount = 0;
 let prevBodyOverflow = '';
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, className = '' }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, className = '', fallbackFocus }: ModalProps) {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
+  const fallbackFocusRef = useRef(fallbackFocus);
+  useEffect(() => { fallbackFocusRef.current = fallbackFocus; }, [fallbackFocus]);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   const stackSymbol = useRef(Symbol('modal'));
 
@@ -82,7 +86,7 @@ export function Modal({ open, onClose, title, children, footer, className = '' }
         document.body.style.overflow = prevBodyOverflow;
         prevBodyOverflow = '';
       }
-      previouslyFocused?.focus?.();
+      restoreModalFocus(panel, previouslyFocused, fallbackFocusRef.current);
     };
   }, [open]);
 

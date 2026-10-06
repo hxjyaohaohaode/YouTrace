@@ -21,6 +21,13 @@ function TodoEditor({ onClose, item, draftId }: Omit<AddTodoModalProps, 'open'>)
   const copyId = useRef(generateLocalId());
   const guard = useRef(false);
   const firstInput = useRef<HTMLInputElement>(null);
+  const errorRegion = useRef<HTMLDivElement>(null);
+  const visibleError = error || draft.error;
+  useEffect(() => {
+    if (!visibleError) return;
+    errorRegion.current?.focus({ preventScroll: true });
+    errorRegion.current?.scrollIntoView({ block: 'nearest' });
+  }, [visibleError]);
   useEffect(() => { if (draft.ready) firstInput.current?.focus(); }, [draft.ready, deleted]);
   const current = useTodoStore((state) => state.items.find((row) => row.id === item?.id));
   const form = draft.value;
@@ -57,7 +64,7 @@ function TodoEditor({ onClose, item, draftId }: Omit<AddTodoModalProps, 'open'>)
     } catch (reason) { setError(reason instanceof Error ? reason.message : '删除未完成，输入已保留'); }
     finally { guard.current = false; setSaving(false); }
   };
-  return <Modal open onClose={close} title={deleted ? '已删除待办的编辑稿' : item ? '编辑待办' : '新建待办'} className="max-h-[90dvh] overflow-y-auto" footer={<>
+  return <Modal open onClose={close} fallbackFocus={() => document.getElementById(`todo-record-${form.id}`)?.querySelector<HTMLElement>('button[aria-label^="编辑待办 "]') ?? null} title={deleted ? '已删除待办的编辑稿' : item ? '编辑待办' : '新建待办'} className="max-h-[90dvh] overflow-y-auto" footer={<>
     {item && !deleted && <Button variant="ghost" onClick={() => setConfirmDelete(true)} disabled={saving || !draft.ready}>删除</Button>}
     <Button variant="ghost" onClick={close} disabled={saving}>取消（保留草稿）</Button>
     <Button onClick={() => void save()} disabled={saving || !draft.ready || stale || !form.text.trim() || Boolean(draftId && !draft.restored)}>{saving ? '保存中…' : deleted ? '另存为新待办' : '保存'}</Button>
@@ -65,7 +72,7 @@ function TodoEditor({ onClose, item, draftId }: Omit<AddTodoModalProps, 'open'>)
     <div className="space-y-4">
       <p className="text-xs text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复未提交的编辑稿；保存前不会修改待办' : '取消会保留本机草稿，不修改待办'}</p>
       {deleted && <p role="status" className="text-sm">原待办已不存在，不会恢复已删除的编号。{draftId && !draft.loading && !draft.restored ? '未找到这条记录的本机草稿。' : '可检查编辑稿后另存为新待办。'}</p>}
-      {(draft.error || error) && <div role="alert" className="text-sm text-[var(--danger)]">{error || draft.error}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
+      {visibleError && <div ref={errorRegion} tabIndex={-1} role="alert" className="text-sm text-[var(--danger)] outline-none">{visibleError}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
       {stale && <div role="alert" className="space-y-2 rounded-lg bg-[var(--surface-2)] p-3 text-sm">记录已有更新或被删除，你的编辑稿仍保留{current && <><p className="break-words">最新内容：{current.text} · {current.dueDate || '无日期'} · {current.priority === 'high' ? '高' : current.priority === 'low' ? '低' : '中'} · {current.done ? '已完成' : '未完成'}</p><Button variant="soft" onClick={() => update({ base: current })}>已核对，继续使用我的编辑稿</Button></>}</div>}
       <fieldset disabled={saving || !draft.ready || Boolean(draftId && !draft.restored)} className="space-y-4">
         <Input id="todo-text" ref={firstInput} label="内容 *" value={form.text} onChange={(event) => update({ text: event.target.value })} maxLength={200} placeholder="要做什么？" />

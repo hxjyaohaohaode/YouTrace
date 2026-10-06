@@ -25,8 +25,6 @@ export default function Todo() {
   const source = (location.state as { returnTo?: { path?: string; label?: string } } | null)?.returnTo;
   const closeEditor = () => {
     setEditing(undefined); setShowModal(false); setRecoveryId(undefined); setDismissed(requestKey);
-    const id = editing?.id ?? target?.id;
-    if (id) window.setTimeout(() => { const row = document.getElementById(`todo-record-${id}`); row?.scrollIntoView({ block: 'center' }); row?.focus(); }, 250);
   };
 
   return (
