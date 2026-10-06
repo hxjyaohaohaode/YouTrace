@@ -173,7 +173,7 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurr
                   role="button"
                   tabIndex={0}
                   aria-label={`${item.startTime}-${item.endTime} ${item.title}`}
-                  className="absolute cursor-pointer rounded-[var(--radius-md)] px-2.5 py-1.5 transition-shadow hover:shadow-md"
+                  className="absolute scroll-my-2 cursor-pointer rounded-[var(--radius-md)] px-2.5 py-1.5 transition-shadow hover:shadow-md"
                   style={{
                     top: `${top}px`,
                     height: `${height}px`,

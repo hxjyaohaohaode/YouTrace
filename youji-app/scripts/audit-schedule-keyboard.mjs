@@ -284,6 +284,19 @@ export async function runScheduleKeyboardTail(h, { page, label, api, id, origina
     });
   }
   async function verifyEditor(source, changed, stage, restored = false) {
+    let readiness;
+    if (restored) {
+      // Draft readiness can precede the entrance animation's settled paint.
+      const started = Date.now(), current = await stable();
+      readiness = { ...current.stability, modalAnimations: current.modalAnimations, modalCount: current.modalCount, elapsedMs: Date.now() - started, maximumMs: 2200, surfaceArtifact: `${prefix}-${stage}-restored-settled-surface.json` };
+      await saveJSON(`${stage}-restored-settled-surface`, current);
+      const settled = readiness.observed && readiness.modalAnimations === 0 && readiness.elapsedMs <= readiness.maximumMs;
+      if (!settled) {
+        await saveJSON(`${stage}-restored-copy-reading`, { readiness, copyRead: false });
+        await report(`${stage}-restored-copy-readable`, false, { readiness, copyRead: false, note: 'Existing bounded stability observation did not settle; stop before copy reading or Save.' });
+        assert.ok(settled, 'Restored-copy reading requires observed stability within 2200 ms and no running modal animations before Save');
+      }
+    }
     const actual = await editor(), form = expectedForm(source, changed), expected = { ...Object.fromEntries(['title', 'date', 'startTime', 'endTime', 'location'].map(key => [key, form[key]])), type: [source.type], repeat: ['none'], scopeGroups: 0 };
     const pass = isDeepStrictEqual({ ...actual, copy: undefined }, { ...expected, copy: undefined }) && (!restored || actual.copy.includes('已恢复本机编辑稿；保存前不会修改日程'));
     if (restored) {
@@ -294,8 +307,8 @@ export async function runScheduleKeyboardTail(h, { page, label, api, id, origina
         return { text, matches: 1, selector: 'body > ' + parts.join(' > ') };
       });
       const geometry = copy.selector ? await page.evaluate(initialSessionGeometry, copy.selector) : { visible: false };
-      await saveJSON(`${stage}-restored-copy-reading`, { ...copy, geometry });
-      await report(`${stage}-restored-copy-readable`, copy.matches === 1 && geometry.visible, { ...copy, geometry, note: 'Natural ready/title-focus position; no additional keys, pointer, focus or scroll. A reading failure stays RED independently of source retention.' });
+      await saveJSON(`${stage}-restored-copy-reading`, { ...copy, geometry, readiness });
+      await report(`${stage}-restored-copy-readable`, copy.matches === 1 && geometry.visible, { ...copy, geometry, readiness, note: 'Natural settled/title-focus position; no additional keys, pointer, focus or scroll. A reading failure stays RED independently of source retention.' });
     }
     await report(stage, pass, { actual, expected, note: 'Complete DOM form values; individual field/copy captures establish the separate reading observations, without requiring the whole editor onscreen.' }); assert.ok(pass, 'The complete editor values must bind the exact original source');
   }
