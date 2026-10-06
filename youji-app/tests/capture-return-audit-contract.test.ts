@@ -97,6 +97,31 @@ test('One acknowledged Save requires actual receipt-generated IDs, exact selecti
   assert.equal(checks.committedExactly(before, after, b, { before: at + 1, after: at + 500 }), false);
 });
 
+test('Home allows only its exact new local two-day observation, never broad Coach or source exemptions', () => {
+  const { after: before, b } = committedFixture();
+  before.local.coachInsights = [{ id: 'old-cloud-insight', title: 'Original', dismissed: false, unknownOriginal: { present: undefined, value: -0 } }];
+  before.schema.push({ name: 'coachInsights' });
+  const after = clone(before), createdAt = at + 100, row = { id: `ins-${createdAt}-abc1`, type: 'suggestion', title: '按适合你的节奏记录', description: '近7天有2天留下了花销、打卡、日记或速记。记录是为了帮助你回顾，不需要每天完成。', dataSources: ['habit', 'expense', 'diary', 'quicknote'], actionSuggested: '有想留下的事时，再写一句速记', dismissed: false, significance: 0.7, origin: 'local', createdAt };
+  after.local.coachInsights.push(row);
+  const window = { before: at + 50, after: at + 500 };
+  assert.equal(checks.preserved(before, after), false, 'The original whole-source predicate keeps rejecting undeclared writes');
+  assert.equal(checks.preservedAfterHome(before, after, b, window), true);
+  for (const mutation of [
+    (value: Facts) => { value.local.coachInsights[0].title = 'old changed'; },
+    (value: Facts) => { delete value.local.coachInsights[0].unknownOriginal; },
+    (value: Facts) => { value.local.coachInsights[1].description = row.description.replace('2天', '3天'); },
+    (value: Facts) => { value.local.coachInsights[1].unexplained = true; },
+    (value: Facts) => { value.local.coachInsights[1].origin = 'cloud'; },
+    (value: Facts) => { value.local.coachInsights[1].createdAt = at + 501; },
+    (value: Facts) => { value.local.coachInsights.push({ ...row, id: 'extra' }); },
+    (value: Facts) => { value.local.todos[0].text = 'neighbor changed'; },
+    (value: Facts) => { value.allEvents[0].data!.text = 'history changed'; },
+    (value: Facts) => { value.local.settings.push({ key: 'unexplained-setting', value: true }); },
+  ]) { const wrong = clone(after); mutation(wrong); assert.equal(checks.preservedAfterHome(before, wrong, b, window), false); }
+  const changedBasis = clone(before); changedBasis.local.expenses[0].date = '2026-10-04';
+  assert.equal(checks.preservedAfterHome(changedBasis, after, b, window), false);
+});
+
 test('Lossless source decoder keeps present undefined, negative zero and extended-array keys distinct', () => {
   const value = decodeCaptureEvidence({ type: 'object', entries: [['present', { type: 'undefined' }], ['minusZero', { type: 'number', value: '-0' }], ['array', { type: 'array', length: 2, entries: [['1', 'kept'], ['extra', 'metadata']] }]] });
   assert.ok(Object.hasOwn(value, 'present')); assert.equal(value.present, undefined); assert.ok(Object.is(value.minusZero, -0));

@@ -171,12 +171,12 @@ if (taskSet === 'keyboard-records') {
   metadata.untested = ['Rapid Escape-to-Tab within 250ms; only the observed settled-return navigation is checked', 'Full accessibility/WCAG certification, actual screen-reader announcements, mobile touch/OS, zoom or reduced-motion', 'Old B-to-Todo initialization cause, paused authority/clear-generation/publication work and dependent repair', 'Deletion, reload, account switch, two-device or production operations'];
 }
 if (taskSet === 'capture-return') {
-  metadata.kind = 'capture-review-return-and-precommit-recovery-RED-baseline';
-  metadata.applicationBaseline = 'eea0f7e4c5b75a867e3eca769e68744865240655';
-  metadata.redEvidenceCommit = null;
+  metadata.kind = 'capture-review-return-and-precommit-recovery-candidate';
+  metadata.applicationBaseline = '1ba450e3509df2e4334791aeefc7593cf43c898b';
+  metadata.redEvidenceCommit = '1ba450e3509df2e4334791aeefc7593cf43c898b';
   delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
   metadata.controlledClock = { ...captureReturnClock, scope: 'browser Date only; original server and ledger audit timestamps remain real' };
-  metadata.scenarioScope = ['Native corrected uncommitted review Return and ordinary composer re-entry, with complete original draft preservation', 'If re-entry opens a different draft, its explicitly separate native re-review and bounded precommit refusal/retry never erase the original continuity RED', 'One selected-record commit, exact receipt/source/generated IDs and real cross-page retrieval with prior records and full ledger preserved'];
+  metadata.scenarioScope = ['Native corrected uncommitted review Return and ordinary composer re-entry, with complete original draft preservation', 'If re-entry opens a different draft, its explicitly separate native re-review and bounded precommit refusal/retry never erase the original continuity RED', 'One selected-record commit, exact receipt/source/generated IDs and real cross-page retrieval with prior records and full ledger preserved; one exact Home-derived local Coach row is checked separately', 'Actual next-note action must show an empty input and preserve all saved records, metadata and prior source history'];
   metadata.interactions = 'Ordinary synthetic registration, native controls and declared browser Date; local rule parser, no model invocation. GET-only/readonly corroboration and exact current synthetic quickNote put refusal only; no business seeding or auth/generation/publication injection.';
   metadata.untested = ['Live model/SMS/voice/IME providers, production records or deployment', 'Paused authority/clear-generation/publication review or dependent read repair', 'Committed receipt-read failure, arbitrary concurrent tabs or shared historical recovery', 'All capture types, full keyboard/accessibility/reduced-motion, real mobile OS', 'Ordinary second-device Settings initialization cause'];
 }

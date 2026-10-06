@@ -7,7 +7,7 @@ import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
 
-const BASELINE = 'eea0f7e4c5b75a867e3eca769e68744865240655';
+const BASELINE = '1ba450e3509df2e4334791aeefc7593cf43c898b';
 const RAW = '明天要交报销单；午饭15；地铁3；后天要取快递；合成原文尾记';
 const DECLARED = { raw: RAW, name: '合成退餐', amount: '16.25', date: '2026-10-05', direction: 'income', category: 'food', todo: '合成：交蓝色报销单', dueDate: '2026-10-09' };
 const PROFILES = [{ width: 1280, height: 900, phone: '13900008891', nickname: 'Synthetic YC1280' }, { width: 360, height: 800, phone: '13900008892', nickname: 'Synthetic YC360' }];
@@ -66,6 +66,26 @@ function refusalExplained(message) {
 function preserved(a, b, changes = {}) {
   return equal(a.schema, b.schema) && a.databaseName === b.databaseName && a.version === b.version && equal(Object.keys(a.local).sort(), Object.keys(b.local).sort()) && Object.keys(a.local).filter(name => name !== 'settings').every(name => equal(a.local[name], b.local[name])) && settingsAllowed(a, b, changes) && ledgerValid(a.allEvents) && ledgerValid(b.allEvents) && equal(a.allEvents, b.allEvents);
 }
+function preservedAfterHome(a, b, value, window) {
+  // Home really creates this local observation from the two declared activity
+  // days. Bind its whole row; every old Coach field and every other table still
+  // goes through the original strict preservation predicate.
+  const old = a.local.coachInsights, current = b.local.coachInsights;
+  if (!Array.isArray(old) || !Array.isArray(current) || !Number.isSafeInteger(window?.before) || !Number.isSafeInteger(window?.after) || window.after < window.before) return false;
+  const added = current.filter(row => !old.some(previous => previous.id === row.id));
+  if (added.length !== 1 || current.length !== old.length + 1) return false;
+  const row = added[0], match = /^ins-(\d+)-[a-z0-9]+$/.exec(row.id ?? ''), idTime = match && Number(match[1]);
+  if (!Number.isSafeInteger(idTime) || idTime < window.before || idTime > window.after || !Number.isSafeInteger(row.createdAt) || row.createdAt < idTime || row.createdAt > window.after) return false;
+  const note = a.local.quickNotes.find(item => item.id === value.id), expenseRef = setting(a, `capture-applied:${value.id}`)?.value?.result?.records?.find(ref => ref.entity === 'expenses');
+  const expense = a.local.expenses.find(item => item.id === expenseRef?.id), selected = value.expenses.filter(item => item.confirmed);
+  if (!note || !expense || a.local.quickNotes.length !== 1 || a.local.expenses.length !== 1 || selected.length !== 1 || a.local.diary.length || a.local.habitCheckins?.length) return false;
+  if (!equal(note, selectedNote(value, note.createdAt)) || !equal(expense, { id: expenseRef.id, name: selected[0].name, amount: selected[0].amount, category: selected[0].category, date: selected[0].date, isIncome: true, source: 'quicknote' })) return false;
+  const noteDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(note.createdAt));
+  if (noteDay !== '2026-10-07' || expense.date !== '2026-10-05') return false;
+  const days = new Set([noteDay, expense.date]).size;
+  const expected = { id: row.id, type: 'suggestion', title: '按适合你的节奏记录', description: `近7天有${days}天留下了花销、打卡、日记或速记。记录是为了帮助你回顾，不需要每天完成。`, dataSources: ['habit', 'expense', 'diary', 'quicknote'], actionSuggested: '有想留下的事时，再写一句速记', dismissed: false, significance: 0.7, origin: 'local', createdAt: row.createdAt };
+  return equal(row, expected) && preserved(a, { ...b, local: { ...b.local, coachInsights: current.filter(item => item.id !== row.id) } });
+}
 function draftBound(facts, id, intended) {
   const value = draft(facts, id);
   return Boolean(value?.inputKey) && value.id === id && equal(setting(facts, `capture-review:${id}`), { key: `capture-review:${id}`, value }) && equal(value, intended) && equal(setting(facts, 'quicknote_review'), { key: 'quicknote_review', value }) && equal(setting(facts, value.inputKey), { key: value.inputKey, value: value.input }) && equal(setting(facts, `${value.inputKey}:context`), { key: `${value.inputKey}:context`, value: value.context }) && !setting(facts, `capture-applied:${id}`) && !setting(facts, `capture-source:${id}`) && !facts.local.quickNotes.some(row => row.id === id);
@@ -119,7 +139,7 @@ function committedExactly(a, b, value, window) {
   }
   return settingsAllowed(a, b, { writes, deletes: [`capture-review:${value.id}`, 'quicknote_review', value.inputKey, `${value.inputKey}:context`], committed: true }) && equal(setting(b, `capture-source:${value.id}`), { key: `capture-source:${value.id}`, value }) && !draft(b, value.id) && !setting(b, 'quicknote_review') && !setting(b, value.inputKey) && !setting(b, `${value.inputKey}:context`);
 }
-export const captureReturnChecks = { profiles: PROFILES, declared: DECLARED, corrected, setting, draft, draftBound, continuity, preserved, settingsDifferences, refusalExact, selectedNote, committedExactly, completeLedgerPage, refusalExplained };
+export const captureReturnChecks = { profiles: PROFILES, declared: DECLARED, corrected, setting, draft, draftBound, continuity, preserved, preservedAfterHome, settingsDifferences, refusalExact, selectedNote, committedExactly, completeLedgerPage, refusalExplained };
 
 // Self-contained native IDB boundary, same pattern as the existing Todo quota.
 // Throwing synchronously lets Dexie abort its real transaction naturally.
@@ -408,6 +428,7 @@ export async function runCaptureReturnOutcomes(h) {
           await waitPath(page, '/quick-note/result'); assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, receiptPath);
           await preserve(frozen, await facts(`after-${ref.entity}-receipt-return`), `${ref.entity}-read-cancel-return-keeps-exact-sources`);
         }
+        const homeWindow = { before: await page.evaluate(() => Date.now()) };
         await tap(`${REVIEW} button`, '回到首页'); await waitPath(page, '/'); await navigate('/timeline', '时间线');
         await tap('[role=group][aria-label="时间范围"] button', '全部记录');
         await page.waitForFunction(() => location.pathname === '/timeline' && location.search === '?range=all' && [...document.querySelectorAll('[role=group][aria-label="时间范围"] button[aria-pressed=true]')].length === 1 && document.querySelector('[role=group][aria-label="时间范围"] button[aria-pressed=true]')?.textContent === '全部记录', { timeout: 7000 });
@@ -416,7 +437,21 @@ export async function runCaptureReturnOutcomes(h) {
         await tap('[role=dialog] button', '返回时间线'); await page.waitForSelector('[role=dialog]', { hidden: true });
         await page.waitForFunction(expected => location.pathname + location.search === expected && document.querySelector('[role=group][aria-label="时间范围"] button[aria-pressed=true]')?.textContent === '全部记录', { timeout: 7000 }, originPath);
         await read(noteButton); await tap(noteButton); await tap('[role=dialog] a', '查看本机保存结果与去向'); await waitPath(page, '/quick-note/result'); assert.equal(new URL(page.url()).pathname + new URL(page.url()).search, receiptPath);
-        await preserve(frozen, await facts('final-visible-original-timeline-receipt-return'), 'final-visible-rediscovery-preserves-all-source-history');
+        const afterTimeline = await facts('final-visible-original-timeline-receipt-return'); homeWindow.after = await page.evaluate(() => Date.now());
+        const homePreserved = preservedAfterHome(frozen, afterTimeline, value, homeWindow);
+        await save('final-home-derived-observation', { pass: homePreserved, homeWindow, beforeCoach: frozen.local.coachInsights, afterCoach: afterTimeline.local.coachInsights, settingsDifferences: settingsDifferences(frozen, afterTimeline) });
+        await observe(page, `${label}-final-visible-rediscovery-preserves-all-source-history`, homePreserved, 'One exact full local Coach observation binds the two declared activity days and the interval from before Home navigation through the Timeline return; every original Coach row, other table, setting, receipt and ledger remains subject to strict preservation');
+        assert.ok(homePreserved, 'Unverified source change stops all later business actions');
+        // A continued review consumes its original input, so starting another
+        // note must not recover the temporary unchanged composer fork.
+        mark('actual-new-note-after-confirmation'); await tap(`${REVIEW} button`, '再记一条'); await waitPath(page, '/quick-note');
+        await page.waitForFunction(() => document.querySelector('[data-component="capture-composer"] [role=status]')?.textContent === '原文已保留在本机', { timeout: 7000 });
+        await readValue(`${COMPOSER} textarea`, '', 'new-note-is-really-blank');
+        const nextInput = await facts('new-note-after-confirmation'), emptyInput = inputsAdded(afterTimeline, nextInput, '');
+        await preserve(afterTimeline, nextInput, 'new-note-only-empty-input-keeps-saved-records-history-and-retained-sources', { writes: emptyInput.writes });
+        const navigationKey = `youtrace:input:${owner}`, currentInputKey = await page.evaluate(key => sessionStorage.getItem(key), navigationKey);
+        await save('new-note-current-input-navigation', { currentInputKey, expectedKey: emptyInput.key, matches: currentInputKey === emptyInput.key });
+        assert.equal(currentInputKey, emptyInput.key, 'The ordinary composer pointer must now identify the actual new empty input, not a retained old fork');
       }
     });
   }

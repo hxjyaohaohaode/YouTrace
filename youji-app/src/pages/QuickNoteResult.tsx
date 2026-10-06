@@ -15,6 +15,7 @@ import { retainPendingEditor, readPendingEditor, releasePendingEditor } from '..
 import { SESSION_REVISION_KEY } from '../services/apiClient';
 import { currentCaptureRecord, currentReceiptSyncStatus, failedReceiptRead, type ReceiptViewState, type CurrentCaptureRecord } from '../services/captureReceiptView';
 import { recordDiagnostic } from '../services/diagnostics';
+import { captureSaveFailure } from '../services/capturePresentation';
 
 const field = 'min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)] focus:outline-2 focus:outline-[var(--primary)]';
 function Frame({ children, title, back, footer }: { children: ReactNode; title: string; back: () => void; footer?: ReactNode }) {
@@ -79,7 +80,7 @@ function CaptureReview({ original }: { original: CaptureDraft }) {
   };
   const change = (patch: Partial<CaptureDraft>) => { const next = { ...current.current, ...patch }; current.current = next; setDraft(next); void persist(next).catch(() => undefined); };
   const copy = async () => { const content = JSON.stringify(current.current, null, 2); try { await navigator.clipboard.writeText(content); setNotice('包含原文与修改的确认稿已复制'); } catch { setNotice('自动复制不可用，可在下方展开原文和确认稿后选择复制'); } };
-  const back = async () => { if (busy.current) return; try { await persist(current.current); navigate('/quick-note'); } catch { /* visible inline failure */ } };
+  const back = async () => { if (busy.current) return; try { await persist(current.current); navigate('/quick-note', { state: { reviewId: persistedId.current, inputKey: current.current.inputKey } }); } catch { /* visible inline failure */ } };
   const save = async () => {
     if (busy.current) return; busy.current = true; setSaving(true); setError('');
     try {
@@ -89,7 +90,7 @@ function CaptureReview({ original }: { original: CaptureDraft }) {
       navigate(`/quick-note/result?receipt=${encodeURIComponent(finalDraft.id)}`, { replace: true });
     } catch (cause) {
       if (cause instanceof CaptureChangedError) { sessionStorage.setItem(captureSessionKey(), cause.draftId); navigate(`/quick-note/result?draft=${encodeURIComponent(cause.draftId)}`, { replace: true }); }
-      setError(cause instanceof Error ? cause.message : '保存未完成，确认稿仍保留，请重试');
+      setError(captureSaveFailure(cause));
     } finally { busy.current = false; if (alive.current) setSaving(false); }
   };
   const expense = (id: string, patch: Partial<CaptureDraft['expenses'][number]>) => change({ expenses: current.current.expenses.map(row => row.id === id ? { ...row, ...patch } : row) });
