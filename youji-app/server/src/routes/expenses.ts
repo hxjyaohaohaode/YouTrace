@@ -40,16 +40,17 @@ expenseRoutes.get('/', async (c) => {
 
 expenseRoutes.get('/stats', async (c) => {
   const user = c.get('user') as AuthUser
-  const month = c.req.query('month') || getToday().slice(0, 7)
+  const today = getToday()
+  const month = c.req.query('month') || today.slice(0, 7)
   if (!/^\d{4}-\d{2}$/.test(month)) {
     return c.json({ error: '月份格式不正确' }, 400)
   }
-  const today = getToday()
   const weekStartStr = getWeekStart()
+  const monthDates = { startsWith: month, lte: today }
 
   const [monthExpenses, weekExpenses, incomeTotalRow] = await Promise.all([
     prisma.expense.findMany({
-      where: { userId: user.id, date: { startsWith: month }, isIncome: false },
+      where: { userId: user.id, date: monthDates, isIncome: false },
       select: { amount: true, date: true },
     }),
     prisma.expense.findMany({
@@ -57,7 +58,7 @@ expenseRoutes.get('/stats', async (c) => {
       select: { amount: true },
     }),
     prisma.expense.aggregate({
-      where: { userId: user.id, date: { startsWith: month }, isIncome: true },
+      where: { userId: user.id, date: monthDates, isIncome: true },
       _sum: { amount: true },
     }),
   ])

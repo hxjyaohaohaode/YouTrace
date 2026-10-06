@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { CalendarDays, Calendar as CalendarWeek, Calendar } from 'lucide-react';
 import { useExpenseStore } from '../../stores/expenseStore';
-import { getBusinessMonth, getNaturalWeekDates, getToday } from '../../utils/date';
+import { getToday } from '../../utils/date';
+import { getExpensePeriodTotals } from '../../utils/expensePeriod';
 
 function formatYuan(fen: number): string {
   return (fen / 100).toFixed(2);
@@ -11,29 +12,14 @@ export function StatsRow() {
   const items = useExpenseStore((s) => s.items);
 
   const today = getToday();
-  const naturalWeek = useMemo(() => new Set(getNaturalWeekDates(today)), [today]);
-  const month = getBusinessMonth();
-
-  const todayTotal = useMemo(
-    () => items.filter((i) => i.date === today && !i.isIncome).reduce((sum, i) => sum + i.amount, 0),
+  const totals = useMemo(
+    () => getExpensePeriodTotals(items, today),
     [items, today]
   );
-
-  const weekTotal = useMemo(
-    () => items.filter((i) => naturalWeek.has(i.date) && !i.isIncome).reduce((sum, i) => sum + i.amount, 0),
-    [items, naturalWeek]
-  );
-
-  const monthTotal = useMemo(
-    () => items.filter((i) => i.date.startsWith(month) && !i.isIncome).reduce((sum, i) => sum + i.amount, 0),
-    [items, month]
-  );
-
-
   const stats = [
-    { label: '今日', value: todayTotal, icon: CalendarDays },
-    { label: '本周', value: weekTotal, icon: CalendarWeek },
-    { label: '本月', value: monthTotal, icon: Calendar },
+    { label: '今日', value: totals.today, icon: CalendarDays },
+    { label: '本周', value: totals.week, icon: CalendarWeek },
+    { label: '本月', value: totals.month, icon: Calendar },
   ];
 
   return (

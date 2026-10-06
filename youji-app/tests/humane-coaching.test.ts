@@ -286,6 +286,43 @@ test('direct expense alerts respect disabled, quiet, snoozed and shared budget l
   assert.equal(useCoachStore.getState().pushes.length, 0);
 });
 
+test('ordinary budget alerts exclude future expense and income, distinguish equality, and preserve one-cent overspend', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-07T04:00:00Z') });
+  useExpenseStore.setState({ monthBudget: 1001, budgetStatus: 'configured' });
+  const current = { id: 'current-expense', name: 'Synthetic ordinary expense', amount: 799, category: 'food', date: '2026-10-07' };
+  const future = { ...current, id: 'future-expense', amount: 99999, date: '2026-10-08' };
+  const income = { ...current, id: 'current-income', amount: 99999, isIncome: true };
+  await storage.db.expenses.bulkPut([current, future, income]);
+  await checkBudgetThreshold();
+  assert.equal(useCoachStore.getState().pushes.length, 0);
+
+  await storage.db.expenses.update(current.id, { amount: 1001 });
+  await checkBudgetThreshold();
+  const equal = useCoachStore.getState().pushes[0];
+  assert.equal(equal.title, '本月预算已用完');
+  assert.match(equal.body, /已花¥10\.01/);
+  assert.doesNotMatch(`${equal.title}${equal.body}`, /超支|超出/);
+
+  useCoachStore.setState({ pushes: [] });
+  await storage.db.expenses.update(current.id, { amount: 1002 });
+  await checkBudgetThreshold();
+  const over = useCoachStore.getState().pushes[0];
+  assert.equal(over.title, '本月预算已超支');
+  assert.match(over.body, /已花¥10\.02，超出预算¥0\.01/);
+  assert.deepEqual(await storage.db.expenses.get(future.id), future);
+  assert.deepEqual(await storage.db.expenses.get(income.id), income);
+});
+
+test('near-budget message retains precise expense and budget amounts', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-07T04:00:00Z') });
+  useExpenseStore.setState({ monthBudget: 1001, budgetStatus: 'configured' });
+  await storage.db.expenses.put({ id: 'near-budget', name: 'Synthetic ordinary expense', amount: 901, category: 'food', date: '2026-10-07' });
+  await checkBudgetThreshold();
+  const push = useCoachStore.getState().pushes[0];
+  assert.equal(push.title, '预算即将用完');
+  assert.match(push.body, /90%.*¥9\.01\/¥10\.01/);
+});
+
 test('final evening review delivery rechecks the latest configured time', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T12:00:00Z') }); // 20:00 Shanghai
   await setPreferences({ coachPushEnabled: true, eveningReviewEnabled: true, eveningReviewTime: '00:00', quietHours: { enabled: false, start: '23:00', end: '07:00' } });

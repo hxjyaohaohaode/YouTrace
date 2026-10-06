@@ -3,7 +3,8 @@ import { create } from 'zustand';
 import { db, generateLocalId, LOCAL_DATA_EPOCH_KEY } from '../db';
 import { commitLocalMutation } from '../services/localMutation';
 import { deliverControlledPush } from '../services/pushControl';
-import { getBusinessMonth, getNaturalWeekDates, getToday, parseBusinessDate } from '../utils/date';
+import { getToday, parseBusinessDate } from '../utils/date';
+import { getExpensePeriodTotals } from '../utils/expensePeriod';
 import { normalizeExpenseCategory } from '../utils/icons';
 
 export interface ExpenseItem {
@@ -79,10 +80,7 @@ export async function checkBudgetThreshold(): Promise<void> {
     }
 
     const items = await db.expenses.toArray();
-    const month = getBusinessMonth();
-    const total = items
-      .filter((i) => i.date.startsWith(month) && !i.isIncome)
-      .reduce((sum, i) => sum + i.amount, 0);
+    const total = getExpensePeriodTotals(items, getToday()).month;
     const { monthBudget: budget, budgetStatus } = useExpenseStore.getState();
     if (budgetStatus !== 'configured') return;
     if (budget <= 0) return;
@@ -91,12 +89,15 @@ export async function checkBudgetThreshold(): Promise<void> {
     let title: string;
     let body: string;
 
-    if (pct >= 100) {
+    if (total > budget) {
       title = '本月预算已超支';
-      body = `已花¥${(total / 100).toFixed(0)}，超出预算¥${((total - budget) / 100).toFixed(0)}。别自责，看看钱主要花在哪了。`;
+      body = `已花¥${(total / 100).toFixed(2)}，超出预算¥${((total - budget) / 100).toFixed(2)}。别自责，看看钱主要花在哪了。`;
+    } else if (total === budget) {
+      title = '本月预算已用完';
+      body = `已花¥${(total / 100).toFixed(2)}，正好用完本月预算。可以结合本月剩余安排，决定是否需要调整。`;
     } else if (pct >= 80) {
       title = '预算即将用完';
-      body = `本月已使用${pct}%的预算（¥${(total / 100).toFixed(0)}/¥${(budget / 100).toFixed(0)}）。可以结合本月剩余安排，决定是否需要调整。`;
+      body = `本月已使用${pct}%的预算（¥${(total / 100).toFixed(2)}/¥${(budget / 100).toFixed(2)}）。可以结合本月剩余安排，决定是否需要调整。`;
     } else {
       return;
     }
@@ -181,31 +182,8 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     set((state) => ({ items: state.items.filter((item) => item.id !== id || !sameExpenseSnapshot(item, existing)) }));
   },
 
-  todayTotal: () => {
-    const today = getToday();
-    return get().items
-      .filter((i) => i.date === today && !i.isIncome)
-      .reduce((sum, i) => sum + i.amount, 0);
-  },
-
-  weekTotal: () => {
-    const weekDates = new Set(getNaturalWeekDates());
-    return get().items
-      .filter((i) => weekDates.has(i.date) && !i.isIncome)
-      .reduce((sum, i) => sum + i.amount, 0);
-  },
-
-  monthTotal: () => {
-    const month = getBusinessMonth();
-    return get().items
-      .filter((i) => i.date.startsWith(month) && !i.isIncome)
-      .reduce((sum, i) => sum + i.amount, 0);
-  },
-
-  monthIncome: () => {
-    const month = getBusinessMonth();
-    return get().items
-      .filter((i) => i.date.startsWith(month) && i.isIncome)
-      .reduce((sum, i) => sum + i.amount, 0);
-  },
+  todayTotal: () => getExpensePeriodTotals(get().items, getToday()).today,
+  weekTotal: () => getExpensePeriodTotals(get().items, getToday()).week,
+  monthTotal: () => getExpensePeriodTotals(get().items, getToday()).month,
+  monthIncome: () => getExpensePeriodTotals(get().items, getToday()).monthIncome,
 }));

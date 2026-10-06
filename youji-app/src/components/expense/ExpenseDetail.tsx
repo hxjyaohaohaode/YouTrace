@@ -4,6 +4,7 @@ import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useExpenseStore, type ExpenseItem } from '../../stores/expenseStore';
 import { expenseCategoryIcons } from '../../utils/icons';
 import { formatDateLabel } from '../../utils/date';
+import { expenseDayNetLabel } from './expensePresentation';
 
 function formatYuan(fen: number): string {
   return (fen / 100).toFixed(2);
@@ -56,13 +57,12 @@ export function ExpenseDetail({ onEdit }: { onEdit: (item: ExpenseItem) => void 
         );
         return (
         <div key={date}>
-          <div className="mb-3 flex items-center justify-between border-l-2 border-[var(--primary)]/30 pl-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-l-2 border-[var(--primary)]/30 pl-2">
             <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
               {formatDateLabel(date)}
             </p>
             <p className={`font-mono text-[11px] font-bold tabular-nums ${dayTotal >= 0 ? 'text-[var(--text-4)]' : 'text-[var(--success)]'}`}>
-              {dayTotal >= 0 ? '' : '+'}¥{formatYuan(Math.abs(dayTotal)).replace('-', '')}
-              {dayTotal < 0 ? ' 收' : ''}
+              {expenseDayNetLabel(dayTotal)}
             </p>
           </div>
           <div className="space-y-2">

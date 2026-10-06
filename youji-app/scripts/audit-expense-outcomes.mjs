@@ -22,6 +22,15 @@ const version = (facts, id) => facts.local.settings.find(row => row.key === `syn
 const yuan = fen => (fen / 100).toFixed(2);
 const sameRows = (left, right) => isDeepStrictEqual([...left].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))), [...right].sort((a, b) => String(a.id ?? a.key).localeCompare(String(b.id ?? b.key))));
 const budgetRows = local => local.settings.filter(row => ['monthBudget', 'monthBudgetConfigured'].includes(row.key));
+function budgetSpentMatches(text, fen) {
+  if (typeof text !== 'string' || !Number.isSafeInteger(fen) || fen < 0) return false;
+  // innerText separates painted paragraphs with one or two line breaks.
+  // Keep the adjacent label, currency and exact cents; only whitespace varies.
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const labels = [...normalized.matchAll(/(?:^|\s)本月已花(?=\s|$)/g)];
+  const values = [...normalized.matchAll(/(?:^|\s)本月已花\s+¥(\d+\.\d{2})(?![\d.])(?=\s|$)/g)];
+  return labels.length === 1 && values.length === 1 && values[0][1] === yuan(fen);
+}
 function onlyChanges(before, after, allowed) {
   return Boolean(before && after) && [...new Set([...Object.keys(before), ...Object.keys(after)])].every(key => allowed.includes(key) || Object.hasOwn(before, key) === Object.hasOwn(after, key) && isDeepStrictEqual(before[key], after[key]));
 }
@@ -131,7 +140,7 @@ function dailySummaryMatches(text, spent, income) {
   if (label === '净支出') return net <= 0 && magnitude === -net && sign !== '+';
   return (sign === '-' ? -magnitude : magnitude) === net && !(net === 0 && sign === '-');
 }
-export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, expectedTotals, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches };
+export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, budgetSpentMatches, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, expectedTotals, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches };
 
 export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Expense native evidence runs only in authorized hosted CI');
@@ -283,7 +292,7 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
       const selector = `p[aria-label^="${name}支出人民币"]`, reading = await read(page, selector), period = await read(page, `div:has(> ${selector})`), labelText = await page.$eval(selector, el => el.getAttribute('aria-label')); actual[key] = { reading, period, label: labelText };
       await observe(page, `${label}-${key}-actual-expenditure-cents`, reading.visible && period.visible && period.text.includes(name) && reading.text === `¥${yuan(expected[key])}` && labelText === `${name}支出人民币${yuan(expected[key])}元`, JSON.stringify({ expected, actual: actual[key], note: 'Actual expenditure excludes income and future dates; no daily/weekly income summary is required' }));
     }
-    await budgetReading(page, `${label}-spent-and-income-stay-separate`, text => text.includes(`本月已花\n¥${yuan(expected.month)}`) && text.includes(`本月收入 ¥${yuan(expected.monthIncome)}`));
+    await budgetReading(page, `${label}-spent-and-income-stay-separate`, text => budgetSpentMatches(text, expected.month) && text.includes(`本月收入 ¥${yuan(expected.monthIncome)}`));
     return expected;
   }
   async function installQuota(page, owner, table, key) {
@@ -429,11 +438,11 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
     await observe(page, `${label}-budget-real-retry-local-result`, retryPass, JSON.stringify({ before: budgetRows(beforeFault.local), after: budgetRows(retried.local), settingsDifferences: settingsDifferences(beforeFault, retried), noBudgetAccountSyncClaim: true })); assert.ok(retryPass);
     await budgetReading(page, `${label}-retried-budget-recalculates-cents`, text => text.includes('月预算 ¥12.02') && text.includes('超出预算 ¥2.33'));
     const corrected = await correct(page, api, target, `${label}-expense-quota`, 1357, { quota: true });
-    await budgetReading(page, `${label}-expense-retry-recalculates-budget`, text => text.includes('本月已花\n¥15.58') && text.includes('超出预算 ¥3.56') && text.includes('本月收入 ¥100.01'));
+    await budgetReading(page, `${label}-expense-retry-recalculates-budget`, text => budgetSpentMatches(text, 1558) && text.includes('超出预算 ¥3.56') && text.includes('本月收入 ¥100.01'));
     const beforeReload = await facts(page, api, `${label}-before-reload`); await page.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'normal-budget-and-expense-reload', surface: surfaceNames.get(page) }); await waitPath(page, '/expense'); await page.waitForSelector('button[aria-label="添加花销"]');
     const reloaded = await facts(page, api, `${label}-reloaded`), reloadPass = businessSourcesPreserved(beforeReload, reloaded, { reload: true });
     await observe(page, `${label}-same-device-budget-and-record-survive-reload`, reloadPass, JSON.stringify({ settingsDifferences: settingsDifferences(beforeReload, reloaded), note: 'Full Expense/draft/version/ledger/outbox and both budget rows remain unchanged. Only explicit lastPullAt and reload cursor advancement to the already-existing unchanged ledger end are allowed; no second-device claim' })); assert.ok(reloadPass); await visibleRow(page, corrected.changed);
-    await budgetReading(page, `${label}-reloaded-exact-budget-and-spend`, text => text.includes('月预算 ¥12.02') && text.includes('本月已花\n¥15.58') && text.includes('超出预算 ¥3.56'));
+    await budgetReading(page, `${label}-reloaded-exact-budget-and-spend`, text => text.includes('月预算 ¥12.02') && budgetSpentMatches(text, 1558) && text.includes('超出预算 ¥3.56'));
   }
   async function run(page) {
     const label = surfaceNames.get(page), clock = h.clock ?? createHabitAuditClock(); let api;

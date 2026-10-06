@@ -8,6 +8,7 @@ import { expenseCategoryIcons, EXPENSE_CATEGORY_KEYS } from '../../utils/icons';
 import { toast } from '../../services/toastBus';
 import { getToday } from '../../utils/date';
 import { useExpenseEditorDraft } from './useExpenseEditorDraft';
+import { expenseWriteFailure } from './expensePresentation';
 
 interface AddExpenseModalProps { open: boolean; onClose: () => void; item?: ExpenseItem; draftId?: string }
 interface ExpenseForm { id: string; name: string; amount: string; category: string; date: string; isIncome: boolean; base: ExpenseItem | null }
@@ -26,6 +27,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
   const form = draft.value;
   const stale = !deleted && Boolean(item && (!current || !form.base || !sameExpenseSnapshot(current, form.base)));
   const amount = parseYuanToFen(form.amount);
+  const visibleError = error || (draft.error ? expenseWriteFailure(draft.error, 'draft') : '');
   const update = (patch: Partial<ExpenseForm>) => { if (guard.current) return; draft.update({ ...form, ...patch }); setError(''); setConfirmDelete(false); };
   const close = async () => {
     if (guard.current) return;
@@ -42,7 +44,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
       if (item && form.base && !deleted) await useExpenseStore.getState().updateItem(item.id, values, form.base, context);
       else await useExpenseStore.getState().addItem(values, deleted ? copyId.current : form.id, context);
       toast.success(`已${deleted ? '另存' : '存'}本机：${form.isIncome ? '收入' : '支出'} ¥${(amount / 100).toFixed(2)} · ${values.name.slice(0, 24)}`); onClose();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '未保存，输入已保留，请重试'); }
+    } catch (reason) { setError(expenseWriteFailure(reason, 'save')); }
     finally { guard.current = false; setSaving(false); }
   };
   const remove = async () => {
@@ -53,7 +55,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
       const context = await draft.prepare();
       await useExpenseStore.getState().removeItem(item.id, form.base, context);
       setDeleted(true); setConfirmDelete(false); toast.success('记录已删除，编辑稿保留');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '删除未完成，输入已保留'); }
+    } catch (reason) { setError(expenseWriteFailure(reason, 'delete')); }
     finally { guard.current = false; setSaving(false); }
   };
   return <Modal open onClose={close} title={deleted ? '已删除记录的编辑稿' : item ? '编辑记账' : '记一笔'} className="max-h-[90dvh] overflow-y-auto" footer={<>
@@ -64,7 +66,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
     <div className="space-y-4">
       <p className="text-xs text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复未提交编辑稿；保存前不会修改记账' : '取消会保留本机草稿，不修改记账'}</p>
       {deleted && <p role="status" className="text-sm">原记录已不存在，不会恢复已删除的编号。{draftId && !draft.loading && !draft.restored ? '未找到这条记录的本机草稿。' : '可检查编辑稿后另存为一笔新记录。'}</p>}
-      {(draft.error || error) && <div role="alert" className="text-sm text-[var(--danger)]">{error || draft.error}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
+      {visibleError && <div role="alert" className="text-sm text-[var(--danger)]">{visibleError}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
       {stale && <div role="alert" className="space-y-2 rounded-lg bg-[var(--surface-2)] p-3 text-sm">记录已有更新或被删除，你的编辑稿仍保留{current && <><p className="break-words">最新记录：{current.name} · {current.date} · {current.isIncome ? '收入' : '支出'} ¥{(current.amount / 100).toFixed(2)} · {expenseCategoryIcons[current.category]?.label || current.category}</p><Button variant="soft" onClick={() => update({ base: current })}>已核对，继续使用我的编辑稿</Button></>}</div>}
       <fieldset disabled={saving || !draft.ready || Boolean(draftId && !draft.restored)} className="space-y-4">
         <Input id="expense-amount" ref={firstInput} label="金额（人民币元）*" inputMode="decimal" value={form.amount} onChange={(event) => update({ amount: event.target.value })} placeholder="0.00" error={form.amount && amount === null ? '请输入大于 0 的金额，最多两位小数，不超过一亿元' : undefined} />

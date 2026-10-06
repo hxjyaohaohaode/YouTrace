@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { getBusinessMonth } from '../../utils/date';
 import { parseYuanToFen, useExpenseStore } from '../../stores/expenseStore';
+import { expenseWriteFailure } from './expensePresentation';
 
 const yuan = (fen: number) => (fen / 100).toFixed(2);
 
@@ -32,7 +33,7 @@ export function BudgetCard() {
     if (fen === null) { setError('请输入有效预算，最多两位小数且不超过一亿元'); return; }
     guard.current = true; setPending(true); setError('');
     try { await useExpenseStore.getState().setMonthBudget(fen, baseline); setDraft(null); setEditing(false); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : '预算未保存，输入已保留，请重试'); }
+    catch (reason) { setError(expenseWriteFailure(reason, 'budget')); }
     finally { guard.current = false; setPending(false); }
   };
   const confirmed = budgetStatus === 'configured';

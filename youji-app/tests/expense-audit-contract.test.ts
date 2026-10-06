@@ -92,6 +92,11 @@ test('Device budget oracle distinguishes no rows, explicit zero, configured mark
   for (const value of ['1', '9223372036854775807']) assert.equal(checks.validVersion(value), true);
   for (const value of ['0', '01', '1.1', '-1', '9223372036854775808', 1, null]) assert.equal(checks.validVersion(value), false);
 });
+
+test('visible budget amount tolerates paragraph whitespace but keeps exact label, currency and cents', () => {
+  for (const text of ['本月已花\n¥15.58', '100%\n\n本月已花\n\n¥15.58\n\n月预算 ¥12.02', '本月已花 ¥15.58']) assert.equal(checks.budgetSpentMatches(text, 1558), true, text);
+  for (const text of ['本月已花\n\n¥15.59', '本月已花\n\n¥15.580', '本月已花\n\n€15.58', '本月收入 ¥15.58', '本月已花\n历史记录\n¥15.58', '本月已花 ¥15.58\n本月已花 ¥99.99']) assert.equal(checks.budgetSpentMatches(text, 1558), false, text);
+});
 test('All four native accounts have explicit unique short registration nicknames and phones', () => {
   assert.equal(checks.profiles.length, 4);
   assert.equal(new Set(checks.profiles.map(row => row.nickname)).size, 4);
