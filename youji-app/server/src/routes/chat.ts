@@ -130,7 +130,7 @@ chatRoutes.post('/', async (c) => {
   ]
 
   c.header('X-Session-Id', session.id)
-  c.header('Content-Type', 'text/event-stream')
+  c.header('Content-Type', 'text/event-stream; charset=utf-8')
   c.header('Cache-Control', 'no-cache, no-transform')
   c.header('X-Accel-Buffering', 'no')
 
