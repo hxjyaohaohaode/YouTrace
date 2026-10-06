@@ -367,7 +367,10 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
   const recordedExpenses = yesterdayExpenses.filter((item) => item.category !== 'income' && !item.isIncome);
   const spent = recordedExpenses.reduce((sum, item) => sum + item.amount, 0) / 100;
 
-  const doneHabitIds = new Set(yesterdayCheckins.filter((item) => item.done).map((item) => item.habitId));
+  const retainedHabitIds = new Set(habits.map((item) => item.id));
+  const doneHabitIds = new Set(yesterdayCheckins
+    .filter((item) => item.done === true && retainedHabitIds.has(item.habitId))
+    .map((item) => item.habitId));
 
   const moodScores = recentDiaries
     .filter((d) => typeof d.moodScore === 'number' && d.moodScore > 0)

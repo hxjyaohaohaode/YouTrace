@@ -26,6 +26,9 @@ function formatSnapshotTime(timestamp: number | undefined): string {
 export function BriefCard({ data }: BriefCardProps) {
   const navigate = useNavigate();
   const diffText = describeSpentDiff(data.yesterdayReview.spentDiff);
+  const habitDone = data.yesterdayReview.habits?.done;
+  const hasHabitCount = (data.source === 'server' || data.source === 'local')
+    && Number.isSafeInteger(habitDone) && habitDone >= 0;
   const snapshot = data.weeklyInsights[0];
   const snapshotTitle = snapshot?.title === '今日教练简报'
     ? `记录简报${snapshot.createdAt && Number.isFinite(snapshot.createdAt) ? ` · ${formatBusinessDate(new Date(snapshot.createdAt))}` : ''}`
@@ -77,9 +80,11 @@ export function BriefCard({ data }: BriefCardProps) {
                 <p className="text-sm leading-relaxed">
                   已记录支出 ¥{data.yesterdayReview.spent.toFixed(2)}
                   {data.yesterdayReview.expenseCount !== undefined && `，共${data.yesterdayReview.expenseCount}笔`}
-                  {diffText && `（${diffText}）`}· 习惯完成 {data.yesterdayReview.habits.done}/{data.yesterdayReview.habits.total}
+                  {diffText && `（${diffText}）`}
+                  {hasHabitCount ? ` · 该日记为已打卡的习惯 ${habitDone} 项` : ' · 该日习惯打卡记录待确认'}
                   {data.yesterdayReview.moodScore !== null && ` · 心情 ${data.yesterdayReview.moodScore}/10`}
                 </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-white/70">按读取时保留的习惯及该日打卡记录统计</p>
               </div>
             </div>
 

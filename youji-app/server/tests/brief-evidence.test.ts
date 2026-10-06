@@ -95,3 +95,48 @@ test('chat declares UTF-8 and preserves fallback content, navigation actions and
   assert.deepEqual(saved.find((row) => row.role === 'user'), { role: 'user', content: message, actions: null })
   assert.deepEqual(saved.find((row) => row.role === 'assistant'), { role: 'assistant', content, actions: JSON.stringify(actions) })
 })
+
+test('read-only brief API counts retained dated true habits independently of current plan changes', async (t) => {
+  const now = new Date('2026-10-07T04:00:00Z')
+  t.mock.timers.enable({ apis: ['Date'], now })
+  const providerFetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected provider request') })
+  // These are synthetic SQLite fixtures, including explicit records predating habit creation.
+  const habits = ['recap-one', 'recap-two'].map((id, sortOrder) => ({ id, userId: 'synthetic-brief-user', name: id, icon: '🌱', frequency: 'weekly', sortOrder, createdAt: now, updatedAt: now }))
+  await prisma.habit.createMany({ data: habits })
+  await prisma.habitCheckin.createMany({ data: [
+    { id: 'recap-monday-one', habitId: 'recap-one', date: '2026-10-05', done: true },
+    { id: 'recap-monday-two', habitId: 'recap-two', date: '2026-10-05', done: true },
+    { id: 'recap-tuesday', habitId: 'recap-one', date: '2026-10-06', done: true },
+    { id: 'recap-false', habitId: 'recap-two', date: '2026-10-06', done: false },
+    { id: 'recap-today', habitId: 'recap-two', date: '2026-10-07', done: true },
+    { id: 'recap-future', habitId: 'recap-two', date: '2026-10-08', done: true },
+  ] })
+  const readSources = async () => ({
+    habits: await prisma.habit.findMany({ orderBy: { id: 'asc' } }),
+    checkins: await prisma.habitCheckin.findMany({ orderBy: { id: 'asc' } }),
+    insights: await prisma.insight.findMany({ orderBy: { id: 'asc' } }),
+  })
+  const original = await readSources()
+  const checkBrief = async (done: number, total: number) => {
+    const before = await readSources()
+    const response = await app.request('/coach/brief')
+    assert.equal(response.status, 200)
+    const { brief } = await response.json()
+    assert.equal(brief.reviewDate, '2026-10-06')
+    assert.equal(brief.generatedAt, now.toISOString())
+    assert.deepEqual(brief.yesterdayReview.habits, { done, total }, 'preserve the existing API shape, including total')
+    assert.deepEqual(await readSources(), before, 'GET preserves full source records and historical insights')
+  }
+  await checkBrief(1, 2)
+  // Explicit synthetic fixture correction; GET itself never mutates the stored facts.
+  const correctedAt = new Date('2026-10-07T04:01:00Z')
+  await prisma.habitCheckin.update({ where: { id: 'recap-tuesday' }, data: { done: false, updatedAt: correctedAt } })
+  await checkBrief(0, 2)
+  const corrected = await readSources()
+  assert.deepEqual(corrected.checkins, original.checkins.map(row => row.id === 'recap-tuesday' ? { ...row, done: false, updatedAt: correctedAt } : row))
+  await prisma.habit.update({ where: { id: 'recap-one' }, data: { frequency: 'daily' } })
+  await prisma.habit.create({ data: { ...habits[0], id: 'recap-new-plan', name: 'New synthetic plan', sortOrder: 2 } })
+  await checkBrief(0, 3)
+  assert.deepEqual((await readSources()).checkins, corrected.checkins, 'current frequency and new plans preserve both Monday facts and the dated false record')
+  assert.equal(providerFetch.mock.callCount(), 0)
+})

@@ -4,6 +4,9 @@ import { after, before, beforeEach, test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
+import type { DailyBrief } from '../src/stores/coachStore.ts';
+import type { HabitCheckinRecord } from '../src/db/index.ts';
+import { getHabitOverview } from '../src/lib/homeOverview.ts';
 
 const memoryStorage = () => {
   const values = new Map<string, string>();
@@ -157,4 +160,91 @@ test('an explicit zero count renders while older API responses keep missing coun
   const render = (data: typeof result) => renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data })));
   assert.doesNotMatch(render(result), /共\d+笔/);
   assert.match(render({ ...result, yesterdayReview: { ...result.yesterdayReview, expenseCount: 0 } }), /已记录支出 ¥0\.00，共0笔/);
+});
+
+test('local habit recap counts retained dated true facts without changing sources or weekly attainment', async t => {
+  const now = Date.parse('2026-10-07T04:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const providerFetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected request for local brief'); });
+  // Synthetic fixtures include explicit backfilled records preceding createdAt.
+  const habits = ['recap-one', 'recap-two'].map((id, sortOrder) => ({ id, name: id, icon: '🌱', frequency: 'weekly' as const, sortOrder, createdAt: now }));
+  const checkin = (id: string, habitId: string, date: string, done: boolean): HabitCheckinRecord => ({ id, habitId, date, done, source: 'manual', confirmed: true, updatedAt: now });
+  await storage.db.habits.bulkPut(habits);
+  await storage.db.habitCheckins.bulkPut([
+    checkin('recap-monday-one', 'recap-one', '2026-10-05', true),
+    checkin('recap-monday-two', 'recap-two', '2026-10-05', true),
+    checkin('recap-tuesday', 'recap-one', '2026-10-06', true),
+    checkin('recap-duplicate', 'recap-one', '2026-10-06', true),
+    checkin('recap-false', 'recap-two', '2026-10-06', false),
+    checkin('recap-orphan', 'missing-parent', '2026-10-06', true),
+    checkin('recap-invalid', 'recap-two', '2026-10-06', 'true' as unknown as boolean),
+    checkin('recap-today', 'recap-two', '2026-10-07', true),
+    checkin('recap-future', 'recap-two', '2026-10-08', true),
+  ]);
+  const readSources = async () => ({
+    habits: await storage.db.habits.toArray(), checkins: await storage.db.habitCheckins.toArray(),
+    insights: await storage.db.coachInsights.toArray(), outbox: await storage.db.outbox.toArray(),
+  });
+  const original = await readSources();
+  const checkBrief = async (done: number, total: number, weeklyAttained: boolean) => {
+    const before = await readSources();
+    const result = await useCoachStore.getState().generateDailyBrief();
+    assert.ok(result);
+    assert.equal(result.source, 'local');
+    assert.equal(result.reviewDate, '2026-10-06');
+    assert.deepEqual(result.yesterdayReview.habits, { done, total }, 'legacy wire shape is retained');
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data: result })));
+    assert.ok(html.includes(`该日记为已打卡的习惯 ${done} 项`));
+    assert.match(html, /按读取时保留的习惯及该日打卡记录统计/);
+    assert.doesNotMatch(html, /习惯完成|完成率|达成率|习惯 0\/|习惯 1\//);
+    assert.deepEqual(await readSources(), before, 'reading a brief cannot rewrite, delete or deduplicate source rows');
+    if (weeklyAttained) {
+      const views = before.habits.map(habit => ({ ...habit, recentCheckins: [], checkinSources: before.checkins.filter(row => row.habitId === habit.id) }));
+      assert.deepEqual(getHabitOverview(views, new Date(now)), { label: '本周习惯', value: '2/2', sub: '本周已全部打卡' });
+    }
+  };
+  await checkBrief(1, 2, true);
+  // Explicit synthetic fixture updates, not a native UI undo. Both duplicate true facts are withdrawn.
+  for (const id of ['recap-tuesday', 'recap-duplicate']) await storage.db.habitCheckins.update(id, { done: false });
+  await checkBrief(0, 2, true);
+  const corrected = await readSources();
+  assert.deepEqual(corrected.checkins, original.checkins.map(row => ['recap-tuesday', 'recap-duplicate'].includes(row.id) ? { ...row, done: false } : row));
+  await storage.db.habits.update('recap-one', { frequency: 'daily' });
+  await storage.db.habits.put({ ...habits[0], id: 'recap-new-plan', name: 'New synthetic plan', sortOrder: 2 });
+  await checkBrief(0, 3, false);
+  assert.deepEqual((await readSources()).checkins, corrected.checkins, 'current plan edits preserve Monday, false, orphan and duplicate facts');
+  assert.equal(providerFetch.mock.callCount(), 0);
+});
+
+test('habit recap renders explicit counts independently of legacy totals and preserves adjacent evidence', () => {
+  const data: DailyBrief = { ...brief, source: 'server', generatedAt: Date.parse(brief.generatedAt), weeklyInsights: [] };
+  for (const [done, total] of [[0, 2], [1, 0], [1, 999], [1, -1], [Number.MAX_SAFE_INTEGER, Number.NaN]]) {
+    for (const source of ['server', 'local'] as const) {
+      const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data: {
+        ...data, source, yesterdayReview: { spent: 50.25, expenseCount: 1, spentDiff: '-10%', habits: { done, total }, moodScore: 8 },
+      } })));
+      assert.ok(html.includes(`该日记为已打卡的习惯 ${done} 项`));
+      assert.match(html, /按读取时保留的习惯及该日打卡记录统计/);
+      assert.match(html, /已记录支出 ¥50\.25，共1笔（较近几日日均低 10%）/);
+      assert.match(html, /心情 8\/10/);
+      assert.match(html, /2026-10-03 记录回顾/);
+      assert.match(html, source === 'server' ? /云端已同步记录/ : /本机记录/);
+      assert.doesNotMatch(html, /习惯完成|完成率|达成率|习惯打卡记录待确认/);
+    }
+  }
+});
+
+test('loading and unknown habit counts never render as zero recorded habits', () => {
+  const data: DailyBrief = { ...brief, source: 'server', generatedAt: Date.parse(brief.generatedAt), weeklyInsights: [] };
+  const cases = [
+    ...[undefined, null, Number.NaN, Infinity, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, '0'].map(done => ({ ...data, yesterdayReview: { ...data.yesterdayReview, habits: { done, total: 2 } } })),
+    { ...data, source: undefined },
+    { ...data, source: 'unknown' },
+    { ...data, yesterdayReview: { ...data.yesterdayReview, habits: undefined } },
+  ];
+  for (const candidate of cases) {
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data: candidate as DailyBrief })));
+    assert.match(html, /该日习惯打卡记录待确认/);
+    assert.doesNotMatch(html, /该日记为已打卡的习惯|习惯完成|完成率|达成率/);
+  }
 });
