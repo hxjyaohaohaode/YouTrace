@@ -35,7 +35,7 @@ export function formatBusinessDate(date: Date = new Date()): string {
       .filter((part) => part.type !== 'literal')
       .map((part) => [part.type, part.value])
   );
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  return `${parts.year.padStart(4, '0')}-${parts.month}-${parts.day}`;
 }
 
 export function parseBusinessDate(date: string): Date {
