@@ -317,7 +317,7 @@ export async function runCaptureReturnOutcomes(h) {
         assert.deepEqual(setting(baseline, `sync-version:todos:${neighbor.id}`), { key: `sync-version:todos:${neighbor.id}`, value: event.seq }, 'Native setup neighbor needs its actual complete ACK version row');
         const projected = { ...baseline, allEvents: typed.allEvents, local: { ...baseline.local, todos: typed.local.todos } };
         assert.ok(preserved(typed, projected, { writes: { [`sync-version:todos:${neighbor.id}`]: event.seq }, deletes: ['record-draft:todo:new'], committed: true }));
-        await read(`button[aria-label="编辑待办 ${neighbor.text}"]`); await capture(page, `${label}-native-neighbor`);
+        await read(`button[aria-label="编辑待办 ${neighbor.text} 无日期"]`); await capture(page, `${label}-native-neighbor`);
         // Capture is reached through the actual navigation entry after setup.
         await navigate('/quick-note', '速记'); await page.waitForFunction(() => document.querySelector('[data-component="capture-composer"] [role=status]')?.textContent === '原文已保留在本机', { timeout: 7000 });
         const opened = await facts('composer-before-input'), inputA = inputsAdded(baseline, opened, ''); await preserve(baseline, opened, 'composer-only-new-empty-input', { writes: inputA.writes });
