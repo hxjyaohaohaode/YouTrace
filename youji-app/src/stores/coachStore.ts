@@ -84,6 +84,7 @@ export interface DailyBrief {
   source?: 'server' | 'local';
   yesterdayReview: {
     spent: number;
+    expenseCount?: number;
     spentDiff: string | null;
     habits: { done: number; total: number };
     moodScore: number | null;
@@ -142,6 +143,7 @@ interface CoachBriefApiRecord {
   reviewDate?: string;
   yesterdayReview: {
     spent: number;
+    expenseCount?: number;
     spentDiff: string | null;
     habits: { done: number; total: number };
     moodScore: number | null;
@@ -362,11 +364,8 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
       type: item.type,
     }));
 
-  const spent = Math.round(
-    yesterdayExpenses
-      .filter((item) => item.category !== 'income' && !item.isIncome)
-      .reduce((sum, item) => sum + item.amount, 0) / 100
-  );
+  const recordedExpenses = yesterdayExpenses.filter((item) => item.category !== 'income' && !item.isIncome);
+  const spent = recordedExpenses.reduce((sum, item) => sum + item.amount, 0) / 100;
 
   const doneHabitIds = new Set(yesterdayCheckins.filter((item) => item.done).map((item) => item.habitId));
 
@@ -410,6 +409,7 @@ async function buildLocalDailyBrief(): Promise<DailyBrief> {
     source: 'local',
     yesterdayReview: {
       spent,
+      expenseCount: recordedExpenses.length,
       spentDiff: null,
       habits: { done: doneHabitIds.size, total: habits.length },
       moodScore: yesterdayDiary?.moodScore ?? null,

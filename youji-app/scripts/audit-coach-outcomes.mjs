@@ -150,6 +150,9 @@ export async function runCoachOutcomes(h) {
     if (!await financial.visit('after')) return;
     await page.waitForSelector(comparisonSurface);
     await segment(page, `${label}-choice-quota-and-recovery`, async () => {
+      // The financial visit returns via ordinary navigation; read this control
+      // into the usable viewport before installing the unchanged choice fault.
+      await readCard(page, '[data-observation-choice="spending-comparison:true"]');
       await page.evaluate(owner => { const original = IDBObjectStore.prototype.put; window.__choicePutOriginal = original; window.__choiceQuotaHits = 0; IDBObjectStore.prototype.put = function(value, ...args) { if (this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'settings' && String(value?.key).startsWith('observation-choice:')) { window.__choiceQuotaHits++; throw new DOMException('Synthetic choice quota', 'QuotaExceededError'); } return original.call(this, value, ...args); }; }, api.ownerId);
       actions.push({ kind: 'synthetic-choice-quota-boundary', owner: api.ownerId, scope: 'settings observation-choice only' });
       try {

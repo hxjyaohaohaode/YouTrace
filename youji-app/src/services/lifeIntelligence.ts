@@ -4,6 +4,9 @@ import { getHabitPeriod } from '../utils/habitPeriod';
 import type { InsightType } from '../stores/coachStore';
 
 export interface WeeklyStats {
+  expenseFrom: string;
+  expenseThrough: string;
+  expenseCount: number;
   expenseTotalFen: number;
   lastWeekExpenseTotalFen: number;
   weekOverWeekPct: number | null;
@@ -33,12 +36,13 @@ export interface LifeInsight {
   actionSuggested?: string;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  food: '餐饮', transport: '交通', entertainment: '娱乐',
+  study: '学习', daily: '日用', other: '其他',
+};
+
 function getCategoryLabel(category: string): string {
-  const map: Record<string, string> = {
-    food: '餐饮', transport: '交通', entertainment: '娱乐',
-    study: '学习', daily: '日用', other: '其他',
-  };
-  return map[category] ?? category;
+  return CATEGORY_LABELS[category] ?? '其他';
 }
 
 async function computeWeeklyExpenseStats() {
@@ -52,16 +56,21 @@ async function computeWeeklyExpenseStats() {
     db.expenses.where('date').between(lastWeekStart, lastWeekEnd, true, true).toArray(),
   ]);
 
-  const thisTotal = thisWeek.filter((e) => !e.isIncome && e.category !== 'income').reduce((s, e) => s + e.amount, 0);
+  const recordedExpenses = thisWeek.filter((e) => !e.isIncome && e.category !== 'income');
+  const thisTotal = recordedExpenses.reduce((s, e) => s + e.amount, 0);
   const lastTotal = lastWeek.filter((e) => !e.isIncome && e.category !== 'income').reduce((s, e) => s + e.amount, 0);
 
   const catMap = new Map<string, number>();
-  for (const e of thisWeek) {
-    if (!e.isIncome && e.category !== 'income') catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amount);
+  for (const e of recordedExpenses) {
+    const category = Object.hasOwn(CATEGORY_LABELS, e.category) ? e.category : 'other';
+    catMap.set(category, (catMap.get(category) ?? 0) + e.amount);
   }
   const sorted = [...catMap.entries()].sort((a, b) => b[1] - a[1]);
 
   return {
+    from: weekStart,
+    through: today,
+    count: recordedExpenses.length,
     thisTotal,
     lastTotal,
     wowPct: lastTotal > 0 ? Math.round(((thisTotal - lastTotal) / lastTotal) * 100) : null,
@@ -159,6 +168,9 @@ export async function computeWeeklyStats(): Promise<WeeklyStats> {
   const goals = await db.goalRecords.toArray();
 
   return {
+    expenseFrom: expenseStats.from,
+    expenseThrough: expenseStats.through,
+    expenseCount: expenseStats.count,
     expenseTotalFen: expenseStats.thisTotal,
     lastWeekExpenseTotalFen: expenseStats.lastTotal,
     weekOverWeekPct: expenseStats.wowPct,
@@ -250,9 +262,9 @@ export async function generateWeeklyReview(): Promise<string> {
   const stats = await computeWeeklyStats();
 
   const lines: string[] = [];
-  lines.push('## 近7天回顾\n');
+  lines.push(`## 近7天回顾 ${stats.expenseFrom} 至 ${stats.expenseThrough}\n本机记录\n`);
 
-  lines.push(`📊 消费：¥${(stats.expenseTotalFen / 100).toFixed(2)}`);
+  lines.push(`📊 消费：¥${(stats.expenseTotalFen / 100).toFixed(2)}，共${stats.expenseCount}笔`);
   if (stats.weekOverWeekPct !== null) {
     const arrow = stats.weekOverWeekPct > 0 ? '↑' : '↓';
     lines.push(`   ${arrow}${Math.abs(stats.weekOverWeekPct)}% vs 前7天`);

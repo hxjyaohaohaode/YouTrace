@@ -101,7 +101,8 @@ coachRoutes.get('/brief', async (c) => {
       generatedAt,
       reviewDate: yesterday,
       yesterdayReview: {
-        spent: Math.round(yesterdayTotal / 100),
+        spent: yesterdayTotal / 100,
+        expenseCount: yesterdayExpenses.length,
         spentDiff: spendDiff,
         habits: { done: doneHabits, total: yesterdayHabits.length },
         moodScore: yesterdayDiary?.moodScore ?? null,

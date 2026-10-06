@@ -75,7 +75,8 @@ export function BriefCard({ data }: BriefCardProps) {
               <div>
                 <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">{data.reviewDate ? `${data.reviewDate} 记录回顾` : '昨日复盘'}</p>
                 <p className="text-sm leading-relaxed">
-                  已记录支出 ¥{data.yesterdayReview.spent}
+                  已记录支出 ¥{data.yesterdayReview.spent.toFixed(2)}
+                  {data.yesterdayReview.expenseCount !== undefined && `，共${data.yesterdayReview.expenseCount}笔`}
                   {diffText && `（${diffText}）`}· 习惯完成 {data.yesterdayReview.habits.done}/{data.yesterdayReview.habits.total}
                   {data.yesterdayReview.moodScore !== null && ` · 心情 ${data.yesterdayReview.moodScore}/10`}
                 </p>

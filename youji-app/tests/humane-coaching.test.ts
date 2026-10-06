@@ -40,7 +40,7 @@ const { pauseSync } = await import('../src/services/syncEngine.ts');
 const diary = (id: string, date: string, score = 5): DiaryRecord => ({ id, date, mood: null, moodScore: score, content: 'synthetic diary', source: 'manual', quickNoteIds: [], createdAt: getBusinessDayStartTimestamp(date), updatedAt: getBusinessDayStartTimestamp(date) });
 const note = (id: string, date: string): QuickNoteRecord => ({ id, createdAt: getBusinessDayStartTimestamp(date), rawInput: 'synthetic note', expenses: [], diary: null, mood: null, moodScore: 5, habits: [], todos: [] });
 const insight = (id: string, type: CoachInsightRecord['type']): CoachInsightRecord => ({ id, type, title: id, description: 'synthetic', dataSources: [], significance: 0.7, dismissed: false, createdAt: Date.now() });
-const emptyContext = { recentExpenses: { total: 0, count: 0, categories: {} }, habits: [], recentTodos: [], recentDiary: [], schedules: [] };
+const emptyContext = { recentExpenses: { total: 0, count: 0, categories: {}, period: { kind: 'rolling-seven-days' as const, start: '2026-10-01', end: '2026-10-07' } }, habits: [], recentTodos: [], recentDiary: [], schedules: [] };
 
 async function setPreferences(updates: Partial<import('../src/stores/settingsStore').AppSettings>) {
   useSettingsStore.setState(updates);

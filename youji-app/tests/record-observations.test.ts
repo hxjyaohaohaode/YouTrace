@@ -76,9 +76,40 @@ for (const operation of ['read', 'write'] as const) test(`logout during final aw
 test('Home and source evidence both exclude explicit income category when old isIncome is false', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-05T06:00:00Z') });
   await storage.db.expenses.put({ ...expense('legacy-income', today, 50000), category: 'income', isIncome: false });
-  const { computeWeeklyStats } = await import('../src/services/lifeIntelligence.ts');
+  const { computeWeeklyStats, generateWeeklyReview } = await import('../src/services/lifeIntelligence.ts');
   const statistics = await computeWeeklyStats(), evidence = await readRecordObservations(storage.db, today);
   assert.equal(statistics.expenseTotalFen, evidence.currentFen); assert.equal(statistics.lastWeekExpenseTotalFen, evidence.previousFen);
+  assert.equal(statistics.expenseFrom, evidence.period.start); assert.equal(statistics.expenseThrough, evidence.period.end);
+  assert.equal(statistics.expenseCount, evidence.current.length); assert.equal(statistics.expenseCount, 1);
+  const review = await generateWeeklyReview();
+  assert.match(review, /近7天回顾 2026-09-29 至 2026-10-05\n本机记录/);
+  assert.match(review, /消费：¥50\.25，共1笔/);
+  assert.match(review, /最大支出：餐饮 ¥50\.25/);
+  const sources = await storage.db.expenses.toArray();
+  await storage.db.expenses.update('current', { amount: 4025 });
+  const corrected = await computeWeeklyStats();
+  assert.equal(corrected.expenseTotalFen, 4025); assert.equal(corrected.expenseCount, 1);
+  assert.match(await generateWeeklyReview(), /消费：¥40\.25，共1笔/);
+  assert.deepEqual(await storage.db.expenses.toArray(), sources.map(row => row.id === 'current' ? { ...row, amount: 4025 } : row));
+});
+
+test('weekly summary groups unknown categories under other and excludes future records without modifying sources', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-05T06:00:00Z') });
+  await storage.db.expenses.bulkPut([
+    { ...expense('custom-one', today, 4000), category: 'legacy-custom' },
+    { ...expense('custom-two', today, 2000), category: '__proto__' },
+    { ...expense('known-other', today, 50), category: 'other' },
+    expense('future', '2026-10-06', 99999),
+  ]);
+  const sources = await storage.db.expenses.toArray();
+  const { computeWeeklyStats, generateWeeklyReview } = await import('../src/services/lifeIntelligence.ts');
+  const statistics = await computeWeeklyStats();
+  assert.equal(statistics.expenseTotalFen, 11075); assert.equal(statistics.expenseCount, 4);
+  assert.equal(statistics.topCategory, 'other'); assert.equal(statistics.topCategoryAmountFen, 6050);
+  const review = await generateWeeklyReview();
+  assert.match(review, /消费：¥110\.75，共4笔/); assert.match(review, /最大支出：其他 ¥60\.50/);
+  assert.doesNotMatch(review, /legacy-custom|__proto__|food/);
+  assert.deepEqual(await storage.db.expenses.toArray(), sources);
 });
 
 

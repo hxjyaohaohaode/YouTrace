@@ -56,7 +56,7 @@ test('undo the sole current-week fact drops attainment without affecting prior/f
 
 test('actual coach prompt and rule reply keep weekly attainment distinct from today and avoid daily pressure', async () => {
   const { buildCoachSystemPrompt, generateFallbackResponse } = await import('../src/routes/chat.js')
-  const ctx = { recentExpenses: { total: 0, count: 0, categories: {} }, recentTodos: [], recentDiary: [], schedules: [], habits: [
+  const ctx = { recentExpenses: { total: 0, count: 0, categories: {}, period: { kind: 'rolling-seven-days' as const, start: '2026-10-01', end: today } }, recentTodos: [], recentDiary: [], schedules: [], habits: [
     { name: 'Synthetic weekly reading', frequency: 'weekly', done: false, streak: 0, todayDate: today, period: { start: '2026-10-05', end: '2026-10-11', attained: true, completedDates: ['2026-10-06'] } },
   ] }
   const prompt = buildCoachSystemPrompt('gentle', ctx), reply = generateFallbackResponse('习惯', ctx)

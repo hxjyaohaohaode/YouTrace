@@ -30,11 +30,14 @@ test('server brief generates before loading and retains the exact snapshot times
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-04T06:30:00Z') });
   api.setSessionActive('synthetic-brief');
   const calls: string[] = [];
-  globalThis.fetch = async (input) => { calls.push(String(input)); return Response.json(String(input).endsWith('generate-brief') ? { insight: snapshot } : { brief }); };
+  const preciseBrief = { ...brief, yesterdayReview: { ...brief.yesterdayReview, spent: 50.25, expenseCount: 1 } };
+  globalThis.fetch = async (input) => { calls.push(String(input)); return Response.json(String(input).endsWith('generate-brief') ? { insight: snapshot } : { brief: preciseBrief }); };
   const result = await useCoachStore.getState().generateDailyBrief();
   assert.deepEqual(calls, ['/api/coach/generate-brief', '/api/coach/brief']);
   assert.equal(result?.source, 'server');
   assert.equal(result?.reviewDate, '2026-10-03');
+  assert.equal(result?.yesterdayReview.spent, 50.25);
+  assert.equal(result?.yesterdayReview.expenseCount, 1);
   assert.equal(result?.weeklyInsights[0].createdAt, Date.parse(snapshot.createdAt));
   assert.equal(useCoachStore.getState().insights[0]?.id, snapshot.id);
   await useCoachStore.getState().generateDailyBrief();
@@ -110,5 +113,48 @@ test('brief UI dates historical evidence, labels source, and never calls it this
   assert.match(html, /记录简报 · 2026-09-01/);
   assert.match(html, /2026\/09\/01 14:00/);
   assert.match(html, /后续记录变动可能尚未计入/);
+  assert.match(html, /已记录支出 ¥0\.00/);
+  assert.doesNotMatch(html, /共\d+笔/, 'an older response with no expenseCount must not invent zero records');
   assert.doesNotMatch(html, /本周发现|今日教练简报/);
+});
+
+test('local brief preserves cents and actual count through source correction without changing history or neighbours', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-07T04:00:00Z') });
+  const providerFetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected request for local brief'); });
+  const expense = (id: string, date: string, amount: number, category = 'food', isIncome = false) => ({ id, date, amount, category, isIncome, name: `Synthetic ${id}` });
+  await storage.db.expenses.bulkPut([
+    expense('yesterday', '2026-10-06', 5025), expense('today', '2026-10-07', 207),
+    expense('previous', '2026-09-30', 2010), expense('future', '2026-10-08', 8888),
+    expense('income', '2026-10-06', 90000, 'food', true), expense('legacy-income', '2026-10-06', 90000, 'income'),
+  ]);
+  const sources = await storage.db.expenses.toArray(), history = await storage.db.coachInsights.toArray();
+  for (const amount of [50.25, 40.25]) {
+    if (amount === 40.25) await storage.db.expenses.update('yesterday', { amount: 4025 });
+    const result = await useCoachStore.getState().generateDailyBrief();
+    assert.ok(result);
+    assert.equal(result.source, 'local');
+    assert.equal(result.generatedAt, Date.parse('2026-10-07T04:00:00Z'));
+    assert.equal(result.reviewDate, '2026-10-06');
+    assert.equal(result.yesterdayReview.spent, amount);
+    assert.equal(result.yesterdayReview.expenseCount, 1);
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data: result })));
+    assert.ok(html.includes(`已记录支出 ¥${amount.toFixed(2)}，共1笔`));
+    assert.match(html, /本机记录/);
+  }
+  assert.deepEqual(await storage.db.expenses.toArray(), sources.map(row => row.id === 'yesterday' ? { ...row, amount: 4025 } : row));
+  assert.deepEqual(await storage.db.coachInsights.toArray(), history);
+  assert.equal(providerFetch.mock.callCount(), 0);
+});
+
+test('an explicit zero count renders while older API responses keep missing counts missing', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-08T04:00:00Z') });
+  api.setSessionActive('synthetic-brief');
+  globalThis.fetch = async input => Response.json(String(input).endsWith('generate-brief') ? { insight: snapshot } : { brief });
+  const result = await useCoachStore.getState().generateDailyBrief();
+  assert.ok(result);
+  assert.equal(result.source, 'server');
+  assert.equal(result.yesterdayReview.expenseCount, undefined);
+  const render = (data: typeof result) => renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(BriefCard, { data })));
+  assert.doesNotMatch(render(result), /共\d+笔/);
+  assert.match(render({ ...result, yesterdayReview: { ...result.yesterdayReview, expenseCount: 0 } }), /已记录支出 ¥0\.00，共0笔/);
 });

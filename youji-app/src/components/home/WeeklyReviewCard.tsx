@@ -43,12 +43,16 @@ export function WeeklyReviewCard() {
         <button type="button" onClick={() => navigate('/timeline')} aria-label="查看时间线" className="flex min-h-11 min-w-11 items-center justify-center"><ChevronRight size={16} className="text-[var(--text-4)]" aria-hidden /></button>
       </div>
 
+      <p className="mb-1 text-xs leading-relaxed text-[var(--text-3)]">{stats.expenseFrom} 至 {stats.expenseThrough}</p>
+      <p className="mb-4 text-xs leading-relaxed text-[var(--text-3)]">本机记录</p>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">消费</p>
           <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">
-            ¥{((stats?.expenseTotalFen ?? 0) / 100).toFixed(0)}
+            ¥{(stats.expenseTotalFen / 100).toFixed(2)}
           </p>
+          <p className="mt-0.5 text-[11px] text-[var(--text-3)]">共{stats.expenseCount}笔</p>
           {stats?.weekOverWeekPct !== null && stats?.weekOverWeekPct !== undefined && (
             <span className={`mt-0.5 flex items-center gap-0.5 text-[10px] font-semibold ${stats.weekOverWeekPct > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}`}>
               {stats.weekOverWeekPct > 0 ? <TrendingUp size={10} aria-hidden /> : stats.weekOverWeekPct < 0 ? <TrendingDown size={10} aria-hidden /> : <Minus size={10} aria-hidden />}

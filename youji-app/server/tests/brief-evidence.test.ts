@@ -78,7 +78,7 @@ test('chat declares UTF-8 and preserves fallback content, navigation actions and
   })
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('Content-Type'), 'text/event-stream; charset=utf-8')
-  const content = '【规则回复 · 在线模型当前不可用】\n最近7天你一共消费了¥25，共1笔。\n\n消费大头：food ¥25。\n\n这些是已记录金额，可在明细中核对。'
+  const content = '【规则回复 · 在线模型当前不可用】\n近7天 2026-09-28 至 2026-10-04\n已记录支出 ¥25.00，共1笔。\n\n支出分类：餐饮 ¥25.00。\n\n这些是已记录金额，可在明细中核对。'
   const actions = [
     { type: 'navigate', path: '/expense', label: '查看花销明细' },
     { type: 'navigate', path: '/insights', label: '看看餐饮相关洞察' },
