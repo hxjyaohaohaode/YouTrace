@@ -95,7 +95,7 @@ export const keyboardOutcomeChecks = { profiles: PROFILES, declared: DECLARED, t
 
 // Read-only DOM instrumentation. Weak node identities never affect app state or
 // focus; no DOM attributes, events, route, values, scrolling or CSS are changed.
-export function readKeyboardSurface() {
+export function readKeyboardSurface(extraSelectors = []) {
   const state = globalThis.__ykReadNodes ??= { nodes: new WeakMap(), next: 1 };
   const selector = el => {
     if (!el || el === document.body) return 'body'; if (el === document.documentElement) return 'html';
@@ -117,7 +117,7 @@ export function readKeyboardSurface() {
     return { node: state.nodes.get(el), selector: selector(el), key, tag: el.tagName, role: el.getAttribute('role'), contentEditable: el.isContentEditable, type: el.getAttribute('type'), ariaLabel, text, labels, id: el.id, recordId: el.closest('[id^="todo-record-"]')?.id ?? null, focused: el === document.activeElement, focusVisible: el.matches(':focus-visible'), disabled: el.matches(':disabled'), inDialog: Boolean(el.closest('[role=dialog]')), tabIndex: el.tabIndex, value: 'value' in el ? el.value : null, checked: 'checked' in el ? el.checked : null, rect: el.getBoundingClientRect().toJSON(), css, ancestors, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, scrollLeft: el.scrollLeft };
   };
   const dialog = document.querySelector('[role=dialog]');
-  return { monotonicMs: performance.now(), browserDate: new Date().toISOString(), viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY }, active: describe(document.activeElement), controls: [...document.querySelectorAll('[role=dialog] button, [role=dialog] input, [role=dialog] select, main button[aria-label^="编辑待办 "]')].map(describe), modalCount: document.querySelectorAll('[role=dialog]').length, modalAnimations: document.getAnimations().filter(animation => { const target = animation.effect?.target; return target && (target === dialog || dialog?.contains(target) || target.contains?.(dialog)) && animation.playState === 'running'; }).length, alerts: [...document.querySelectorAll('[role=dialog] [role=alert]')].map(el => ({ selector: selector(el), text: el.textContent, role: el.getAttribute('role'), live: el.getAttribute('aria-live'), atomic: el.getAttribute('aria-atomic') })) };
+  return { monotonicMs: performance.now(), browserDate: new Date().toISOString(), viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY }, active: describe(document.activeElement), controls: [...document.querySelectorAll(['[role=dialog] button, [role=dialog] input, [role=dialog] select, main button[aria-label^="编辑待办 "]', ...extraSelectors].join(', '))].map(describe), modalCount: document.querySelectorAll('[role=dialog]').length, modalAnimations: document.getAnimations().filter(animation => { const target = animation.effect?.target; return target && (target === dialog || dialog?.contains(target) || target.contains?.(dialog)) && animation.playState === 'running'; }).length, alerts: [...document.querySelectorAll('[role=dialog] [role=alert]')].map(el => ({ selector: selector(el), text: el.textContent, role: el.getAttribute('role'), live: el.getAttribute('aria-live'), atomic: el.getAttribute('aria-atomic') })) };
 }
 
 export async function runKeyboardOutcomes(h, options = {}) {

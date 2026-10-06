@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createHabitAuditClock, installAuditDate } from './audit-clock.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
+import { runTimelineKeyboardDifference } from './audit-timeline-keyboard.mjs';
 
 const TODAY = '2026-10-07';
 const NAME = 'Synthetic 同名记账';
@@ -197,8 +198,9 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
   assert.ok(['records', 'budget'].includes(scenarioSet), 'Select one bounded Expense task');
   const { isolated, login, waitPath, capture, observe, apiFor, sleep, actions, artifacts, writeFile, join, surfaceNames } = h;
   const prefix = scenarioSet === 'records' ? 'YE-records' : 'YE-budget';
-  const scope = { applicationBaseline: scenarioSet === 'records' ? 'd531b7d616da0a6f5b350f8b72f88640acf920b6' : '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['No native month/category filter exists at this source; unsupported/untested, no fabricated click or pass', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
+  const scope = { applicationBaseline: scenarioSet === 'records' ? 'be7632731e8b68bcf5e43ff16bc5160b75d6644f' : '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['No native month/category filter exists at this source; unsupported/untested, no fabricated click or pass', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
   if (scenarioSet === 'records') scope.patternDifferential = 'Preserve the original seven inputs and initial totals/net, then create exactly two boundary controls (Sep 8: 222 cents; Sep 7: 9999 cents). Read the actual 30-day card before/after the existing 1234→987 correction and on return. New clarity contract requires absolute scope/count/expense denominator, weekday aggregate meaning and exact row amounts/shares; missing native copy remains red. No additional correction, fault, profile or timeout.';
+  if (scenarioSet === 'records') scope.timelineKeyboardDifferential = 'After the separate accepted Expense prefix, reuse its nine native records. Pointer setup only reaches Timeline; an explicit keyboard-only phase selects a period and the visible same-name Oct 6 expense, cancels a retained 11.11 edit, returns via the real source button, reopens without retyping, saves once and returns again. Natural logical-record focus/visibility are evaluated before separately labelled keyboard recovery. Full captured sources and the prior ledger remain bound. Dynamic midnight period changes remain a separate unaccepted case.';
   await writeFile(join(artifacts, `${prefix}-scope.json`), JSON.stringify(scope, null, 2));
 
   // Shared read-only geometry includes viewport-fixed navigation; the pointer
@@ -501,8 +503,12 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
     const returnedMatch = declaredRecordsMatch(returned, ids, correctedValues);
     await observe(page, `${label}-returned-nine-records-match-fixed-corrected-inputs`, returnedMatch, JSON.stringify({ declared: correctedValues.map((value, index) => ({ id: ids[index], ...value })), sourceArtifact: `${label}-returned-full-source.json` })); assert.ok(returnedMatch);
     await statistics(page, returned.local.expenses, `${label}-returned`);
-    await spendingPattern(page, api, `${label}-returned`, correctedPattern, returned);
+    const finalExpenseSource = await spendingPattern(page, api, `${label}-returned`, correctedPattern, returned);
     await observe(page, `${label}-month-category-filters-not-exercised`, null, 'Unsupported/untested at the application baseline. No native month/category filter exists; no invented action or inherited Timeline/Capture acceptance. Current category selection is only an editor choice.');
+    await runTimelineKeyboardDifference(h, {
+      page, label, before: structuredClone(finalExpenseSource), ids: [...ids], values: structuredClone(correctedValues),
+      facts: (stage, options) => facts(page, api, stage, options), checks: expenseOutcomeChecks, setupTap: tap,
+    });
   }
   async function startBudgetEdit(page) {
     const choices = await page.$$eval(`${BUDGET} button`, rows => rows.filter(el => ['设置预算', '编辑月预算', '继续编辑预算'].includes(el.textContent.trim())).map(el => el.textContent.trim())); assert.equal(choices.length, 1);
