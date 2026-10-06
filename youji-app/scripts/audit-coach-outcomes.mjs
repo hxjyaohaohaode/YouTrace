@@ -1,6 +1,7 @@
 // Hosted-CI diagnostic only. The caller owns isolated synthetic services and
 // native-input/media helpers. Never seed insights, feedback or outcome state.
 import assert from 'node:assert/strict';
+import { createExpenseSummary } from './audit-expense-summary.mjs';
 
 export async function runCoachOutcomes(h) {
   const { isolated, login, pointer, fill, waitPath, state, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join } = h;
@@ -106,7 +107,9 @@ export async function runCoachOutcomes(h) {
     const before = await waitLocal(page, api, rows => rows.coachInsights.some(row => row.title.startsWith('近7天消费比前7天')), 'application-generated immutable history');
     const originalHistory = structuredClone(before.coachInsights), historyComparison = originalHistory.find(row => row.title.startsWith('近7天消费比前7天'));
     await facts(page, api, `${label}-initial`, { sources, independentExpectedComparison: comparisonExpectations(sources), originalHistory });
-    await openPage(page, '/insights'); await page.waitForSelector(comparisonSurface);
+    const financial = createExpenseSummary(h, { page, api, label, sources, openPage, home });
+    if (!await financial.visit('before')) return;
+    await page.waitForSelector(comparisonSurface);
     await segment(page, `${label}-understand-current-evidence`, async () => {
       await readCard(page, comparisonSurface); const text = await page.$eval(comparisonSurface, el => el.innerText), expected = comparisonExpectations(sources);
       await observe(page, `${label}-exact-current-period-comparison`, text.includes('50.25') && text.includes('20.10') && text.includes('约150%') && [expected.currentStart, expected.currentEnd, expected.previousStart, expected.previousEnd].every(date => text.includes(date)) && (text.match(/1笔支出/g) ?? []).length === 2 && text.includes('1笔收入') && !text.includes('异常预警'), JSON.stringify({ expected, displayed: text, limitation: 'Same-period arithmetic from recorded sources, not behavior or causal inference' }));
@@ -126,6 +129,7 @@ export async function runCoachOutcomes(h) {
       const source = `button[data-observation-record="${sources[0].id}"]`, handle = await page.$(source); assert.ok(handle); await handle.dispose(); await readCard(page, source);
       const position = await h.capture(page, `${label}-source-before-open`); await pointer(page, source); await waitPath(page, '/expense'); await page.waitForSelector('#expense-amount');
       await observe(page, `${label}-exact-source-editor`, await page.$eval('#expense-amount', el => Number(el.value)) === 50.25 && await page.$eval('#expense-name', el => el.value) === sources[0].name && await page.$eval('#expense-date', el => el.value) === sources[0].date, 'The source CTA opened the exact name/date/amount editor, not a module list');
+      await financial.readExpenseCategory();
       await fill(page, '#expense-amount', '40.25'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
       const local = await settledRows(page, api), remote = (await api('/expenses')).expenses;
       await saveRecordEvidence(`${label}-corrected-observation-source`, local, { expenses: remote }, { expenses: sources.map(row => row.id) });
@@ -143,6 +147,8 @@ export async function runCoachOutcomes(h) {
       await observe(page, `${label}-immutable-history-readable`, await page.$eval(selector, el => el.innerText.includes('150%')), 'Original snapshot remains separately readable after actual source correction; it is not current arithmetic');
       await historyToggle(page);
     });
+    if (!await financial.visit('after')) return;
+    await page.waitForSelector(comparisonSurface);
     await segment(page, `${label}-choice-quota-and-recovery`, async () => {
       await page.evaluate(owner => { const original = IDBObjectStore.prototype.put; window.__choicePutOriginal = original; window.__choiceQuotaHits = 0; IDBObjectStore.prototype.put = function(value, ...args) { if (this.transaction.db.name === `youtrace:user:${owner}:schedule-v1` && this.name === 'settings' && String(value?.key).startsWith('observation-choice:')) { window.__choiceQuotaHits++; throw new DOMException('Synthetic choice quota', 'QuotaExceededError'); } return original.call(this, value, ...args); }; }, api.ownerId);
       actions.push({ kind: 'synthetic-choice-quota-boundary', owner: api.ownerId, scope: 'settings observation-choice only' });

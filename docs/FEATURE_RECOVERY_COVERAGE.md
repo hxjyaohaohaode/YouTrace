@@ -26,8 +26,8 @@
 
 | 页面/组件 | 已有实际覆盖 | 仍须针对性补齐 |
 | --- | --- | --- |
-| Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、花销分金额、周统计、证据时间；路由入口、响应式截图 | 用户pin/hide/reorder/reset尚无完整实现；卡片级状态和动效观测、阅读位置/加载布局稳定 |
-| Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收；824另补证不重复日程的真实键盘日期选择、时间调整、完整Esc保稿重开和一次同ID保存，四次自然返焦正确，见SCHEDULE_TASK_PACKAGE | 824桌面焦点圈贴底裁切保留红，滚动边距及两处提示稳定读取后继待新原件；所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；提醒执行与仅有remind字段严格区分 |
+| Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、部分花销分金额、周统计、证据时间；路由入口、响应式截图 | 昨日简报/7天回顾仍有整元取整；与教练/明细的精度、自然周和7天期间、类别一致性取证准备中，见EXPENSE_SUMMARY_TASK_BASELINE；用户pin/hide/reorder/reset及其余卡片完整流程未完成 |
+| Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收；039另验不重复日程的键盘日期选择、时间调整、完整Esc保稿重开、一次同ID保存和自然返焦/后续Tab，原824桌面下沿焦点裁切已在新原图关闭，两恢复提示稳定可读，见SCHEDULE_TASK_PACKAGE | 原824红保留；键盘日期移动、重复实例/系列键盘、所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；本次三表/全账旁证不等于全库，提醒执行与仅有remind字段严格区分 |
 | Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | 07bc两宽独立验收精确支出/净额、同名纠错、预算及拒绝重试；be763另验近30天边界/收入与未来排除、星期与类别累计的精确金额/份额/分母、同ID纠错与返回，关闭39e指定卡片读者红；见EXPENSE_TASK_PACKAGE | 其余图表、月份分类筛选、完整键盘、跨页预算草稿与第二设备预算仍未完成；任意旧形状/规模和普通启动开放项不由这两条限定结果关闭 |
 | Todo / TodoList / AddTodoModal / Checkbox | 918两宽指定普通链独立验收：五条原输入/精确分组、实际完成时间的Timeline找回与完成撤销、编辑取消/重开、无日期，以及提交前拒绝后的中文解释/保稿/原Save重试；d0b原红保留，见 TODO_TASK_BASELINE；eea另独立验收两宽指定键盘纠正/保稿/原入口返回/错误后modal内重试，见KEYBOARD_TASK_BASELINE | 大列表、实际跨日/完整日期边界、跨重载撤销和两设备、删除恢复、快速Esc→Tab/IME/AT及全部键盘组件仍未验；新的普通成功不解释旧B首次Todo启动错误 |
 | Habit / HabitList | 11a233d在1280/360独立实测每周一次/自然周、精确补记撤销、同名隔离、quota原稿保留与实际错误区重试删除；9a9fdc1的Y5b即时当前频率调整在1280/360独立限定验收，见HABIT_TASK_PACKAGE与HABIT_CURRENT_FREQUENCY_PACKAGE | 指定未来生效、完整历次规则回溯与历史目标达成率为Unsupported/未完成；长时间跨日与完整无障碍未完成 |
@@ -35,7 +35,7 @@
 | Goal / GoalCard / Goal编辑与旧来源恢复 | ccba258在1280/360独立验收新账号同名目标、可逆手动进度、全部统计、字段取消保存、日期清空、写失败重试和已提交后读恢复；原0f77/9aaa/18bc/0ee失败证据保留。629已独立验收声明旧账号选择上传/空日期原稿保全，e90已独立验收当前代保留源比较/副本/原始备份/旧页删后拒绝；见GOAL_TASK_PACKAGE与LEGACY_GOAL_TASK_BASELINE | 匿名共享归属、首次无缓存读故障、设置失败帮助fallback、多设备/换号全部时间窗、恢复抽屉键盘及任意旧格式未完成 |
 | Capture / Review | 786两宽指定同稿/拒绝重试/实际去向/再记空白链独立验收；d531另验改原文与日期建立O/R/D、旧稿完整保全和未提交D的两次可见返回，关闭72d日期编辑崩页；原红保留，见CAPTURE_RETURN_TASK_BASELINE | 旧稿正常可见找回入口、只经composer Back后直接Save再记一条、已提交后重入、重载/并发及任意旧形状未新增原生验收；Voice/Image/File提供方与生命周期、全部可访问性仍未完成 |
 | Timeline | 545两宽指定连续任务独立验收：近30天/七成员、可见日期同名金额、原完整稿取消重开与同ID保存、四次自然返焦；手机两次Tab实际到原3.21元行且完整位于底栏上方，本次112px位置返回也有直接证据，见TIMELINE_KEYBOARD_TASK_BASELINE | 2ad/5bb原红保留；39e跨午夜窗口变化独立，不授任意深滚动、其它source分支、长列表、空态与异常格式、全站键盘/读屏/真实手机。暂停偏好与旧普通启动原因不因本绿关闭 |
-| Coach / ChatInput / MessageList | 真实SSE规则源、导航动作、取消流/迟到响应隔离；阅读旧消息不强滚 | 多提供方实际失败边界、长对话键盘/性能、逐动作结果与证据链 |
+| Coach / ChatInput / MessageList | 真实SSE规则源、导航动作、取消流/迟到响应隔离；阅读旧消息不强滚 | 普通花销问答仍有金额取整、内部类别键和“这周”对应近7天查询问题，与Home/原明细的限定纠错链取证准备中；多提供方、聊天失败编辑出口/历史找回、长对话及其余逐动作结果未完成 |
 | Insights / coach卡片 | 反馈先ACK、删除墓碑、迟到并发保全；过期证据不伪称今日 | 跨设备版本化删除feed尚未实现；有限分页缓存不等于完整收件箱同步 |
 | Settings / SyncConflict / Diagnostics | 预算内联无覆盖、恢复队列、完整导出；当前新增偏好比较/回执状态 | 1c475普通设置/写入拒绝重试、4c013冲突备份两宽已验；提交后读取失败及暂停的权限审查未完成；共享旧库归属仍开放 |
 | Login / Onboarding / DataInfo | 真实OTP-Cookie合成注册登录/A-B-A/注销；成人默认、真实能力说明。e723两宽首次401→注册→原路径、待办ACK→退出→保护页重入→同账号OTP→原路径/完整同ID记录与ledger均独立验收；5cce/d732原红保留，见INITIAL_SESSION_TASK_BASELINE。fb991两宽四profile另独立验收不变原源下晚恢复失败不撤界面/实际打开取消、双败后真实Retry找回原记录，见STARTUP_RECOVERY_TASK_BASELINE | 任意资料/身份代次和全部初始化失败情形、旧b5b8根因、旧凭据全面撤销的本包原生证据、真实短信服务和无障碍专项仍未完成 |
