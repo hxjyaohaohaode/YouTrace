@@ -45,8 +45,8 @@ const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五
 
 interface PatternRow {
   label: string;
-  value: string;
-  sub: string;
+  name: string;
+  amount: number;
   percent: number;
 }
 
@@ -54,10 +54,10 @@ function SpendingPatternCard() {
   const items = useExpenseStore((s) => s.items);
   const today = getToday();
 
-  const patterns = useMemo<PatternRow[]>(() => {
+  const patterns = useMemo(() => {
     const windowStart = getDateDaysAgo(29);
     const recent = items.filter((i) => !i.isIncome && i.date >= windowStart && i.date <= today);
-    if (recent.length < 5) return [];
+    if (recent.length < 5) return null;
 
     const rows: PatternRow[] = [];
 
@@ -70,9 +70,9 @@ function SpendingPatternCard() {
     const grandTotal = recent.reduce((sum, i) => sum + i.amount, 0);
     if (topWeekday && topWeekday[1] > 0) {
       rows.push({
-        label: '最高消费日',
-        value: WEEKDAY_NAMES[topWeekday[0]],
-        sub: `¥${(topWeekday[1] / 100).toFixed(0)}`,
+        label: '按星期汇总的最高支出',
+        name: WEEKDAY_NAMES[topWeekday[0]],
+        amount: topWeekday[1],
         percent: Math.round((topWeekday[1] / grandTotal) * 100),
       });
     }
@@ -86,16 +86,16 @@ function SpendingPatternCard() {
       const meta = expenseCategoryIcons[topCategory[0]];
       rows.push({
         label: '最大支出类别',
-        value: `${Math.round((topCategory[1] / grandTotal) * 100)}%`,
-        sub: meta?.label ?? '其他',
+        name: meta?.label ?? '其他',
+        amount: topCategory[1],
         percent: Math.round((topCategory[1] / grandTotal) * 100),
       });
     }
 
-    return rows;
+    return { rows, from: windowStart, through: today, count: recent.length, total: grandTotal };
   }, [items, today]);
 
-  if (patterns.length === 0) return null;
+  if (!patterns || patterns.rows.length === 0) return null;
 
   return (
     <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-5 shadow-[var(--shadow-sm)]">
@@ -105,20 +105,21 @@ function SpendingPatternCard() {
         </div>
         <div>
           <h3 className="text-[13px] font-bold text-[var(--text-1)]">消费模式</h3>
-          <p className="text-[11px] text-[var(--text-3)]">基于近30天真实记录</p>
+          <p className="text-[11px] leading-5 text-[var(--text-3)]">近30天 {patterns.from} 至 {patterns.through}（含首尾） · {patterns.count}笔支出 · 支出合计 ¥{(patterns.total / 100).toFixed(2)}</p>
         </div>
       </div>
 
       <div className="space-y-4">
-        {patterns.map((p) => (
+        {patterns.rows.map((p) => (
           <div key={p.label}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[12px] font-medium text-[var(--text-2)]">{p.label}</span>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-[var(--text-3)]">{p.sub}</span>
-                <span className="font-mono text-[13px] font-bold text-[var(--text-1)]">{p.value}</span>
+                <span className="text-[12px] text-[var(--text-2)]">{p.name}</span>
+                <span className="font-mono text-[13px] font-bold text-[var(--text-1)]">¥{(p.amount / 100).toFixed(2)}</span>
               </div>
             </div>
+            <p className="mb-2 text-[11px] text-[var(--text-3)]">占本期支出 {p.percent}%</p>
             <div className="h-[5px] overflow-hidden rounded-full bg-[var(--surface-2)]">
               <motion.div
                 initial={{ width: 0 }}
