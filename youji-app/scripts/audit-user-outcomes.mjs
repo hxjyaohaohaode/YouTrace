@@ -68,15 +68,18 @@ if (taskSet === 'planning') {
   metadata.untested.push('Schedule keyboard date moves, weekly-occurrence or whole-series edits, arbitrary calendar scales, real phone/assistive technology and fast Escape-to-Tab');
 }
 if (taskSet === 'coach') {
-  metadata.kind = 'coach-existing-observation-with-client-truncated-reply-RED-baseline';
+  metadata.kind = 'coach-existing-tasks-with-empty-home-reminder-entry-RED-baseline';
   metadata.expenseSummaryApplicationBaseline = '039eb5a2b3fbd96c96f6638a0fe72d71bdeb8f94';
   metadata.chatInputRecoveryApplicationBaseline = 'ddbabacedba602847d73b7273f028baf37ae8a88';
   metadata.truncatedChatApplicationBaseline = '72f5acf96b689ffd7584acd8cf88540b5e4b3bcd';
+  metadata.reminderEntryApplicationBaseline = '467b762cf7ede9f6030fde82824958a409169d07';
   metadata.scenarioScope.push('Existing three explicitly labelled historical API fixture expenses, ordinary Home current brief/seven-day card and four actual local-rule questions per width around the original same-ID 50.25-to-40.25 correction');
   metadata.scenarioScope.push('Actual natural-week versus rolling-seven-day dates, cents, category labels and provenance; historical insight snapshots and older chat answers remain separately identified');
   metadata.scenarioScope.push('After the unchanged existing journey and its reload, a fresh current-page first question receives one exact pre-response POST abort; original canonical chat history and current failed bubbles remain');
   metadata.scenarioScope.push('Visible input recovery, explicit choice protecting a different current draft, cancellation, editing and one deliberate Send; recovery never sends automatically and final success creates only one new session and its user/assistant pair');
   metadata.scenarioScope.push('After that success only, one explicit Send in the existing session receives an exact synthetic UTF-8 partial SSE with normal EOF and no DONE; retain text, visibly mark incomplete, and explicitly restore that question to the input without another Send');
+  metadata.scenarioScope.push('Two separate empty-account profiles use normal settings and the actual Beijing minute to generate one local evening-review reminder on Home mount; follow the real unread bell to the same complete body, then explicitly go to the empty composer or dismiss that reminder');
+  metadata.untested.push('Reminder entry is not zero-limit/quiet-hours enforcement, real evening or background delivery, notification subscription, cloud push delivery or cross-device quotas; ordinary source/draft feedback only, with no direct test writes to reminder state or counters');
   metadata.untested.push('Native creation of these historical fixture rows, calendar boundaries beyond the actual current-day windows, or a real midnight transition; no additional Date preload or manufactured unequal-window source', 'Live model comprehension, real provider or post-save transport truncation, arbitrary partial-stream failures, persistent/cross-page chat draft or history restoration, automatic resending, or the paused account/clear/publication mechanisms; upstream EOF is a separate in-process synthetic protocol check, not a native provider result');
 }
 if (taskSet.startsWith('habits')) {
@@ -769,7 +772,7 @@ try {
     for (const name of peerMedia) assert.ok((await stat(join(artifacts, `${name}.webm`))).size > 0, 'Opened peer requires its video; both targets share the original continuous browser trace');
   } else if (taskSet === 'coach') {
     await runCoachOutcomes({ isolated, login, pointer, fill, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join });
-    for (const name of ['Y3-sparse-history-360', 'Y3-observation-action-1280', 'Y3-observation-action-360']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
+    for (const name of ['Y3-sparse-history-360', 'Y3-observation-action-1280', 'Y3-observation-action-360', 'Y3-reminder-entry-1280', 'Y3-reminder-entry-360']) for (const suffix of ['.webm', '-trace.json']) assert.ok((await stat(join(artifacts, `${name}${suffix}`))).size > 0, `Missing ${name}${suffix} evidence`);
   } else {
   await isolated('Y1-first-value-1280', { width: 1280, height: 900 }, firstValue);
   await isolated('Y2-retrieve-past-1280', { width: 1280, height: 900 }, retrievePast);

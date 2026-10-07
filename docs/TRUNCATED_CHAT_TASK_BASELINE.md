@@ -1,4 +1,4 @@
-# 当前页部分回复正常 EOF、缺少 DONE：合成客户端基线
+# 当前页截断回复：基线、修复与限定验收
 
 2026-10-07。首个测试基线以 `72f5acf` 为起点，仅增加现有 Coach 链尾部的测试与证据合同，没有修改产品；准备时未声明原生执行或通过。原 72f 当前页输入恢复已限定通过，其动作和断言原样保留。本基线不是服务器业务成功、真实 provider 验证或生产许可；后续执行结果按下方精确提交分列。
 
@@ -30,7 +30,7 @@ Puppeteer 拦截只对同 origin、无 query/hash、精确 `POST /api/chat` 且�
 
 另一个 reader-error 的实际 store 链已经确认：该合成围栏输入下，已有中断说明和规则 fallback 正文被后续 actions 分支按 fence 清理裁掉。后继最小产品修复需要同时核对已有 source 字段能否保住明确的 fallback 可见性，不能仅在 parser 抛错后假定用户已读到降级提示。本次原生尾段仍只包含一个 C 的客户端正常 EOF，不增加 D 或其他发送来代替独立合同。
 
-客户端原生合成响应只证明浏览器处理这份截断 SSE。上游另按独立 in-process 合同声明合成 upstream ReadableStream、部分增量、正常 close 无 DONE，后继验证降级、部分文本、未完成生成动作及完整下游结束/保存关系。它不调用真实 key、付费模型或 SMS；本包不修改生产、不把合成 200 写成 backend 成功，也不改变身份、未知提交重放、暂停 DB 或清除资格机制。
+客户端原生合成响应只证明浏览器处理这份截断 SSE。上游另按独立 in-process 合同声明合成 upstream ReadableStream、部分增量、正常 close 无 DONE，后继验证降级、部分文本、未完成生成动作及完整下游结束/保存关系。它不调用真实 key、付费模型或 SMS；首个测试基线未修改生产，不把合成 200 写成 backend 成功，也不改变身份、未知提交重放、暂停 DB 或清除资格机制。
 
 ## 基线发布前检查
 
@@ -52,7 +52,7 @@ Puppeteer 拦截只对同 origin、无 query/hash、精确 `POST /api/chat` 且�
 
 该 run 的 22 项官方终态为 19 success、3 failure（新增 Coach EOF 读者红、上述普通 verify 设置页错误和仍暂停的 preferences-read），无取消或待运行。速记分片越过较慢安装后实际成功；未为其重跑或增加时限，也没有对其它成功专项重新授予完整媒体验收。
 
-## 最小产品后继：候选，待原生复验
+## 产品后继准备与检查（发布时待原生复验）
 
 生产差异仅限 `apiClient.streamChat`、`openAiStream.readChatCompletionStream` 和 `coachStore.sendMessage`。两个聊天专用读取器都在最后解码/事件分发后检查 DONE，正常 EOF 缺标记改为拒绝；客户端没有 body 也不能成功。通用 SSE 分帧器不变，完整 DONE、七字节切分的 UTF-8、CRLF 和最后一帧没有空行仍保持原完成行为，原始 reader 异常保持原异常路径。
 
@@ -62,4 +62,16 @@ Puppeteer 拦截只对同 origin、无 query/hash、精确 `POST /api/chat` 且�
 
 新增前端 4 项、后端 11 项（含路由子案例）定向回归实际通过。真实 store→API→in-process Hono/隔离 SQLite 的 closed/unclosed fence＋EOF/reader-error 都保留 raw partial、中断句和规则正文，保存/历史投影对应规则动作；紧接下一次正常 provider 恢复原清理。合成 fetch 没有外部请求，各业务实体计数保持零；这属于实际模块/路由证据，尚不授浏览器中上游模型或所有围栏布局通过。
 
-五份执行文件固定后，前后端 lint/build 与 817/73 项聚合测试均完成，零跳过/取消，检查首尾字节一致。原 native helper `3666d5d8`、明确一次 Send/精确 respond、来源保全、Toast 5 秒门槛和全部原判据未修改；必须等待新精确提交两宽真正看到未完成反馈、原控件恢复 C 和最终来源结果。原 fdead 红、普通初始化开放项及暂停范围不由本地检查关闭。
+五份执行文件固定后，前后端 lint/build 与 817/73 项聚合测试均完成，零跳过/取消，检查首尾字节一致。原 native helper `3666d5d8`、明确一次 Send/精确 respond、来源保全、Toast 5 秒门槛和全部原判据未修改；发布时尚需等待新精确提交两宽真正看到未完成反馈、原控件恢复 C 和最终来源结果。原 fdead 红、普通初始化开放项及暂停范围不由本地检查关闭。
+
+## 467b762 指定链限定验收（2026-10-07）
+
+精确提交 `467b762cf7ede9f6030fde82824958a409169d07` / tree `fbeaea09cc2e8ace0b309f26e4c404af8df527d0` / run `37562006672` 已取得新原件。五份官方 ZIP、全部 675 成员逐 hash 核验，672 个选取工件可读；381 个受 Git 跟踪文件首尾 clean，摘要与精确提交一致。脚本 98 项为 96 observed-pass、2 observed-context，无失败或 blocked；通过结论另由下面实际来源、像素与媒体支持。
+
+桌面 108、手机 211 实际显示 C 自己的“回复未完成”和可用编辑入口，C 与 partial 正文保留。实际单击该入口把 C 放回空输入，没有第二次 fill 或 Send。桌面 110/手机 213 保留 warning 仍遮输入的真实前态；两份 `mustWait:true` 记录分别等待 2560/3075ms 后 `cards:[]`，均在原 5000ms 上限内，随后 112/215 的完整 C 无遮挡可读。没有 dismiss 或删除警告；这些是本次观测时长，不用默认 3800ms 反推，也不声称恢复瞬间全无遮挡。
+
+65 份相关 JSON（58 份 truncated 命名）逐官方 hash/bytes 核验。released 与 restored-final 的旧两个 session/十条消息、声明 financial 全字段及原 Expense/Insights 投影深相等；六个实际气泡不变。动作只有最初输入 C、一次明确 Send、一次 C 的编辑入口；原两请求 terminal 是新总三请求的严格前缀，恢复没有自动发送。新请求仍是唯一声明的正常 EOF 合成 respond，来源范围继续限于 API 返回字段、所采四表和完整聚合账；不推广到未知提交结果、未返回列或全数据库。
+
+两主 VP9 编码时长 49.500/47.416 秒，完整解码成功，关键原帧及最后实际帧均复核；两原 trace 的 676541/746706 个事件流读到尾。原 fdead 客户端缺反馈/入口红在这条同动作、两宽链上关闭，原件保留。上游缺 DONE、规则降级和围栏说明保全仍按前述真实模块/隔离路由证据授限，不冒充真实 provider 调用或任意围栏布局的浏览器验收。
+
+本 run 的 22 项官方终态为 21 success、仅仍暂停的 preferences-read failure，无取消/待运行。verify 实际完成 817/73 项、两端 audit 0 和 25 项普通脚本检查；本轮未重复下载通用媒体授验，新的普通绿不解释 fdead/旧 Settings、Todo、Goal 或升级保护页的原因。持续的暂停机制与生产部署门禁仍开放。本轮结果说明随下一必要增量归位，无需为纯说明重触全矩阵。

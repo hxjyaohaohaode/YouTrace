@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { createExpenseSummary } from './audit-expense-summary.mjs';
 import { runChatInputRecovery } from './audit-chat-input-recovery.mjs';
+import { runReminderEntry } from './audit-reminder-entry.mjs';
 
 export async function runCoachOutcomes(h) {
   const { isolated, login, pointer, fill, waitPath, state, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join } = h;
@@ -254,4 +255,5 @@ export async function runCoachOutcomes(h) {
   }
   await isolated('Y3-observation-action-1280', { width: 1280, height: 900 }, completeObservation);
   await isolated('Y3-observation-action-360', { width: 360, height: 800 }, completeObservation);
+  await runReminderEntry(h);
 }
