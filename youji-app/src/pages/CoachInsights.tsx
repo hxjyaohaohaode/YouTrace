@@ -1,3 +1,4 @@
+import { PushList } from '../components/home/BriefCard';
 import { CurrentRecordObservations } from '../components/coach/CurrentRecordObservations';
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -30,6 +31,7 @@ const MAX_RENDERED = 30;
 export default function CoachInsights() {
   const navigate = useNavigate();
   const insights = useCoachStore((s) => s.insights);
+  const hasUnreadPushes = useCoachStore((s) => s.pushes.some((push) => !push.read && !push.acted));
   const dismissInsight = useCoachStore((s) => s.dismissInsight);
   const actOnInsight = useCoachStore((s) => s.actOnInsight);
   const [filter, setFilter] = useState<InsightType | 'all'>('all');
@@ -81,6 +83,12 @@ export default function CoachInsights() {
         </button>
       </motion.div>
 
+      {hasUnreadPushes && (
+        <section aria-labelledby="pending-reminders-heading" className="mb-6">
+          <h2 id="pending-reminders-heading" className="mb-3 text-base font-semibold text-[var(--text-1)]">待处理提醒</h2>
+          <PushList />
+        </section>
+      )}
       <CurrentRecordObservations />
       <details data-component="historical-observations" className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <summary className="cursor-pointer py-3 text-sm font-semibold">查看已保存的历史观察（{insights.length}条）</summary>

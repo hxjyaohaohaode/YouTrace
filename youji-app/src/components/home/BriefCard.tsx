@@ -161,7 +161,7 @@ export function BriefCard({ data }: BriefCardProps) {
   );
 }
 
-function PushList() {
+export function PushList() {
   const pushes = useCoachStore((s) => s.pushes);
   const markPushRead = useCoachStore((s) => s.markPushRead);
   const markPushActed = useCoachStore((s) => s.markPushActed);
@@ -235,8 +235,8 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
           <div className="min-w-0 flex-1">
             <button type="button" onClick={handleOpen}
             disabled={pending} className="block w-full text-left">
-              <p className="truncate text-[13px] font-bold text-[var(--text-1)] group-hover:text-[var(--primary)]">{push.title}</p>
-              <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-[var(--text-2)]">{push.body}</p>
+              <p className="break-words text-[13px] font-bold text-[var(--text-1)] group-hover:text-[var(--primary)]">{push.title}</p>
+              <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--text-2)]">{push.body}</p>
             </button>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {push.actions.map((action) => (
