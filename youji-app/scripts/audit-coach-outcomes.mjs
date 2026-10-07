@@ -2,9 +2,16 @@
 // native-input/media helpers. Never seed insights, feedback or outcome state.
 import assert from 'node:assert/strict';
 import { createExpenseSummary } from './audit-expense-summary.mjs';
+import { runChatInputRecovery } from './audit-chat-input-recovery.mjs';
 
 export async function runCoachOutcomes(h) {
-  const { isolated, login, pointer, fill, waitPath, state, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join } = h;
+  const { isolated, login, pointer, fill, waitPath, state, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join } = h;
+  const prerequisiteFailures = new WeakMap();
+  const markFailure = (page, name) => prerequisiteFailures.set(page, [...(prerequisiteFailures.get(page) ?? []), name]);
+  const observe = async (page, name, pass, detail) => { if (pass === false) markFailure(page, name); return h.observe(page, name, pass, detail); };
+  const segment = (page, name, operation) => h.segment(page, name, async () => {
+    try { return await operation(); } catch (error) { markFailure(page, name); throw error; }
+  });
   async function openPage(page, path) {
     if (page.viewport().width <= 768) {
       await pointer(page, 'nav[aria-label="主导航"] button[aria-label="全部功能"]'); await waitPath(page, '/more');
@@ -107,7 +114,7 @@ export async function runCoachOutcomes(h) {
     const before = await waitLocal(page, api, rows => rows.coachInsights.some(row => row.title.startsWith('近7天消费比前7天')), 'application-generated immutable history');
     const originalHistory = structuredClone(before.coachInsights), historyComparison = originalHistory.find(row => row.title.startsWith('近7天消费比前7天'));
     await facts(page, api, `${label}-initial`, { sources, independentExpectedComparison: comparisonExpectations(sources), originalHistory });
-    const financial = createExpenseSummary(h, { page, api, label, sources, openPage, home });
+    const financial = createExpenseSummary({ ...h, observe, segment }, { page, api, label, sources, openPage, home });
     if (!await financial.visit('before')) return;
     await page.waitForSelector(comparisonSurface);
     await segment(page, `${label}-understand-current-evidence`, async () => {
@@ -238,6 +245,12 @@ export async function runCoachOutcomes(h) {
       await saveRecordEvidence(`${label}-actual-optional-capture`, local, { quickNotes: notes }, { quickNotes: local.quickNotes.map(row => row.id) });
       await observe(page, `${label}-optional-action-real-result`, local.outbox.length === 0 && local.quickNotes.length === 1 && local.quickNotes[0].rawInput === input && local.diary.length === 0 && local.expenses.length === 3 && notes.length === 1 && notes[0].id === local.quickNotes[0].id && notes[0].content === input, 'The optional action actually saved exactly one raw note at the isolated server, without extra diary or expense writes');
     });
+    const failed = prerequisiteFailures.get(page) ?? [];
+    if (failed.length) {
+      await observe(page, `${label}-chat-recovery-not-reached`, null, JSON.stringify({ prerequisiteFailures: failed, reason: 'The original ordered observation/financial chain failed; the terminal chat task was not started' }));
+      return;
+    }
+    await runChatInputRecovery(h, { page, api, label, financial, openPage });
   }
   await isolated('Y3-observation-action-1280', { width: 1280, height: 900 }, completeObservation);
   await isolated('Y3-observation-action-360', { width: 360, height: 800 }, completeObservation);

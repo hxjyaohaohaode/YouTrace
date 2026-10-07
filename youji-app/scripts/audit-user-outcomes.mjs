@@ -68,11 +68,14 @@ if (taskSet === 'planning') {
   metadata.untested.push('Schedule keyboard date moves, weekly-occurrence or whole-series edits, arbitrary calendar scales, real phone/assistive technology and fast Escape-to-Tab');
 }
 if (taskSet === 'coach') {
-  metadata.kind = 'coach-existing-observation-with-expense-summary-consistency-RED-baseline';
+  metadata.kind = 'coach-existing-observation-with-expense-summary-and-chat-input-recovery-RED-baseline';
   metadata.expenseSummaryApplicationBaseline = '039eb5a2b3fbd96c96f6638a0fe72d71bdeb8f94';
+  metadata.chatInputRecoveryApplicationBaseline = 'ddbabacedba602847d73b7273f028baf37ae8a88';
   metadata.scenarioScope.push('Existing three explicitly labelled historical API fixture expenses, ordinary Home current brief/seven-day card and four actual local-rule questions per width around the original same-ID 50.25-to-40.25 correction');
   metadata.scenarioScope.push('Actual natural-week versus rolling-seven-day dates, cents, category labels and provenance; historical insight snapshots and older chat answers remain separately identified');
-  metadata.untested.push('Native creation of these historical fixture rows, calendar boundaries beyond the actual current-day windows, or a real midnight transition; no additional Date preload or manufactured unequal-window source', 'Live model comprehension, chat retry/history restoration, or the paused account/clear/publication mechanisms');
+  metadata.scenarioScope.push('After the unchanged existing journey and its reload, a fresh current-page first question receives one exact pre-response POST abort; original canonical chat history and current failed bubbles remain');
+  metadata.scenarioScope.push('Visible input recovery, explicit choice protecting a different current draft, cancellation, editing and one deliberate Send; recovery never sends automatically and final success creates only one new session and its user/assistant pair');
+  metadata.untested.push('Native creation of these historical fixture rows, calendar boundaries beyond the actual current-day windows, or a real midnight transition; no additional Date preload or manufactured unequal-window source', 'Live model comprehension, post-save or partial-stream failures, persistent/cross-page chat draft or history restoration, automatic resending, or the paused account/clear/publication mechanisms');
 }
 if (taskSet.startsWith('habits')) {
   metadata.kind = taskSet === 'habits-frequency' ? 'immediate-current-frequency-user-outcome-candidate' : 'existing-habit-user-outcome-candidate';

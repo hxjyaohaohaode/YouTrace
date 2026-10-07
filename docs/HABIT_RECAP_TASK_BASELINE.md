@@ -1,6 +1,6 @@
 # 昨日习惯回顾：保留打卡事实
 
-2026-10-06，初始应用基线 `c3d5ab1a199fc15d510bcd534c07a8e2f621f910`。普通首页读者含义已在下述 b7cf 原件中确认存在缺口，修正候选仍待新原生结果。原习惯/即时频率任务见 [HABIT_TASK_PACKAGE.md](HABIT_TASK_PACKAGE.md) 与 [HABIT_CURRENT_FREQUENCY_PACKAGE.md](HABIT_CURRENT_FREQUENCY_PACKAGE.md)，其既有结果保留各自范围。
+2026-10-06，初始应用基线 `c3d5ab1a199fc15d510bcd534c07a8e2f621f910`。普通首页读者含义先在 b7cf 原件中确认存在缺口，现已由下述 ddbab 两宽指定链完成限定验收。原习惯/即时频率任务见 [HABIT_TASK_PACKAGE.md](HABIT_TASK_PACKAGE.md) 与 [HABIT_CURRENT_FREQUENCY_PACKAGE.md](HABIT_CURRENT_FREQUENCY_PACKAGE.md)，其既有结果保留各自范围。
 
 ## 可证明的事实
 
@@ -45,3 +45,15 @@ server 的 done 实际按 reviewDate 内 done=true 的记录统计不同父习�
 BriefCard 将昨日比例替换为“该日记为已打卡的习惯 X 项”，并注明“按读取时保留的习惯及该日打卡记录统计”。只有已知本机/云端来源与非负安全整数才展示数量，否则显示待确认，未知不能冒充 0。原支出、心情、当前周达成及旧 done/total 接口继续各按原意义使用。本机仅将计数收窄为有保留父习惯且 done 严格为 true 的不同 habitId，false、缺父行、重复原记录均不被改写；服务端生产代码和资料机制没有改动。
 
 同一冻结执行字节完成前端 lint/build、794/794 测试与后端 lint/build、62/62 测试，均成功且无跳过或取消。新增合成 IndexedDB/SQLite 及静态渲染合同覆盖 1→0、周仍达成、重复/缺父行/false 排除、明确补记日期、原来源不变、当前频率变化不伪造过去目标，以及未知值/旧 total 不形成比例。它们不是修复后的浏览器结果。原 habits 取证脚本、动作、文字与来源判据、e2e-api、依赖及 CI 均未修改；下一精确提交仍须通过同一两宽原生阅读链，b7cf 原红保留。
+
+## ddbab 指定事实阅读链限定通过
+
+提交 `ddbabacedba602847d73b7273f028baf37ae8a88`、树 `17243346665efa8d16aab33584de435c567e6b03`、[CI 37547147475](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37547147475) attempt 1 的新 habits 原件已重新独核。三个官方 ZIP、完整归档 `dea5fa49230e2012134a4bf7f6fffa30865de6507e8139ede668e6641f3e312f` 及 286 个成员逐 hash 相符，374 个受版本跟踪文件的内容首尾一致并绑定提交。58 项结果是 56 observed-pass 和 2 observed-context，无红、blocked 或 infrastructure 结果；不把 58 项全称通过，也不重新授予旧 Habit 全包验收。
+
+本次桌面 021/033、手机 075/087 原图实际可读“该日记为已打卡的习惯 1 项→0 项”，以及“按读取时保留的习惯及该日打卡记录统计”。手机注记换行仍完整位于底栏上方；后续分时读取的 079/091 显示本周依旧 2/2，与前面的昨日字段分别取证。四次新 Home 响应都绑定本次 GET、10 月 6 日 reviewDate、1→0 事实、兼容 total 2 与明确的云端来源/受控时钟；没有用初始占位或旧响应补齐。因此 b7cf 四个比例含义缺口在这条有限用户链中关闭，原红与原件保留。
+
+独立重放 37 份本轮原 JSON、8 份前后来源样本和真实返回 Habit 的连续性，完整所采习惯/日期事实、相关设置/ACK、outbox、raw Habit GET 与全账均保全。桌面原账 1–4 后仅增 5/6，手机 17–20 后仅增 21/22；两个周一 true 与原周二 false 均保留，周二只改变 done 和允许的 updatedAt。原本机行没有 createdAt，也没有额外未知字段，canonical 身份和原字段逐值保留；孤儿/重复/非法值、频率变化及未知字段抗丢失仍是单列的合成模块证据，不冒充这轮 UI 夹具。本次所采全部 settings 与另采 Coach 行也实际相等，合同仍只授规定范围，不扩为全数据库。
+
+两段原 VP9 编码时长 36.750/29.916 秒，均完整解码成功；两份 trace 的 518857/538629 个事件已流读到原动作尾，关键任务图和录像已核。最终录像帧为后续 Habit 页面，昨日读数依据各自先前原图，不混用时点。这项只授保留打卡事实的含义与当前周事实分开呈现，不授历史目标完成率、删除历史、活动次数、任意日期/旧形状、全部无障碍或全项目上线。
+
+本轮官方全矩阵为 20 成功、verify 与暂停的 preferences-read 两项失败、无取消。verify 已完成 794/62 测试、双端 lint/build 和 audit 0，随后普通旧 Goal 场景在既有历史夹具准备及登录后首次进入 `/goal` 时出现“加载遇到问题／重试”；原目标可见、明确上传及后续恢复未到达。小包 10 成员独核，当前 page4/document4 留存 auth/settings/pull 200 finished、settings 成功、sync 未留成功、12024ms 超时后恢复读取启动。全局留存 2048/4096、丢弃 2983/22174，当前文档的 38 事务开始/28 complete 与 78 请求开始/68 success 仅是留存计数；没有原值、Retry 或因果结论，不与旧启动红擅自归并。此普通开放项和暂停机制不因习惯阅读通过而关闭。上述结果说明随下一必要增量归位，无需为文档单独触发 CI。

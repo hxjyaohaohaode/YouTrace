@@ -283,6 +283,9 @@ export function createExpenseSummary(h, { page, api, label, sources, openPage, h
     } finally { clearTimeout(timer); page.off('response', onResponse); }
   }
   return {
+    // The terminal current-page chat task reuses this exact bounded source
+    // sampler and reading geometry; it does not create another DB framework.
+    snapshot, preserve, read,
     async readExpenseCategory() {
       const selector = 'select[aria-label="记账分类"]', reading = await read(selector);
       const selected = await page.$eval(selector, el => ({ value: el.value, label: el.selectedOptions[0]?.textContent.trim() }));

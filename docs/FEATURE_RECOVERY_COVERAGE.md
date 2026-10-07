@@ -26,7 +26,7 @@
 
 | 页面/组件 | 已有实际覆盖 | 仍须针对性补齐 |
 | --- | --- | --- |
-| Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、部分花销分金额、周统计、证据时间；c3d5两宽指定三笔来源/纠错链另验昨日与近7天分值、日期/笔数及来源说明，见EXPENSE_SUMMARY_TASK_BASELINE；路由入口、响应式截图 | e495/4f4c原红保留；b7cf两宽实际确认昨日“习惯完成1/2→0/2”误用当前习惯数作历史分母，而当前周仍2/2；保留打卡事实文案与本机缺父行计数过滤候选已完成本地检查，原生待验，见HABIT_RECAP_TASK_BASELINE；不授历史目标率、跨午夜/任意日期/金额规模或全库；用户pin/hide/reorder/reset及其余卡片完整流程未完成 |
+| Home / Greeting / Brief / Overview / WeeklyReview / QuickActions | 上海跨日、时间态、部分花销分金额、周统计、证据时间；c3d5两宽指定三笔来源/纠错链另验昨日与近7天分值、日期/笔数及来源说明，见EXPENSE_SUMMARY_TASK_BASELINE；ddbab另验两宽昨日保留打卡事实1→0与解释注记可读、当前周仍2/2、4本次GET与原源/实际返回保全，见HABIT_RECAP_TASK_BASELINE；路由入口、响应式截图 | e495/4f4c/b7cf原红保留；本机孤儿/重复过滤及未知值等单列模块证据，不冒充native含这些行；不授历史目标率、跨午夜/任意日期/金额规模或全库；用户pin/hide/reorder/reset及其余卡片完整流程未完成，普通启动与暂停read仍开放 |
 | Schedule / ScheduleContent | cd6b152两宽指定Y4链独立验收；039另验不重复日程的键盘日期选择、时间调整、完整Esc保稿重开、一次同ID保存和自然返焦/后续Tab，原824桌面下沿焦点裁切已在新原图关闭，两恢复提示稳定可读，见SCHEDULE_TASK_PACKAGE | 原824红保留；键盘日期移动、重复实例/系列键盘、所有系列修改、复杂重复/跨午夜、任意规模、正式设备/无障碍仍未完成；本次三表/全账旁证不等于全库，提醒执行与仅有remind字段严格区分 |
 | Expense / StatsRow / BudgetCard / AddExpenseModal / ExpenseDetail | 07bc两宽独立验收精确支出/净额、同名纠错、预算及拒绝重试；be763另验近30天边界/收入与未来排除、星期与类别累计的精确金额/份额/分母、同ID纠错与返回，关闭39e指定卡片读者红；见EXPENSE_TASK_PACKAGE | 其余图表、月份分类筛选、完整键盘、跨页预算草稿与第二设备预算仍未完成；任意旧形状/规模和普通启动开放项不由这两条限定结果关闭 |
 | Todo / TodoList / AddTodoModal / Checkbox | 918两宽指定普通链独立验收：五条原输入/精确分组、实际完成时间的Timeline找回与完成撤销、编辑取消/重开、无日期，以及提交前拒绝后的中文解释/保稿/原Save重试；d0b原红保留，见 TODO_TASK_BASELINE；eea另独立验收两宽指定键盘纠正/保稿/原入口返回/错误后modal内重试，见KEYBOARD_TASK_BASELINE | 大列表、实际跨日/完整日期边界、跨重载撤销和两设备、删除恢复、快速Esc→Tab/IME/AT及全部键盘组件仍未验；新的普通成功不解释旧B首次Todo启动错误 |
