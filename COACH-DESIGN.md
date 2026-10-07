@@ -15,8 +15,8 @@
 > 3. 速记拆分为本地正则引擎同步完成（无 LLM 异步拆分管线、无 parseStatus 轮询）
 > 4. 无 Welch's t-test 统计置信度引擎；洞察基于确定性规则与用户真实数据，不编造统计结论
 > 5. 推送为应用内消息（无浏览器 Notification / React Query 轮询）；冷启动策略采用"Day1 即有价值"
-> 6. 数据模型以 `server/prisma/schema.prisma` 为准（Diary 字符串主键、HabitCheckin 按日唯一等）
-> 7. 同步契约见 `/api/sync/pull|push`：客户端生成 ID、updatedAt 增量游标、支持删除与打卡
+> 6. 数据模型以 `youji-app/server/prisma/schema.prisma` 为准（Diary 字符串主键、HabitCheckin 按日唯一等）
+> 7. 当前同步契约见 [Sync v2](docs/SYNC_PROTOCOL.md)：客户端生成 ID，按事务变更序列拉取，游标为精确十进制字符串；updatedAt 不是游标。删除与打卡按当前版本/墓碑协议处理
 
 ---
 

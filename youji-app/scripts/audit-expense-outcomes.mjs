@@ -6,6 +6,7 @@ import { createHabitAuditClock, installAuditDate } from './audit-clock.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { runTimelineKeyboardDifference } from './audit-timeline-keyboard.mjs';
+import { runExpenseFilterDifference } from './audit-expense-filters.mjs';
 
 const TODAY = '2026-10-07';
 const NAME = 'Synthetic 同名记账';
@@ -191,16 +192,17 @@ function dailySummaryMatches(text, spent, income) {
   if (label === '净支出') return net <= 0 && magnitude === -net && sign !== '+';
   return (sign === '-' ? -magnitude : magnitude) === net && !(net === 0 && sign === '-');
 }
-export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, budgetSpentMatches, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, completeLedgerPage, expectedTotals, expectedSpendingPattern, patternScopeMatches, patternRowMatches, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches };
+export const expenseOutcomeChecks = { profiles: PROFILES, validVersion, version, onlyChanges, sameRows, budgetRows, budgetSpentMatches, settingsDifferences, settingsPreserved, businessSourcesPreserved, expenseRowsFromLedger, completeLedgerPage, expectedTotals, expectedSpendingPattern, patternScopeMatches, patternRowMatches, acknowledged, changedOnlyTarget, createdOnlyDeclared, declaredRecordsMatch, dailySummaryMatches, oneNewExpenseEvent };
 
 export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Expense native evidence runs only in authorized hosted CI');
   assert.ok(['records', 'budget'].includes(scenarioSet), 'Select one bounded Expense task');
   const { isolated, login, waitPath, capture, observe, apiFor, sleep, actions, artifacts, writeFile, join, surfaceNames } = h;
   const prefix = scenarioSet === 'records' ? 'YE-records' : 'YE-budget';
-  const scope = { applicationBaseline: scenarioSet === 'records' ? 'be7632731e8b68bcf5e43ff16bc5160b75d6644f' : '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['No native month/category filter exists at this source; unsupported/untested, no fabricated click or pass', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
+  const scope = { applicationBaseline: scenarioSet === 'records' ? 'be7632731e8b68bcf5e43ff16bc5160b75d6644f' : '48ea881908b433bdd0222a82f93a4f3417c0e5a0', kind: 'native-expense-red-baseline', scenarioSet, syntheticOnly: true, widths: [1280, 360], clock: 'Existing audit-clock Date fixture in browser only: 2026-10-07 12:00 Asia/Shanghai, advancing; Node API, database timestamps, timers and cookie engine remain real', limitations: ['The original prefix predates native month/category filtering; its new in-page filter tail is separately declared for records only', 'No day/week income-summary feature is required: expenditure must remain separate from income and existing month income must be accurate', 'Current Expense task is independent of prior Timeline/Capture old-record correction', 'Budget is device-local; no account preference update or cloud budget ACK is required or asserted', 'No live provider, production account, clear/signout/authority/publication race, postcommit-read failure, arbitrary scale, real phone OS, full keyboard/accessibility or release claim'] };
   if (scenarioSet === 'records') scope.patternDifferential = 'Preserve the original seven inputs and initial totals/net, then create exactly two boundary controls (Sep 8: 222 cents; Sep 7: 9999 cents). Read the actual 30-day card before/after the existing 1234→987 correction and on return. New clarity contract requires absolute scope/count/expense denominator, weekday aggregate meaning and exact row amounts/shares; missing native copy remains red. No additional correction, fault, profile or timeout.';
   if (scenarioSet === 'records') scope.timelineKeyboardDifferential = 'After the separate accepted Expense prefix, reuse its nine native records. Pointer setup only reaches Timeline; an explicit keyboard-only phase selects a period and the visible same-name Oct 6 expense, cancels a retained 11.11 edit, returns via the real source button, reopens without retyping, saves once and returns again. Natural logical-record focus/visibility are evaluated before separately labelled keyboard recovery. Full captured sources and the prior ledger remain bound. Dynamic midnight period changes remain a separate unaccepted case.';
+  if (scenarioSet === 'records') scope.filterDifferential = 'After the unchanged Timeline tail, reuse all nine records and its retained 11.11 result. Native local month/category intersection, zero result, clear, same-page cancel/reopen and one category-only Save; the original Sep 30 ID leaves the active condition and remains findable under its new category. No extra fixture/profile, remote search, store/query/authority change or timeout.';
   await writeFile(join(artifacts, `${prefix}-scope.json`), JSON.stringify(scope, null, 2));
 
   // Shared read-only geometry includes viewport-fixed navigation; the pointer
@@ -504,10 +506,15 @@ export async function runExpenseOutcomes(h, { scenarioSet } = {}) {
     await observe(page, `${label}-returned-nine-records-match-fixed-corrected-inputs`, returnedMatch, JSON.stringify({ declared: correctedValues.map((value, index) => ({ id: ids[index], ...value })), sourceArtifact: `${label}-returned-full-source.json` })); assert.ok(returnedMatch);
     await statistics(page, returned.local.expenses, `${label}-returned`);
     const finalExpenseSource = await spendingPattern(page, api, `${label}-returned`, correctedPattern, returned);
-    await observe(page, `${label}-month-category-filters-not-exercised`, null, 'Unsupported/untested at the application baseline. No native month/category filter exists; no invented action or inherited Timeline/Capture acceptance. Current category selection is only an editor choice.');
+    await observe(page, `${label}-month-category-prefix-boundary`, null, 'The original Expense prefix does not exercise filters. The new local-filter task follows the unchanged Timeline tail and retains its own complete sources and outcome.');
     await runTimelineKeyboardDifference(h, {
       page, label, before: structuredClone(finalExpenseSource), ids: [...ids], values: structuredClone(correctedValues),
       facts: (stage, options) => facts(page, api, stage, options), checks: expenseOutcomeChecks, setupTap: tap,
+    });
+    await runExpenseFilterDifference(h, {
+      page, label, ids: [...ids], values: correctedValues.map((value, index) => index === 1 ? { ...value, amount: 1111 } : value), beforeTimeline: structuredClone(finalExpenseSource),
+      checks: expenseOutcomeChecks, facts: (stage, options) => facts(page, api, stage, options), enter,
+      read, exact, tap, visibleRow, open, readyDraft: () => readyDraft(page), category, editor: () => editor(page), save, cancelEditor, statistics,
     });
   }
   async function startBudgetEdit(page) {
