@@ -6,6 +6,7 @@ import { createHabitAuditClock, installAuditDate } from './audit-clock.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
+import { runCaptureSpeechTail } from './audit-capture-speech.mjs';
 
 const BASELINE = '786c76eac3c6c02b59f44f85194d9e48657e7b0e';
 const RAW = '明天要交报销单；午饭15；地铁3；后天要取快递；合成原文尾记';
@@ -210,7 +211,7 @@ export async function runCaptureReturnOutcomes(h) {
   const { isolated, login, waitPath, capture, observe, sleep, actions, artifacts, writeFile, join, surfaceNames, origin } = h;
   assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/, 'Existing disposable hosted-CI origin only');
   const media = [];
-  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-and-changed-input-outcomes', changedInputExtension: { statusAtAuthoring: 'prepared-only; O/R/D native execution not yet performed', startingPoint: 'accepted blank next-note/input-pointer endpoint', branches: ['O original raw with amount correction', 'R raw-only 15→18; original context', 'D date-only 2026-10-07→2026-10-06; raw18/capturedAt/timeZone unchanged', 'Actual D composer Return and unchanged primary re-entry'], end: 'D uncommitted; O/R physically retained; no old-draft visible rediscovery claim' }, syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden review URL, browser history substitute, business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
+  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-and-changed-input-outcomes', changedInputExtension: { statusAtAuthoring: 'prepared-only; O/R/D native execution not yet performed', startingPoint: 'accepted blank next-note/input-pointer endpoint', branches: ['O original raw with amount correction', 'R raw-only 15→18; original context', 'D date-only 2026-10-07→2026-10-06; raw18/capturedAt/timeZone unchanged', 'Actual D composer Return and unchanged primary re-entry'], end: 'D uncommitted; O/R physically retained; no old-draft visible rediscovery claim' }, speechCompletionExtension: { applicationBaseline: 'af6c353fad0b476d7bf11b6d0deaf80be0157224', boundary: 'Actual D Return, current input, one explicitly synthetic recognition start/stop/final/end, new uncommitted review only', provider: 'SpeechRecognition constructor double; no microphone, audio, real recognition or paid service', end: 'Full A+B raw and declared rule candidates; original D/O/R, records, receipt and ledger preserved; no business Save' }, syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden review URL, browser history substitute, business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
   for (const profile of PROFILES) {
     const label = `YQ-return-${profile.width}`; media.push(label);
     await isolated(label, { width: profile.width, height: profile.height }, async page => {
@@ -585,6 +586,7 @@ export async function runCaptureReturnOutcomes(h) {
         }
         const currentInputKey = await page.evaluate(key => sessionStorage.getItem(key), `youtrace:input:${owner}`); assert.equal(currentInputKey, current.inputKey);
         await save('changed-branches-outcome', { ids: reviewed.map(value => value.id), currentInputKey, expectedKey: current.inputKey, oldDraftsPhysicallyRetained: true, currentDraftUncommitted: true, note: discovery });
+        await runCaptureSpeechTail({ page, label, current, before: end, returnComposer, facts, preserve, read, readValue, tap, input, retained, save, observe, mark, waitPath, capture });
       }
     });
   }
