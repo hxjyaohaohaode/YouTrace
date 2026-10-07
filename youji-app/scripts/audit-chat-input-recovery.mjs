@@ -45,13 +45,13 @@ function sameChatSources(before, after) {
 }
 function recoveredChatSources(before, after, completed, request) {
   validateChatSources(before); validateChatSources(after);
-  if (!completed?.done || completed.source !== 'rule_fallback' || !Number.isFinite(request.startedAt) || !Number.isFinite(request.finishedAt) || request.finishedAt < request.startedAt) return false;
+  if (!completed?.done || completed.source !== 'rule_fallback' || ![request.sendActionStartedAt, request.requestObservedAt, request.finishedAt].every(Number.isFinite) || request.requestObservedAt < request.sendActionStartedAt || request.requestObservedAt > request.finishedAt) return false;
   const old = before.rawSessions.sessions, next = after.rawSessions.sessions;
   if (next.length !== old.length + 1 || old.some(row => !isDeepStrictEqual(next.find(item => item.id === row.id), row))) return false;
   if (old.some(row => !isDeepStrictEqual(before.rawMessages[row.id], after.rawMessages[row.id]))) return false;
   const session = next.find(row => !old.some(item => item.id === row.id));
   if (session?.id !== request.sessionId || session.triggerType !== 'user_initiated') return false;
-  const rows = after.rawMessages[session.id].messages, inSend = row => Date.parse(row.createdAt) >= request.startedAt && Date.parse(row.createdAt) <= request.finishedAt;
+  const rows = after.rawMessages[session.id].messages, inSend = row => Date.parse(row.createdAt) >= request.sendActionStartedAt && Date.parse(row.createdAt) <= request.finishedAt;
   const actions = completed.events.flatMap(event => event.actions ?? []);
   return inSend(session) && rows.length === 2 && rows.every(inSend) && rows[0].role === 'user' && rows[0].content === CONTRACT.edited && rows[0].actions === null && rows[1].role === 'assistant' && rows[1].content === completed.content && isDeepStrictEqual(rows[1].actions, actions.length ? actions : null);
 }
@@ -262,7 +262,10 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
       // Never fill original A here. Only the real recovery control may restore it.
       await noWrites(before, 'original-restored-by-control', failedUi.bubbles, CONTRACT.original); await read(INPUT, 'restored-original', CONTRACT.original);
       await fill(page, INPUT, CONTRACT.edited); await read(INPUT, 'edited-original', CONTRACT.edited); await noWrites(before, 'edited-before-send', failedUi.bubbles, CONTRACT.edited);
-      await read(SEND, 'explicit-retry-send'); await pointer(page, SEND);
+      await read(SEND, 'explicit-retry-send');
+      const sendActionStartedAt = Date.now();
+      actions.push({ kind: 'chat-explicit-retry-send-start', at: sendActionStartedAt });
+      await pointer(page, SEND);
       await until(() => requests.length >= 2 && (requests[1].responses.length || requests[1].failures.length), 'Explicit edited Send response not observed');
       assert.equal(requests.length, 2); const sent = requests[1];
       assert.equal(sent.body, JSON.stringify({ message: CONTRACT.edited })); assert.deepEqual(sent.failures, []); assert.equal(sent.responses.length, 1);
@@ -272,7 +275,7 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
       const completed = expenseSummaryChecks.completeRuleSse(response.text);
       await page.waitForFunction(selector => { const el = document.querySelector(selector); return el && !el.disabled && el.value === ''; }, { timeout: 7000 }, INPUT);
       for (const index of [0, 1, 2, 3]) await read(await bubbleSelector(index), `recovered-bubble-${index}`);
-      const after = await sources('recovered'), recoveredUi = await ui(), request = { startedAt: sent.startedAt, finishedAt: Date.now(), sessionId: response.sessionId };
+      const after = await sources('recovered'), recoveredUi = await ui(), request = { sendActionStartedAt, requestObservedAt: sent.startedAt, finishedAt: Date.now(), sessionId: response.sessionId };
       await save('recovered-state', { ui: recoveredUi, completed, request });
       assert.ok(recoveredChatSources(before.chat, after.chat, completed, request), 'Exactly one new canonical session and its user/assistant pair; all original rows unchanged');
       assert.ok(recoveredBubbles(failedUi.bubbles, recoveredUi.bubbles, completed), 'The original failure bubbles must remain the exact UI prefix');

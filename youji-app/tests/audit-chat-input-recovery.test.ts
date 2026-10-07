@@ -117,7 +117,7 @@ test('Input layout excludes only measured padding overflow and rejects clipped c
 });
 
 test('Only the explicit edited answer may create one session and its exact user/assistant pair', () => {
-  const before = source(), after = successfulSource(), request = { sessionId: 'new-session', startedAt: Date.parse(newTime) - 100, finishedAt: Date.parse(newTime) + 100 };
+  const before = source(), after = successfulSource(), request = { sessionId: 'new-session', sendActionStartedAt: Date.parse(newTime) - 200, requestObservedAt: Date.parse(newTime) - 100, finishedAt: Date.parse(newTime) + 100 };
   assert.equal(checks.recoveredChatSources(before, after, completed, request), true);
   const oldChanged = successfulSource(); oldChanged.rawMessages['old-session'].messages[0].createdAt = newTime;
   const wrongText = successfulSource(); wrongText.rawMessages['new-session'].messages[0].content = contract.original;
@@ -128,6 +128,39 @@ test('Only the explicit edited answer may create one session and its exact user/
   for (const invalid of [oldChanged, wrongText, staleTime, duplicateSend, missingAssistant, wrongAction]) assert.equal(checks.recoveredChatSources(before, invalid, completed, request), false);
   assert.equal(checks.recoveredChatSources(before, after, completed, { ...request, sessionId: 'old-session' }), false);
   assert.equal(checks.recoveredChatSources(before, after, { ...completed, done: false }, request), false);
+});
+
+test('Canonical times use the explicit Send action window despite a later Node request notification', () => {
+  // Preserve the two observed millisecond sequences. The action floors below
+  // are declared pure inputs, not timestamps added to the old native evidence.
+  const timelines = [
+    { action: '2026-10-07T01:08:36.240Z', session: '2026-10-07T01:08:36.244Z', user: '2026-10-07T01:08:36.246Z', assistant: '2026-10-07T01:08:36.253Z', observed: 1791335316247, finished: 1791335317283 },
+    { action: '2026-10-07T01:10:34.688Z', session: '2026-10-07T01:10:34.692Z', user: '2026-10-07T01:10:34.693Z', assistant: '2026-10-07T01:10:34.700Z', observed: 1791335434695, finished: 1791335435451 },
+  ];
+  for (const timeline of timelines) {
+    const before = source(), after = successfulSource();
+    after.rawSessions.sessions[0].createdAt = timeline.session;
+    after.rawMessages['new-session'].messages[0].createdAt = timeline.user;
+    after.rawMessages['new-session'].messages[1].createdAt = timeline.assistant;
+    const request = { sessionId: 'new-session', sendActionStartedAt: Date.parse(timeline.action), requestObservedAt: timeline.observed, finishedAt: timeline.finished };
+    assert.equal(request.requestObservedAt - Date.parse(timeline.session), 3);
+    assert.equal(checks.recoveredChatSources(before, after, completed, request), true);
+    for (const createdAt of [new Date(request.sendActionStartedAt - 1).toISOString(), new Date(request.finishedAt + 1).toISOString()]) {
+      for (const target of ['session', 'user', 'assistant']) {
+        const invalid = structuredClone(after);
+        if (target === 'session') invalid.rawSessions.sessions[0].createdAt = createdAt;
+        else invalid.rawMessages['new-session'].messages[target === 'user' ? 0 : 1].createdAt = createdAt;
+        assert.equal(checks.recoveredChatSources(before, invalid, completed, request), false, `${target} outside the actual action window`);
+      }
+    }
+    for (const invalid of [
+      { ...request, requestObservedAt: request.sendActionStartedAt - 1 },
+      { ...request, requestObservedAt: request.finishedAt + 1 },
+      { ...request, finishedAt: request.requestObservedAt - 1 },
+      { ...request, sendActionStartedAt: undefined },
+      { ...request, requestObservedAt: NaN },
+    ]) assert.equal(checks.recoveredChatSources(before, after, completed, invalid), false);
+  }
 });
 
 test('Later successful UI preserves the original failure prefix instead of replacing its evidence', () => {
