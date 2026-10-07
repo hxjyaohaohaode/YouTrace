@@ -66,6 +66,7 @@ export async function* readChatCompletionStream(
       }
     }
     for (const content of parseEvent()) yield content
+    if (!streamFinished) throw new Error('LLM stream ended before [DONE]')
   } finally {
     reader.releaseLock()
   }

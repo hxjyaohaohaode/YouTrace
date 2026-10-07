@@ -165,7 +165,7 @@ export interface CoachActionPayload {
 export async function streamChat(
   message: string,
   sessionId?: string,
-  onChunk?: (text: string) => void,
+  onChunk?: (text: string, source?: 'rule_fallback') => void,
   onActions?: (actions: CoachActionPayload[]) => void,
   signal?: AbortSignal,
 ): Promise<{ sessionId: string; content: string }> {
@@ -193,9 +193,9 @@ export async function streamChat(
 
   const newSessionId = res.headers.get('X-Session-Id') || sessionId || ''
   let fullContent = ''
+  let completed = false
 
   if (res.body) {
-    let completed = false
     await consumeSseStream(res.body, (data) => {
       if (data === '[DONE]') {
         completed = true
@@ -203,20 +203,21 @@ export async function streamChat(
       }
       if (completed) return
       try {
-        const parsed = JSON.parse(data) as { content?: unknown; actions?: unknown }
+        const parsed = JSON.parse(data) as { content?: unknown; actions?: unknown; source?: unknown }
         if (Array.isArray(parsed.actions)) {
           onActions?.(parsed.actions as CoachActionPayload[])
           return
         }
         if (typeof parsed.content === 'string') {
           fullContent += parsed.content
-          onChunk?.(parsed.content)
+          onChunk?.(parsed.content, parsed.source === 'rule_fallback' ? 'rule_fallback' : undefined)
         }
       } catch {
         // Malformed upstream events are skipped without losing adjacent events.
       }
     })
   }
+  if (!completed) throw new Error('回复流未完整结束')
 
   return { sessionId: newSessionId, content: fullContent }
 }

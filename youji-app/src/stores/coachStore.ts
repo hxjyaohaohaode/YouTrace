@@ -664,12 +664,14 @@ export const useCoachStore = create<CoachState>((set, get) => ({
       ],
     }));
 
+    let receivedRuleFallback = false;
     try {
       const result = await streamChat(
         content,
         get().sessionId || undefined,
-        (chunk) => {
+        (chunk, source) => {
           if (!current()) return;
+          if (source === 'rule_fallback') receivedRuleFallback = true;
           set((state) => ({
             messages: state.messages.map((m) =>
               m.id === aiMsgId ? { ...m, content: m.content + chunk } : m
@@ -697,7 +699,7 @@ export const useCoachStore = create<CoachState>((set, get) => ({
             set((state) => ({
               messages: state.messages.map((m) =>
                 m.id === aiMsgId
-                  ? { ...m, content: m.content.replace(/```coach-actions[\s\S]*$/, '').trim(), actions }
+                  ? { ...m, content: receivedRuleFallback ? m.content : m.content.replace(/```coach-actions[\s\S]*$/, '').trim(), actions }
                   : m
               ),
             }));
