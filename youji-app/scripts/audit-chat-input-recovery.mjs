@@ -60,10 +60,26 @@ function retainedEditState(expectedBubbles, actual, draft, requestCount) {
   return requestCount === 1 && unchangedBubbles(expectedBubbles, actual.bubbles) && actual.input.value === draft && actual.thinking === false;
 }
 function inputReadingMatches(input, expectedValue) { return typeof expectedValue === 'string' && input?.value === expectedValue; }
+function inputLayoutChecks(input) {
+  // CSSOM scroll extents include padding. This bounded LTR/horizontal check
+  // excludes only measured padding, not a fixed overflow tolerance or glyphs.
+  const css = input?.computedStyle;
+  const px = value => typeof value === 'string' && /^(?:\d+(?:\.\d+)?|\.\d+)px$/.test(value) ? Number(value.slice(0, -2)) : NaN;
+  const padding = Object.fromEntries(['Top', 'Right', 'Bottom', 'Left'].map(side => [side.toLowerCase(), px(css?.[`padding${side}`])]));
+  const lineHeight = px(css?.lineHeight);
+  const dimensions = ['clientHeight', 'scrollHeight', 'clientWidth', 'scrollWidth', 'scrollTop', 'scrollLeft'].map(key => input?.[key]);
+  const validMetrics = [...dimensions, ...Object.values(padding), lineHeight].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0) &&
+    lineHeight > 0 && input.clientHeight > padding.top + padding.bottom && input.clientWidth > padding.left + padding.right &&
+    input.scrollHeight >= input.clientHeight && input.scrollWidth >= input.clientWidth && input.scrollHeight - padding.top - padding.bottom >= lineHeight;
+  const supportedLayout = css?.direction === 'ltr' && css?.writingMode === 'horizontal-tb' && ['border-box', 'content-box'].includes(css?.boxSizing);
+  if (!validMetrics || !supportedLayout) return { validMetrics, supportedLayout, readable: false };
+  const contentEdges = { top: padding.top - input.scrollTop, bottom: input.scrollHeight - padding.bottom - input.scrollTop, left: padding.left - input.scrollLeft, right: input.scrollWidth - padding.right - input.scrollLeft };
+  return { validMetrics, supportedLayout, padding, lineHeight, contentEdges, readable: contentEdges.top >= 0 && contentEdges.bottom <= input.clientHeight && contentEdges.left >= 0 && contentEdges.right <= input.clientWidth };
+}
 function recoveredBubbles(before, after, completed) {
   return completed?.done === true && completed.source === 'rule_fallback' && after.length === before.length + 2 && isDeepStrictEqual(before, after.slice(0, before.length)) && isDeepStrictEqual(after.slice(-2), [{ role: 'user', content: CONTRACT.edited }, { role: 'assistant', content: completed.content }]);
 }
-export const chatRecoveryChecks = { contract: CONTRACT, sameOriginChat, exactFailureRequest, validateChatSources, sameChatSources, recoveredChatSources, unchangedBubbles, retainedEditState, inputReadingMatches, recoveredBubbles };
+export const chatRecoveryChecks = { contract: CONTRACT, sameOriginChat, exactFailureRequest, validateChatSources, sameChatSources, recoveredChatSources, unchangedBubbles, retainedEditState, inputReadingMatches, inputLayoutChecks, recoveredBubbles };
 
 // A real browser abort, once, before delivery. Other requests are continued.
 // The caller keeps request/response/requestfailed evidence across release.
@@ -132,10 +148,15 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
   }
   async function read(selector, name, expectedInput) {
     const reading = await financial.read(selector); await capture(page, `${prefix}-${name}`);
-    const input = selector === INPUT ? await page.$eval(INPUT, el => ({ value: el.value, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight })) : null;
+    const input = selector === INPUT ? await page.$eval(INPUT, el => {
+      const css = getComputedStyle(el);
+      return { value: el.value, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, scrollTop: el.scrollTop, scrollLeft: el.scrollLeft,
+        computedStyle: { paddingTop: css.paddingTop, paddingRight: css.paddingRight, paddingBottom: css.paddingBottom, paddingLeft: css.paddingLeft, boxSizing: css.boxSizing, lineHeight: css.lineHeight, direction: css.direction, writingMode: css.writingMode } };
+    }) : null;
     const inputMatches = input ? inputReadingMatches(input, expectedInput) : null;
-    await save(`${name}-reading`, { selector, reading, input, expectedInput, inputMatches });
-    assert.ok(reading.visible && (!input || inputMatches && input.scrollHeight <= input.clientHeight), `Actual painted/clipped/foreground complete exact reading required: ${name}`); return reading;
+    const inputLayout = input ? inputLayoutChecks(input) : null;
+    await save(`${name}-reading`, { selector, reading, input, expectedInput, inputMatches, inputLayout });
+    assert.ok(reading.visible && (!input || inputMatches && inputLayout.readable), `Actual painted/clipped/foreground complete exact reading required: ${name}`); return reading;
   }
   async function bubbleSelector(index) { return page.evaluate(index => {
     const node = document.querySelectorAll('main p.whitespace-pre-wrap, main div.whitespace-pre-wrap')[index];

@@ -1,6 +1,6 @@
 # 当前页聊天回复未完成：找回、编辑与明确重试基线
 
-2026-10-07，测试准备；应用起点为 `ddbabacedba602847d73b7273f028baf37ae8a88`。本包只增加取证脚本、有限纯合同和说明，不修改产品。当前代码的 ChatInput 调用 void onSend 后立即清空输入；coachStore 在异常时保留用户气泡及错误/部分回复，MessageList 没有普通用户能发现的重新编辑入口。这是源码事实；新的原生 RED 和独立媒体结论必须等待本次精确提交的 CI 原件，不能预写已经运行或修好。
+2026-10-07，测试准备；应用起点为 `ddbabacedba602847d73b7273f028baf37ae8a88`。本包只增加取证脚本、有限纯合同和说明，不修改产品。当前代码的 ChatInput 调用 void onSend 后立即清空输入；coachStore 在异常时保留用户气泡及错误/部分回复，MessageList 没有普通用户能发现的重新编辑入口。这是源码事实。首轮 0c63 已取得下述原件，但停在发送前的输入测量判据，真正失败及找回仍未到达，不能预写产品 RED 或已经修好。
 
 ## 位置和连续用户边界
 
@@ -42,3 +42,17 @@ A2 成功只允许新增一个实际 session，里面恰好一 user(A2)/一 assi
 本次两份先后停止编辑的准备稿均完成前端 lint/build 和 799/799 测试，无跳过或取消，各自字节及日志独立保留。审查先后把实际输入读点的 value 与当次 A/B/A2/空值绑定，并将原最后一次来源/UI/请求数检查覆盖到四个气泡实际阅读之后；release 完成后的诊断错误也必须为空。最末的终点/释放增量没有新增用户动作或来源样本，已完成最终 lint、语法、五项定向合同和窄差异检查，没有重复聚合；799 仅对应前两份冻结版本，不能代替最终原生结果。应用、服务端生产/测试、依赖与工作流矩阵均未改；后台沿 ddbab 实际 62 项及双端 audit 0，本地未重复。新的真实失败、入口缺失与后继恢复仍只按精确提交原件判断。
 
 未覆盖：部分流/EOF 结束错误、成功后来源读取失败的产品恢复、历史聊天入口、刷新或跨页保稿、账户切换/清除后重放、两设备、任意规模、真实模型/短信、全部键盘/IME/辅助技术。没有新增归档或持久恢复框架，没有修改既有 clear/session guard，也不处理暂停的权限/发布/偏好读取或旧速记稿目录。
+
+## 0c63 首轮原件：发送前取证门槛阻断
+
+提交 `0c63d2f42d0b031de3b877662f94839aea69de76`、树 `0f921ce7b444fba195e5104f7b50bbe27b2ef7fe`、[CI 37551421601](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37551421601) attempt 1 已完成。四个官方 ZIP、完整归档及 407 个成员独立逐 hash 核验，377 个受版本跟踪文件的内容首尾干净一致并绑定提交。Coach 报告为 74 observed-pass、2 observed-context、2 blocked，共 78 项；新聊天尾项两宽都在 original-input 阅读处停止，未安装故障、未 Send、未达到找回入口。
+
+原 075/142 图片的完整 A 单行清楚可读，实际 value 等于 A，原整体 visible/painted/centerHit 均成立；唯一拒绝条件为 scrollHeight 44 大于 clientHeight 42。first-failure 与 terminal-network 都记录 fault=null、requests=[]。这是把滚动盒尺寸差直接等同正文裁切的取证问题，不是已证明的产品文字缺失、发送故障或输入找回结果。原件没有保存 computed padding/border；不能将后来按源码推导或新采样的样式值补写为本次实测。
+
+31 份相关原 JSON 已逐 hash 独核，其中 22 份为新增 chat-recovery 命名。两宽各有一个旧 session、八条消息，逐对绑定前面四次财务真实网络正文、同 session 与完整 DONE；当前聊天页仍是空会话。冻结到首败的旧消息、完整所采四张本机表（3/17/0/5 行）、raw Expense/Insights GET 及六条全实体账均相等，账为五个 Expense 事件和一个 QuickNote 事件。业务全账来自严格分页后的聚合结果，原分页 HTTP envelope/headers 未另存，不冒称全库或全部原始 HTTP 保全；本次尾项零请求，也没有新的响应头可核。
+
+两主 VP9 编码时长 38.250/37.083 秒，完整解码成功；两原 trace 的 578003/631640 个事件已流读到尾。原末帧仍是完整 A 和当前空会话，不能授之后的故障、B 保稿或重试。官方全矩阵 20 成功、Coach 与原暂停 preferences-read 两项失败，无取消；verify 在本次精确提交实际完成 799/62、双端 audit 0 及 25 项普通脚本检查。普通媒体未重复独审，不以这次脚本成功解释之前的初始化错误。
+
+下一取证候选只更正 textarea 正文可读性判断：[scrollHeight](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight) 包含 padding，[clientHeight](https://developer.mozilla.org/en-US/docs/Web/API/Element/clientHeight) 不包含 border，二者不等不能直接证明字形裁切。新阅读保存本次实际 client/scroll 宽高、滚动位置及 computed padding、line-height、box-sizing、书写方向，在声明的水平 LTR 输入内核正文布局边界；不加固定 2px 容差，不改变产品尺寸、滚动位置或动作。精确值与原整体绘制/裁切/前景命中仍须通过，真正内容溢出或首行滚走必须拒绝。旧 0c63 首败保留，后继仍需新原件才能证明实际发送及原入口停点。
+
+这份布局测量后继已在同一冻结执行字节完成前端 lint/build、800/800 测试，无跳过或取消；六项定向合同和独立有限边界控制也通过。44/42 与具体 padding 的组合仅是明示的合成正控，新实际样式量要由下一原件取得。产品、服务端、driver、工作流及全部用户动作/故障/期限/来源判据均未修改，后台沿 0c63 的 62 项与 audit 0，没有重复本地后台或审计。这里只授取证准备，仍未授发送、失败提示、找回或编辑重试的产品结果。

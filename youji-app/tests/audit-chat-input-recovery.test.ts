@@ -91,6 +91,31 @@ test('Opening/cancelling recovery preserves the real new draft, failed bubbles a
   assert.equal(checks.inputReadingMatches({ value: contract.otherDraft }, contract.original), false, 'Earlier restored A cannot credit a view whose actual value has since changed');
 });
 
+test('Input layout excludes only measured padding overflow and rejects clipped content or unknown metrics', () => {
+  // Declared pure fixture, not padding measurements retrofitted to old media.
+  const input = { value: contract.original, clientHeight: 42, scrollHeight: 44, clientWidth: 326, scrollWidth: 326, scrollTop: 0, scrollLeft: 0,
+    computedStyle: { paddingTop: '10px', paddingRight: '40px', paddingBottom: '10px', paddingLeft: '16px', boxSizing: 'border-box', lineHeight: '24px', direction: 'ltr', writingMode: 'horizontal-tb' } };
+  const readable = (actual: typeof input, expected = contract.original) => checks.inputReadingMatches(actual, expected) && checks.inputLayoutChecks(actual).readable;
+  assert.equal(readable(input), true);
+  assert.deepEqual(checks.inputLayoutChecks(input).contentEdges, { top: 10, bottom: 34, left: 16, right: 286 });
+  assert.equal(readable({ ...input, clientHeight: 80, scrollHeight: 80, clientWidth: 400, scrollWidth: 400 }), true, 'An ordinarily larger readable box remains accepted');
+  assert.equal(readable({ ...input, value: contract.otherDraft }, contract.otherDraft), true);
+  assert.equal(readable({ ...input, value: '' }, ''), true);
+  assert.equal(readable({ ...input, value: contract.otherDraft }), false, 'Changed actual draft never borrows original A credit');
+  for (const invalid of [
+    { ...input, scrollHeight: 100 },
+    { ...input, scrollHeight: 54, scrollTop: 12 }, // Bottom fits but the first line starts above the viewport.
+    { ...input, scrollWidth: 380, scrollLeft: 17 }, // Right fits but initial text is scrolled away.
+    { ...input, scrollWidth: 370 },
+    { ...input, scrollTop: -1 }, { ...input, scrollLeft: Infinity }, { ...input, clientHeight: NaN },
+    ...[
+      { paddingBottom: '0px' }, { paddingTop: '' }, { paddingLeft: '-1px' }, { paddingRight: '10%' },
+      { lineHeight: 'normal' }, { lineHeight: '0px' }, { lineHeight: '90px' },
+      { boxSizing: 'unknown' }, { direction: 'rtl' }, { writingMode: 'vertical-rl' },
+    ].map(change => ({ ...input, computedStyle: { ...input.computedStyle, ...change } })),
+  ]) assert.equal(readable(invalid), false, JSON.stringify(invalid));
+});
+
 test('Only the explicit edited answer may create one session and its exact user/assistant pair', () => {
   const before = source(), after = successfulSource(), request = { sessionId: 'new-session', startedAt: Date.parse(newTime) - 100, finishedAt: Date.parse(newTime) + 100 };
   assert.equal(checks.recoveredChatSources(before, after, completed, request), true);
