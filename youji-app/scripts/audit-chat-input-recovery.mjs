@@ -13,6 +13,11 @@ const CONTRACT = Object.freeze({
   edited: '帮我看看近7天的花销，只统计已记录支出',
   edit: '重新编辑这条消息', keep: '保留当前输入', replace: '替换为这条消息',
 });
+const TRUNCATED = Object.freeze({
+  original: '请继续核对已记录的花销，并说明依据',
+  partial: '合成截断流：先核对已记录的支出，后续说明',
+});
+const TRUNCATED_SSE = `data: ${JSON.stringify({ content: TRUNCATED.partial })}\n\n`;
 
 function sameOriginChat(request, origin) {
   const url = new URL(request.url);
@@ -81,6 +86,45 @@ function recoveredBubbles(before, after, completed) {
 }
 export const chatRecoveryChecks = { contract: CONTRACT, sameOriginChat, exactFailureRequest, validateChatSources, sameChatSources, recoveredChatSources, unchangedBubbles, retainedEditState, inputReadingMatches, inputLayoutChecks, recoveredBubbles };
 
+function truncatedBubbles(before, after) {
+  return after.length === before.length + 2 && unchangedBubbles(before, after.slice(0, before.length)) &&
+    isDeepStrictEqual(after.slice(-2), [{ role: 'user', content: TRUNCATED.original }, { role: 'assistant', content: TRUNCATED.partial }]);
+}
+function truncatedTransport(requests, frozen, diagnostic) {
+  const request = requests[0], response = request?.responses[0];
+  return requests.length === 1 && exactFailureRequest(request, frozen) && request.failures.length === 0 && request.finished.length === 1 &&
+    request.responses.length === 1 && response.status === 200 && !response.error && response.text === TRUNCATED_SSE &&
+    /^text\/event-stream;\s*charset=utf-8$/i.test(response.contentType ?? '') && diagnostic?.matches === 1 && diagnostic.responded === 1 &&
+    diagnostic.errors.length === 0 && Number.isFinite(diagnostic.releasedAt);
+}
+export const truncatedChatChecks = { contract: TRUNCATED, sse: TRUNCATED_SSE, truncatedBubbles, truncatedTransport };
+
+// Synthetic client transport only. The one response never reaches /api/chat;
+// its HTTP 200 is not a backend save, rule result or real provider completion.
+export async function installChatTruncatedResponse(page, frozen) {
+  const diagnostic = { installedAt: Date.now(), releasedAt: null, matches: 0, responded: 0, continued: 0, errors: [] };
+  const pending = new Set(); let released = false;
+  const onRequest = request => {
+    const match = exactFailureRequest({ method: request.method(), url: request.url(), body: request.postData() }, frozen);
+    if (match) diagnostic.matches++;
+    const respond = !released && match && diagnostic.responded === 0;
+    if (respond) diagnostic.responded++; else diagnostic.continued++;
+    const operation = (respond ? request.respond({ status: 200, contentType: 'text/event-stream; charset=utf-8', body: Buffer.from(TRUNCATED_SSE, 'utf8') }) : request.continue())
+      .catch(error => { diagnostic.errors.push(error.message); });
+    pending.add(operation); operation.finally(() => pending.delete(operation));
+  };
+  page.on('request', onRequest);
+  try { await page.setRequestInterception(true); }
+  catch (error) { page.off('request', onRequest); throw error; }
+  return { diagnostic, async release() {
+    if (released) return;
+    released = true; diagnostic.releasedAt = Date.now();
+    try { await page.setRequestInterception(false); await Promise.all([...pending]); }
+    finally { page.off('request', onRequest); }
+    assert.deepEqual(diagnostic.errors, [], 'Synthetic EOF release must finish without interception errors');
+  } };
+}
+
 // A real browser abort, once, before delivery. Other requests are continued.
 // The caller keeps request/response/requestfailed evidence across release.
 export async function installChatRecoveryAbort(page, frozen) {
@@ -121,7 +165,7 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
   const { pointer, fill, observe, segment, capture, sleep, actions, artifacts, writeFile, join } = h;
   const prefix = `${label}-chat-recovery`, origin = new URL(page.url()).origin;
   const frozenRequest = Object.freeze({ origin, method: 'POST', path: '/api/chat', body: JSON.stringify({ message: CONTRACT.original }) });
-  const requests = [], byRequest = new Map(); let fault, firstFailureSaved = false;
+  const requests = [], byRequest = new Map(); let fault, eofFault, firstFailureSaved = false, truncationStarted = false;
   async function save(name, value) { await writeFile(join(artifacts, `${prefix}-${name}.json`), JSON.stringify({ syntheticOnly: true, observedAt: new Date().toISOString(), ...value }, null, 2)); }
   async function bubbles() { return page.$$eval(BUBBLES, nodes => nodes.map(node => ({ role: node.tagName === 'P' ? 'user' : 'assistant', content: node.innerText }))); }
   async function ui() {
@@ -163,7 +207,7 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
     const parts = []; for (let el = node; el && el !== document.body; el = el.parentElement) { const siblings = [...el.parentElement.children].filter(row => row.tagName === el.tagName); parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(el) + 1})`); }
     return node ? `body > ${parts.join(' > ')}` : null;
   }, index); }
-  async function editEntry() {
+  async function editEntry(originalText = CONTRACT.original) {
     return page.evaluate(({ original, edit }) => {
       const matches = [...document.querySelectorAll('main p.whitespace-pre-wrap')].filter(el => el.innerText === original);
       if (matches.length !== 1) return { count: 0, reason: 'Original failed user bubble is not unique' };
@@ -172,10 +216,12 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
         const buttons = [...root.querySelectorAll('button')].filter(el => el.innerText.trim() === edit);
         if (buttons.length !== 1) continue;
         const parts = []; for (let el = buttons[0]; el && el !== document.body; el = el.parentElement) { const siblings = [...el.parentElement.children].filter(row => row.tagName === el.tagName); parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(el) + 1})`); }
-        return { count: 1, selector: `body > ${parts.join(' > ')}`, text: buttons[0].innerText, disabled: buttons[0].disabled };
+        const statuses = [...root.querySelectorAll('[role=status]')].filter(el => el.innerText.trim() === '回复未完成');
+        return { count: 1, selector: `body > ${parts.join(' > ')}`, text: buttons[0].innerText, disabled: buttons[0].disabled,
+          statusCount: statuses.length, statusSelector: statuses.length === 1 ? `body > ${parts.slice(0, -1).join(' > ')} > span[role=status]` : null };
       }
       return { count: 0, reason: 'No visible edit action beside the original failed user bubble' };
-    }, CONTRACT);
+    }, { ...CONTRACT, original: originalText });
   }
   async function dialogControl(text, name) {
     const selector = await page.evaluate(text => {
@@ -191,9 +237,10 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
   const onRequest = request => {
     const data = { method: request.method(), url: request.url(), body: request.postData() };
     if (!sameOriginChat(data, origin)) return;
-    const record = { ...data, startedAt: Date.now(), failures: [], responses: [] }; requests.push(record); byRequest.set(request, record);
+    const record = { ...data, startedAt: Date.now(), failures: [], responses: [], finished: [] }; requests.push(record); byRequest.set(request, record);
   };
   const onFailed = request => { const record = byRequest.get(request); if (record) record.failures.push({ at: Date.now(), errorText: request.failure()?.errorText ?? null }); };
+  const onFinished = request => { const record = byRequest.get(request); if (record) record.finished.push({ at: Date.now() }); };
   const onResponse = response => {
     const record = byRequest.get(response.request()); if (!record) return;
     const result = { at: Date.now(), status: response.status(), sessionId: response.headers()['x-session-id'] ?? null, contentType: response.headers()['content-type'] ?? null };
@@ -207,8 +254,95 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
     do { if (predicate()) return; await sleep(75); } while (Date.now() < deadline);
     throw new Error(`${name}; bounded observation ended without resend`);
   }
+  async function truncatedReply(before, originalUi, sessionId) {
+    const requestOffset = requests.length;
+    assert.equal(requestOffset, 2); assert.equal(originalUi.bubbles.length, 4);
+    assert.equal(originalUi.input.value, ''); assert.equal(originalUi.input.disabled, false);
+    assert.ok(before.chat.rawSessions.sessions.some(session => session.id === sessionId));
+    const frozen = Object.freeze({ origin, body: JSON.stringify({ message: TRUNCATED.original, sessionId }) });
+    const eofNetwork = () => ({ frozenRequest: frozen, declaredResponse: { syntheticClientTransport: true, status: 200, contentType: 'text/event-stream; charset=utf-8', body: TRUNCATED_SSE, normalEofWithoutDone: true }, fault: eofFault?.diagnostic ?? null,
+      previousPostCount: requestOffset, addedPostCount: requests.length - requestOffset, totalPostCount: requests.length,
+      requests: network().requests.slice(requestOffset), boundary: 'Puppeteer respond, not a backend or provider response; only this exact POST is substituted once. No automatic resend.' });
+    async function notificationState() {
+      return page.evaluate(selector => {
+        const input = document.querySelector(selector).getBoundingClientRect();
+        const cards = [...document.querySelectorAll('[aria-label="通知"] button[aria-label="关闭提示"]')].map(button => {
+          const card = button.parentElement, rect = card.getBoundingClientRect(), css = getComputedStyle(card);
+          return { text: card.innerText, rect: rect.toJSON(), opacity: css.opacity, pointerEvents: css.pointerEvents,
+            painted: rect.width > 0 && rect.height > 0 && css.display !== 'none' && css.visibility === 'visible' && Number(css.opacity) > 0,
+            partialWarning: card.innerText.includes('回复生成中断，内容可能不完整'),
+            overlapsInput: rect.left < input.right && rect.right > input.left && rect.top < input.bottom && rect.bottom > input.top };
+        });
+        return { inputRect: input.toJSON(), cards };
+      }, INPUT);
+    }
+    async function preserved(name, expectedInput) {
+      const current = await sources(`truncated-${name}`), actual = await ui();
+      await save(`truncated-${name}-state`, { ui: actual, network: eofNetwork() });
+      assert.ok(sameChatSources(before.chat, current.chat), 'Synthetic EOF/recovery must leave every canonical Chat API field unchanged');
+      assert.ok(isDeepStrictEqual(before.financial, current.financial), 'Synthetic EOF/recovery must leave the complete sampled financial sources unchanged');
+      assert.ok(truncatedBubbles(originalUi.bubbles, actual.bubbles), 'Keep all four old bubbles and the exact new question/partial reply');
+      assert.equal(actual.input.value, expectedInput); assert.equal(actual.input.disabled, false); assert.equal(actual.thinking, false);
+      assert.equal(requests.length, requestOffset + 1); assert.ok(truncatedTransport(requests.slice(requestOffset), frozen, eofFault.diagnostic));
+      return actual;
+    }
+    await save('truncated-declaration', { contract: TRUNCATED, originalUi, originalSources: before, network: eofNetwork(), scope: 'Current-page synthetic partial SSE with normal EOF and no DONE. Native UI only; no upstream-provider claim, no history clearing and no resend.' });
+    await fill(page, INPUT, TRUNCATED.original); await read(INPUT, 'truncated-original-input', TRUNCATED.original); await read(SEND, 'truncated-explicit-send');
+    eofFault = await installChatTruncatedResponse(page, frozen);
+    actions.push({ kind: 'chat-single-exact-synthetic-eof-installed', ...frozen, syntheticClientTransport: true });
+    const sendActionStartedAt = Date.now(); actions.push({ kind: 'chat-truncated-explicit-send-start', at: sendActionStartedAt });
+    await pointer(page, SEND);
+    await until(() => requests.length > requestOffset && (requests[requestOffset].finished.length || requests[requestOffset].failures.length), 'Synthetic EOF request did not finish');
+    const sent = requests[requestOffset];
+    if (sent.bodyResult) await bounded(sent.bodyResult, 'Synthetic EOF body could not be read');
+    await save('truncated-response-network', { ...eofNetwork(), sendActionStartedAt });
+    await eofFault.release(); actions.push({ kind: 'chat-single-exact-synthetic-eof-released', at: Date.now(), noResend: true });
+    assert.ok(truncatedTransport(requests.slice(requestOffset), frozen, eofFault.diagnostic), 'Require the declared synthetic 200/body, normal requestfinished, zero requestfailed and exactly one intercepted POST');
+    await page.waitForFunction(selector => { const el = document.querySelector(selector); return el && !el.disabled && el.value === '' && ![...document.querySelectorAll('main p')].some(node => node.textContent === '正在思考...'); }, { timeout: 7000 }, INPUT);
+    await preserved('released', '');
+    for (const index of [originalUi.bubbles.length, originalUi.bubbles.length + 1]) await read(await bubbleSelector(index), `truncated-reply-bubble-${index}`);
+    const entry = await editEntry(TRUNCATED.original);
+    await save('truncated-edit-entry', { entry, ui: await ui(), notification: await notificationState(), network: eofNetwork() });
+    if (entry.count !== 1 || entry.disabled || entry.statusCount !== 1 || !entry.statusSelector) {
+      firstFailureSaved = true;
+      await observe(page, `${prefix}-truncated-reply-incomplete-feedback`, false, JSON.stringify({ entry, stoppedAt: 'No unique usable incomplete feedback/edit entry for the exact truncated question. Recovery was not executed.' }));
+      await save('truncated-first-failure', { classification: 'product-missing-incomplete-feedback-or-edit-entry', entry, ui: await ui(), network: eofNetwork() });
+      await preserved('missing-entry-stop', '');
+      return;
+    }
+    const statusReading = await read(entry.statusSelector, 'truncated-incomplete-status');
+    assert.equal(statusReading.text, '回复未完成', 'Actual status reading must match this question, not an earlier text observation');
+    await read(entry.selector, 'truncated-edit-entry');
+    await pointer(page, entry.selector);
+    // Only the actual message control may restore C. Never fill C here.
+    const notificationsBefore = await notificationState();
+    await save('truncated-notifications-before-reading', { notification: notificationsBefore, scope: 'Painted notification cards can cover an input even with pointer-events:none; no product feedback is removed' });
+    await capture(page, `${prefix}-truncated-notifications-before-reading`);
+    const mustWait = notificationsBefore.cards.some(card => card.painted && card.overlapsInput), waitStartedAt = Date.now();
+    let waitError = null;
+    try { if (mustWait) await page.waitForFunction(selector => {
+        const input = document.querySelector(selector).getBoundingClientRect();
+        return [...document.querySelectorAll('[aria-label="通知"] button[aria-label="关闭提示"]')].every(button => {
+          const card = button.parentElement, rect = card.getBoundingClientRect(), css = getComputedStyle(card);
+          const painted = rect.width > 0 && rect.height > 0 && css.display !== 'none' && css.visibility === 'visible' && Number(css.opacity) > 0;
+          return !painted || !(rect.left < input.right && rect.right > input.left && rect.top < input.bottom && rect.bottom > input.top);
+        });
+      }, { timeout: 5000 }, INPUT); }
+    catch (error) { waitError = error.message; }
+    const notificationsAfter = await notificationState(), waitFinishedAt = Date.now(), elapsedMs = waitFinishedAt - waitStartedAt;
+    await save('truncated-notifications-after-reading-wait', { notification: notificationsAfter, mustWait, waitStartedAt, waitFinishedAt, elapsedMs, hardLimitMs: 5000, waitError, condition: 'Only an actual painted notification/input overlap triggers bounded native expiry; no fixed sleep, hit-test shortcut or dismissal' });
+    await capture(page, `${prefix}-truncated-notifications-after-reading-wait`);
+    assert.ok(!waitError && (!mustWait || elapsedMs <= 5000), 'Notification observation exceeded its hard deadline; no late success credit');
+    assert.ok(!notificationsAfter.cards.some(card => card.painted && card.overlapsInput), 'An actual painted notification still covers the input');
+    await read(INPUT, 'truncated-restored-original', TRUNCATED.original);
+    const restoredUi = await preserved('restored-final', TRUNCATED.original);
+    assert.equal(await page.$('[role=dialog]'), null, 'An empty input restores directly without inventing a conflict choice');
+    const restoredEntry = await editEntry(TRUNCATED.original);
+    assert.equal(restoredEntry.count, 1); assert.equal(restoredEntry.disabled, false); assert.equal(restoredEntry.statusCount, 1);
+    await observe(page, `${prefix}-truncated-reply-restored-without-send`, true, JSON.stringify({ ui: restoredUi, previousPostCount: requestOffset, addedPostCount: 1, totalPostCount: requests.length, originalSourceUnchanged: true, syntheticClientTransport: true }));
+  }
   await segment(page, prefix, async () => {
-    page.on('request', onRequest); page.on('requestfailed', onFailed); page.on('response', onResponse);
+    page.on('request', onRequest); page.on('requestfailed', onFailed); page.on('response', onResponse); page.on('requestfinished', onFinished);
     try {
       // The existing terminal receipt is immersive and has no regular nav.
       await pointer(page, 'button', '回到首页'); await h.waitPath(page, '/');
@@ -282,19 +416,22 @@ export async function runChatInputRecovery(h, { page, api, label, financial, ope
       await financial.preserve(before.financial, after.financial, 'chat-recovery-final');
       assert.equal(requests.length, 2); assert.equal(recoveredUi.thinking, false);
       await observe(page, `${prefix}-explicit-edited-reply-complete`, true, JSON.stringify({ request, originalFailurePreserved: true, requestCount: requests.length, completedSource: completed.source, scope: 'Current page first-question failure only; no reload, account switch or persisted draft recovery claim' }));
+      // Preserve the original two-request terminal record before the new tail.
+      await save('terminal-network', network()); truncationStarted = true;
+      await truncatedReply(after, recoveredUi, response.sessionId);
     } catch (error) {
       if (!firstFailureSaved) {
         firstFailureSaved = true;
         await capture(page, `${prefix}-first-failure`).catch(() => undefined);
-        await save('first-failure', { error: error.message, network: network(), ui: await ui().catch(() => null) });
-        await sources('first-failure').catch(sourceError => save('first-failure-source-blocked', { error: sourceError.message }));
+        await save(truncationStarted ? 'truncated-first-failure' : 'first-failure', { error: error.message, network: network(), syntheticEofFault: eofFault?.diagnostic ?? null, ui: await ui().catch(() => null) });
+        await sources(truncationStarted ? 'truncated-first-failure' : 'first-failure').catch(sourceError => save('first-failure-source-blocked', { error: sourceError.message }));
       }
       throw error;
     } finally {
-      try { await fault?.release(); }
+      try { await fault?.release(); await eofFault?.release(); }
       finally {
-        page.off('request', onRequest); page.off('requestfailed', onFailed); page.off('response', onResponse);
-        await save('terminal-network', network());
+        page.off('request', onRequest); page.off('requestfailed', onFailed); page.off('response', onResponse); page.off('requestfinished', onFinished);
+        await save(truncationStarted ? 'truncated-terminal-network' : 'terminal-network', { ...network(), ...(truncationStarted ? { syntheticEofFault: eofFault?.diagnostic ?? null, previousPostCount: 2, addedPostCount: requests.length - 2, totalPostCount: requests.length, boundary: 'Original two requests plus exactly one synthetic client EOF response; its 200 is not backend success' } : {}) });
       }
     }
   });

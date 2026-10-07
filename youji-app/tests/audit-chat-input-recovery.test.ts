@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EventEmitter } from 'node:events';
-import { chatRecoveryChecks as checks, installChatRecoveryAbort } from '../scripts/audit-chat-input-recovery.mjs';
+import { chatRecoveryChecks as checks, installChatRecoveryAbort, truncatedChatChecks as eof, installChatTruncatedResponse } from '../scripts/audit-chat-input-recovery.mjs';
 import { expenseSummaryChecks } from '../scripts/audit-expense-summary.mjs';
 
 // Pure contract controls only. Mock transport objects do not prove native
@@ -167,4 +167,68 @@ test('Later successful UI preserves the original failure prefix instead of repla
   const after = [...failedBubbles, { role: 'user', content: contract.edited }, { role: 'assistant', content }];
   assert.equal(checks.recoveredBubbles(failedBubbles, after, completed), true);
   for (const invalid of [after.slice(2), [{ ...failedBubbles[0], content: contract.edited }, ...after.slice(1)], [...after, { role: 'assistant', content }], [...failedBubbles, { role: 'user', content: contract.original }, { role: 'assistant', content }]]) assert.equal(checks.recoveredBubbles(failedBubbles, invalid, completed), false);
+});
+
+test('Declared synthetic EOF responds once only to the exact current-session POST and never replays on release', async () => {
+  const exact = { method: 'POST', url: `${origin}/api/chat`, body: JSON.stringify({ message: eof.contract.original, sessionId: 'new-session' }) };
+  const frozenEof = { origin, body: exact.body };
+  const others = [
+    { ...exact, method: 'GET' }, { ...exact, url: `${origin}/api/chat?retry=1` },
+    { ...exact, url: 'https://other.invalid/api/chat' },
+    { ...exact, body: JSON.stringify({ message: eof.contract.original }) },
+    { ...exact, body: JSON.stringify({ message: eof.contract.original, sessionId: 'old-session' }) },
+    { ...exact, body: JSON.stringify({ message: eof.contract.original, sessionId: 'new-session' }, null, 2) },
+  ];
+  const page = new EventEmitter() as EventEmitter & { setRequestInterception: (enabled: boolean) => Promise<void> };
+  const switches: boolean[] = [], operations: string[] = [];
+  page.setRequestInterception = async enabled => { switches.push(enabled); };
+  const fault = await installChatTruncatedResponse(page, frozenEof);
+  for (const data of [...others, exact, exact]) page.emit('request', {
+    method: () => data.method, url: () => data.url, postData: () => data.body,
+    continue: async () => { operations.push('continue'); },
+    respond: async (response: { status: number; contentType: string; body: Buffer }) => {
+      operations.push('respond');
+      assert.equal(response.status, 200); assert.equal(response.contentType, 'text/event-stream; charset=utf-8');
+      assert.equal(new TextDecoder('utf-8', { fatal: true }).decode(response.body), eof.sse);
+      assert.equal(eof.sse, `data: ${JSON.stringify({ content: eof.contract.partial })}\n\n`);
+      assert.equal(eof.sse.includes('[DONE]'), false);
+    },
+  });
+  await fault.release(); await fault.release();
+  assert.deepEqual(operations, [...others.map(() => 'continue'), 'respond', 'continue']);
+  assert.deepEqual(switches, [true, false]); assert.equal(page.listenerCount('request'), 0);
+  assert.equal(fault.diagnostic.responded, 1); assert.equal(fault.diagnostic.matches, 2); assert.deepEqual(fault.diagnostic.errors, []);
+});
+
+test('Synthetic EOF evidence rejects missing EOF, failures, duplicates, changed bytes and unreleased interception', () => {
+  const frozenEof = { origin, body: JSON.stringify({ message: eof.contract.original, sessionId: 'new-session' }) };
+  const request = { method: 'POST', url: `${origin}/api/chat`, body: frozenEof.body, failures: [], finished: [{ at: 10 }], responses: [{ status: 200, contentType: 'text/event-stream; charset=utf-8', text: eof.sse }] };
+  const diagnostic = { matches: 1, responded: 1, errors: [], releasedAt: 11 };
+  assert.equal(eof.truncatedTransport([request], frozenEof, diagnostic), true);
+  for (const invalid of [
+    { ...request, body: JSON.stringify({ message: eof.contract.original }) },
+    { ...request, finished: [] }, { ...request, finished: [{ at: 10 }, { at: 11 }] },
+    { ...request, failures: [{ errorText: 'ERR_FAILED' }] },
+    { ...request, responses: [] }, { ...request, responses: [...request.responses, ...request.responses] },
+    ...[
+      { status: 500 }, { contentType: 'text/event-stream' }, { text: `${eof.sse}data: [DONE]\n\n` },
+      { text: 'data: {"content":"different"}\n\n' }, { error: 'body capture failed' },
+    ].map(change => ({ ...request, responses: [{ ...request.responses[0], ...change }] })),
+  ]) assert.equal(eof.truncatedTransport([invalid], frozenEof, diagnostic), false);
+  assert.equal(eof.truncatedTransport([], frozenEof, diagnostic), false);
+  assert.equal(eof.truncatedTransport([request, request], frozenEof, diagnostic), false);
+  for (const change of [{ matches: 0 }, { matches: 2 }, { responded: 0 }, { responded: 2 }, { errors: ['release error'] }, { releasedAt: null }])
+    assert.equal(eof.truncatedTransport([request], frozenEof, { ...diagnostic, ...change }), false);
+});
+
+test('Truncated reply preserves the exact old four bubbles plus original question and received partial text', () => {
+  const before = [...failedBubbles, { role: 'user', content: contract.edited }, { role: 'assistant', content }];
+  const tail = [{ role: 'user', content: eof.contract.original }, { role: 'assistant', content: eof.contract.partial }];
+  assert.equal(eof.truncatedBubbles(before, [...before, ...tail]), true);
+  for (const invalid of [
+    tail, [...before, ...tail, tail[1]], [...before, tail[0]],
+    [{ ...before[0], content: 'changed old question' }, ...before.slice(1), ...tail],
+    [...before, { ...tail[0], content: contract.original }, tail[1]],
+    [...before, tail[0], { ...tail[1], content: '网络错误' }],
+  ]) assert.equal(eof.truncatedBubbles(before, invalid), false);
 });
