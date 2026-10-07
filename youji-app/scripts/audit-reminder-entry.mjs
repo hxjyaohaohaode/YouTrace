@@ -225,7 +225,7 @@ export async function runReminderEntry(h) {
     }
     page.on('request', onRequest); page.on('response', onResponse); page.on('requestfinished', onFinished);
     try {
-      await login(page, config.phone, `Synthetic Reminder ${config.width}`); await finishedBrief(0); api = await bounded(apiFor(page), 'native owner read');
+      await login(page, config.phone, `Synthetic Rem ${config.width}`); await finishedBrief(0); api = await bounded(apiFor(page), 'native owner read');
       let prepared = await settled('initial-home-source'); assert.ok(empty(prepared, { pushes: true }));
       assert.equal(generations.length, 1, 'One native initial Home brief must finish before source freeze');
       const generated = generations[0]; assert.ok(generated.status === 200 && generated.finishedAt && !generated.error);
