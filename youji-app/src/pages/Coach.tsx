@@ -6,6 +6,7 @@ import { ArrowLeft, Trash2, Sparkles, Target, Phone } from 'lucide-react';
 import { useCoachStore } from '../stores/coachStore';
 import { MessageList } from '../components/coach/MessageList';
 import { ChatInput } from '../components/coach/ChatInput';
+import type { ChatInputHandle } from '../components/coach/ChatInput';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
@@ -37,11 +38,16 @@ export default function Coach() {
   const prefillKey = prefillText.length;
   const [confirmClear, setConfirmClear] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<ChatInputHandle>(null);
   const followingRef = useRef(true);
   const [following, setFollowing] = useState(true);
   const reducedMotion = useReducedMotion();
 
   const emotionState = assessEmotionState();
+  const getFailedMessageText = useCallback((messageId: string) => {
+    const message = useCoachStore.getState().messages.find((item) => item.id === messageId);
+    return message?.role === 'user' && message.replyFailed ? message.content : undefined;
+  }, []);
 
   useEffect(() => {
     if (followingRef.current && (messages.length > 0 || isTyping)) containerRef.current?.scrollTo({ top: containerRef.current.scrollHeight, behavior: 'auto' });
@@ -180,7 +186,7 @@ export default function Coach() {
             </motion.div>
           </div>
         ) : (
-          <MessageList messages={messages} onExecuteActions={executeActions} onExecuteSmartAction={executeSmartAction} isTyping={isTyping} />
+          <MessageList messages={messages} onExecuteActions={executeActions} onExecuteSmartAction={executeSmartAction} onEditMessage={(messageId) => inputRef.current?.editMessage(messageId)} isTyping={isTyping} />
         )}
       </div>
 
@@ -190,7 +196,9 @@ export default function Coach() {
       }}>回到最新消息</button>}
       <ChatInput
         key={prefillKey}
+        ref={inputRef}
         initialText={prefillText}
+        getFailedMessageText={getFailedMessageText}
         onSend={(text) => void handleSend(text)}
         disabled={isTyping}
       />

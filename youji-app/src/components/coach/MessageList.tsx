@@ -7,6 +7,7 @@ interface MessageListProps {
   messages: CoachMessage[];
   onExecuteActions: (messageId: string, actionIds: string[]) => void;
   onExecuteSmartAction: (messageId: string, actionId: string) => Promise<void>;
+  onEditMessage: (messageId: string) => void;
   isTyping?: boolean;
 }
 
@@ -168,15 +169,34 @@ function AssistantMessage({
   );
 }
 
-function UserMessage({ message }: { message: CoachMessage }) {
+function UserMessage({ message, onEditMessage, disabled }: {
+  message: CoachMessage;
+  onEditMessage: (messageId: string) => void;
+  disabled: boolean;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex justify-end px-4 py-3"
     >
-      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] px-4 py-3 text-white shadow-[var(--shadow-glow)]">
-        <p className="whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed">{message.content}</p>
+      <div className="max-w-[80%]">
+        <div className="rounded-2xl rounded-tr-sm bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] px-4 py-3 text-white shadow-[var(--shadow-glow)]">
+          <p className="whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed">{message.content}</p>
+        </div>
+        {message.replyFailed && (
+          <div className="mt-2 flex flex-col items-end gap-1">
+            <span role="status" className="text-xs font-medium text-[var(--danger)]">回复未完成</span>
+            <button
+              type="button"
+              onClick={() => onEditMessage(message.id)}
+              disabled={disabled}
+              className="min-h-11 rounded-full border border-[var(--primary)]/25 bg-[var(--primary-soft)] px-3 py-2 text-[13px] font-semibold text-[var(--primary)] transition-colors hover:bg-[var(--primary-muted)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] disabled:opacity-40"
+            >
+              重新编辑这条消息
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -210,7 +230,7 @@ function TypingIndicator() {
   );
 }
 
-export function MessageList({ messages, onExecuteActions, onExecuteSmartAction, isTyping }: MessageListProps) {
+export function MessageList({ messages, onExecuteActions, onExecuteSmartAction, onEditMessage, isTyping }: MessageListProps) {
   return (
     <div className="py-4">
       {messages.map((message, index) => {
@@ -227,7 +247,7 @@ export function MessageList({ messages, onExecuteActions, onExecuteSmartAction, 
             streaming={isLatest && isTyping === true}
           />
         ) : (
-          <UserMessage key={message.id} message={message} />
+          <UserMessage key={message.id} message={message} onEditMessage={onEditMessage} disabled={isTyping === true} />
         );
       })}
       {isTyping && messages.at(-1)?.role !== 'assistant' && <TypingIndicator />}

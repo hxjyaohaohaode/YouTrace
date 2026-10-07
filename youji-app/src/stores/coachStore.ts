@@ -20,6 +20,7 @@ export interface CoachMessage {
   content: string;
   timestamp: number;
   actions?: CoachAction[];
+  replyFailed?: boolean;
 }
 
 export interface CoachAction {
@@ -636,11 +637,12 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     const controller = new AbortController();
     chatController = controller;
     const current = () => version === chatRequestVersion && !controller.signal.aborted;
+    const userMsgId = nextMessageId('user');
     set((state) => ({
       messages: [
         ...state.messages,
         {
-          id: nextMessageId('user'),
+          id: userMsgId,
           role: 'user',
           content,
           timestamp: Date.now(),
@@ -713,16 +715,13 @@ export const useCoachStore = create<CoachState>((set, get) => ({
       const recoveryText = partial?.content
         ? ''
         : '抱歉，网络似乎不太稳定，请稍后重试。';
-      if (recoveryText) {
-        set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === aiMsgId ? { ...m, content: recoveryText } : m
-          ),
-        }));
-        toast.error('消息发送失败，请检查网络后重试');
-      } else {
-        toast.warning('回复生成中断，内容可能不完整');
-      }
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === userMsgId ? { ...m, replyFailed: true }
+            : m.id === aiMsgId && recoveryText ? { ...m, content: recoveryText } : m
+        ),
+      }));
+      if (partial?.content) toast.warning('回复生成中断，内容可能不完整');
     } finally {
       if (current()) set({ isTyping: false });
       if (chatController === controller) chatController = null;
