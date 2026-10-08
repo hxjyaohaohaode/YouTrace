@@ -75,9 +75,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Preserve original brand assets and entry animation
-        working-directory: .
-        run: git diff --exit-code e0da837068b26eca3b95bfcb952c825b998a1dee HEAD -- youji-app/src/components/ui/SplashScreen.tsx youji-app/src/pages/Login.tsx youji-app/src/assets
+      - name: Preserve exact original brand assets and actual consumers
+        run: node scripts/verify-brand-integrity.mjs
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -86,6 +85,8 @@ jobs:
             youji-app/package-lock.json
             youji-app/server/package-lock.json
       - run: npm ci && npm --prefix server ci && npm --prefix server run db:generate
+      - name: Verify original brand guard negative cases and real React entry lifecycle
+        run: node --import tsx --test tests/brand-assets.test.ts tests/brand-integrity-guard.test.ts tests/splash-lifecycle.test.ts
       - run: npm run build && npm --prefix server run build
       - name: Install recording and Chinese-font prerequisites
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
