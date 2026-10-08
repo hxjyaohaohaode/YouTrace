@@ -4,13 +4,14 @@ import { useExpenseStore } from '../stores/expenseStore';
 import { useTodoStore } from '../stores/todoStore';
 import { useHabitStore } from '../stores/habitStore';
 import { useDiaryStore } from '../stores/diaryStore';
-import { useScheduleStore } from '../stores/scheduleStore';
+import { useScheduleStore, expandRecurringForRange } from '../stores/scheduleStore';
 import { useQuickNoteStore } from '../stores/quickNoteStore';
 import { useGoalStore } from '../stores/goalStore';
 import { useAuthStore } from '../stores/authStore';
 import { recordDiagnostic } from '../services/diagnostics';
-import { useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { ArrowRight, PenLine, CalendarDays, CheckSquare } from 'lucide-react';
+import '../styles/home-coach.css';
 import { useCoachStore, type CoachInsightRecord } from '../stores/coachStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isLoggedIn } from '../services/apiClient';
@@ -20,28 +21,36 @@ import { generateRealInsights } from '../services/lifeIntelligence';
 import { generatePushesFromInsights } from '../services/coachEngine';
 import { deliverControlledPush, getEveningReviewPush, isQuietHours, shouldShowEveningReview } from '../services/pushControl';
 import { formatBusinessDate, getBusinessDayStartTimestamp, getToday } from '../utils/date';
+import { timelineEntries } from '../services/timelineEntries';
 import { Greeting } from '../components/home/Greeting';
 import { BriefCard } from '../components/home/BriefCard';
 import { QuickActions } from '../components/home/QuickActions';
-import { OverviewCard } from '../components/home/OverviewCard';
 import { WeeklyReviewCard } from '../components/home/WeeklyReviewCard';
-
-const container = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.04 } },
-};
-
-const item = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0 },
-};
 
 let eveningReviewShownDate = '';
 
 export default function Home() {
   const nickname = useAuthStore(state => state.user?.nickname);
   const expenses = useExpenseStore(state => state.items.length), todos = useTodoStore(state => state.items.length), habits = useHabitStore(state => state.items.length), diaries = useDiaryStore(state => state.items.length), schedules = useScheduleStore(state => state.items.length), notes = useQuickNoteStore(state => state.records.length), goals = useGoalStore(state => state.items.length);
+  const todoItems = useTodoStore(state => state.items);
+  const scheduleItems = useScheduleStore(state => state.items);
+  const noteItems = useQuickNoteStore(state => state.records);
+  const diaryItems = useDiaryStore(state => state.items);
+  const expenseItems = useExpenseStore(state => state.items);
+  const [today, setToday] = useState(getToday);
+  useEffect(() => {
+    const refresh = () => setToday(getToday());
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, []);
+  const pendingTodos = todoItems.filter(row => !row.done);
+  const todaySchedule = expandRecurringForRange(scheduleItems, today, today);
+  const recentRecords = timelineEntries({ expenses: expenseItems, diaries: diaryItems, notes: noteItems, todos: [], habits: [], checkins: [], schedules: [] }).slice(0, 4);
+  const recentLabels = { capture: '速记', diary: '日记', expense: '收支', todo_done: '完成待办', habit: '习惯', schedule: '日程' };
   const isEmpty = expenses + todos + habits + diaries + schedules + notes + goals === 0;
+  const [briefError, setBriefError] = useState(false);
   const dailyBrief = useCoachStore((s) => s.dailyBrief);
   const unreadPushCount = useCoachStore((s) => s.getUnreadPushCount());
   const generateDailyBrief = useCoachStore((s) => s.generateDailyBrief);
@@ -131,40 +140,41 @@ export default function Home() {
       }
     }
 
-    void init().catch(() => recordDiagnostic('runtime-error', 'home'));
+    void init().catch(() => { recordDiagnostic('runtime-error', 'home'); if (!cancelled) setBriefError(true); });
 
     return () => { cancelled = true; };
   }, [generateDailyBrief, addInsight, addPush]);
 
-  const brief = dailyBrief ?? {
-    greeting: '你好',
-    date: '',
-    yesterdayReview: { spent: 0, spentDiff: null, habits: { done: 0, total: 0 }, moodScore: null },
-    weeklyInsights: [],
-    todayActions: [],
-    todaySchedule: [],
-  };
-
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="w-full space-y-6 sm:space-y-10">
-      <motion.div variants={item}>
-        <Greeting greeting={brief.greeting} date={brief.date} name={nickname} unreadCount={unreadPushCount} />
-      </motion.div>
-
-      <section className="space-y-4 rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-8" aria-label={isEmpty ? '第一次记录' : '继续记录'}>
-        <h2 className="text-xl font-bold">{isEmpty ? '先记一件刚发生的事' : '有件事想留下来？'}</h2>
-        <p className="max-w-xl text-sm leading-7 text-[var(--text-2)]">{isEmpty ? '不用先填完资料，也不用决定分到哪一类。写一句话，再由你核对日期、收支和待办；也可以只留原文。' : '写完再整理。每一项由你确认，保存后可以直接找到具体记录继续修改。'}</p>
-        <Link to="/quick-note" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#5B46D8] px-6 py-3 font-semibold text-white hover:bg-[#4935BC] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]">{isEmpty ? '写下第一条速记' : '写一条速记'}</Link>
-        {isEmpty && <p className="text-xs text-[var(--text-3)]">例如：明天要交报销单；午饭15。无需向模型发送这段文字。</p>}
-        {!isEmpty && <Link to="/timeline" className="ml-4 inline-flex min-h-12 items-center py-3 text-sm underline">找回之前的记录</Link>}
+    <div className="home-editorial">
+      <Greeting greeting={dailyBrief?.greeting ?? '你好'} date={today} name={nickname} unreadCount={unreadPushCount} />
+      <section className="home-capture" aria-labelledby="home-capture-title">
+        <div>
+          <p className="editorial-eyebrow">随手记录</p>
+          <h2 id="home-capture-title">记一句</h2>
+          <p>一件刚发生的事，一个还没理清的想法。先记下来，再由你决定怎么整理。</p>
+        </div>
+        <Link to="/quick-note" className="capture-link"><PenLine size={20} aria-hidden /><span>{isEmpty ? '写下第一条速记' : '记一句'}</span><ArrowRight size={20} aria-hidden /></Link>
+        <p className="capture-footnote">确认后才保存整理结果，也可以只留原文。</p>
       </section>
-      {isEmpty ? <details className="rounded-2xl border border-[var(--border-light)] p-4"><summary className="cursor-pointer py-2 font-semibold">也可以直接安排任务、记账或查看其他功能</summary><div className="pt-4"><QuickActions /></div></details> : <>
-        <motion.section variants={item}><h2 className="mb-4 text-sm font-bold">常用功能</h2><QuickActions /></motion.section>
-        <motion.section variants={item}><h2 className="mb-4 text-sm font-bold">已有记录概览</h2><OverviewCard /></motion.section>
-        <motion.section variants={item}><WeeklyReviewCard /></motion.section>
-        <details className="rounded-2xl border border-[var(--border-light)] p-4"><summary className="cursor-pointer py-2 font-semibold">查看今日回顾与建议</summary><div className="pt-4"><BriefCard data={brief} /></div></details>
-      </>}
-
-    </motion.div>
+      <div className="home-columns">
+        <section aria-labelledby="continue-heading" className="editorial-section">
+          <div className="editorial-section-heading"><h2 id="continue-heading">继续处理</h2><Link to="/schedule">看日程 <ArrowRight size={16} aria-hidden /></Link></div>
+          <p className="section-intro">{todaySchedule.length ? `今天有 ${todaySchedule.length} 项日程` : '今天暂时没有安排'} · {pendingTodos.length ? `${pendingTodos.length} 项待办未完成` : '没有未完成待办'}</p>
+          <div className="editorial-list">
+            {todaySchedule.slice(0, 2).map(row => <Link className="editorial-row" to={`/schedule?record=${encodeURIComponent(row.source.id)}&occurrence=${encodeURIComponent(row.occurrenceDate)}`} state={{ returnTo: { path: '/', label: '返回首页' } }} key={row.virtualId}><CalendarDays size={18} aria-hidden /><span><strong>{row.title}</strong><small>{row.startTime}–{row.endTime}{row.location ? ` · ${row.location}` : ''}</small></span><ArrowRight size={16} aria-hidden /></Link>)}
+            {pendingTodos.slice(0, 3).map(row => <Link className="editorial-row" to={`/todo?record=${encodeURIComponent(row.id)}`} state={{ returnTo: { path: '/', label: '返回首页' } }} key={row.id}><CheckSquare size={18} aria-hidden /><span><strong>{row.text}</strong><small>{row.dueDate ? `截止 ${row.dueDate}` : '未设置截止日期'}</small></span><ArrowRight size={16} aria-hidden /></Link>)}
+            {!todaySchedule.length && !pendingTodos.length && <div className="editorial-empty"><p>暂时没有需要继续处理的事项。</p><Link to="/todo">添加一件待办 <ArrowRight size={16} aria-hidden /></Link></div>}
+          </div>
+          <QuickActions />
+        </section>
+        <section aria-labelledby="recent-heading" className="editorial-section">
+          <div className="editorial-section-heading"><h2 id="recent-heading">最近记录</h2><Link to="/timeline">看时间线 <ArrowRight size={16} aria-hidden /></Link></div>
+          <p className="section-intro">按记录日期排列，随时回看、核对和修改。</p>
+          <div className="editorial-list">{recentRecords.length ? recentRecords.map(row => <Link className="editorial-row recent-record" to={row.route} state={{ returnTo: { path: '/', label: '返回首页' } }} key={row.id}><span><small>{row.date ?? '日期未知'} · {recentLabels[row.type]}</small><strong>{row.title}</strong></span><ArrowRight size={16} aria-hidden /></Link>) : <div className="editorial-empty"><p>还没有速记、日记或收支记录。</p><p>第一条记录会从这里开始。</p></div>}</div>
+        </section>
+      </div>
+      {!isEmpty && <div className="home-review"><WeeklyReviewCard /><details className="editorial-details"><summary>今日回顾与建议</summary><div className="pt-4">{dailyBrief ? <BriefCard data={dailyBrief} /> : <p role="status" className="text-sm text-[var(--text-2)]">{briefError ? '今日回顾暂时无法读取，仍可在时间线查看原始记录。' : '正在读取今日回顾…'}</p>}</div></details></div>}
+    </div>
   );
 }

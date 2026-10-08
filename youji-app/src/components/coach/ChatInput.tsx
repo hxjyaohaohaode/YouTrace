@@ -73,7 +73,7 @@ export function ChatInput({ ref, onSend, getFailedMessageText, disabled = false,
 
   return (
     <>
-      <div className="shrink-0 border-t border-[var(--border-light)] bg-[var(--glass-bg)]/80 backdrop-blur-xl">
+      <div className="shrink-0 border-t border-[var(--border-light)] bg-[var(--bg)]">
         <div className="flex items-end gap-2 px-4 py-3">
           <div className="relative flex flex-1 items-end">
             <textarea
@@ -91,7 +91,7 @@ export function ChatInput({ ref, onSend, getFailedMessageText, disabled = false,
               aria-label="输入消息"
               maxLength={MAX_TEXT_LENGTH}
               placeholder="和 AI 教练聊聊..."
-              className="w-full resize-none rounded-full border border-[var(--border-light)] bg-[var(--surface)] px-4 py-2.5 pr-10 text-[13px] font-medium leading-6 text-[var(--text-1)] outline-none transition-all duration-200 placeholder:text-[var(--text-3)] focus:border-[var(--primary)] focus:ring-[4px] focus:ring-[var(--primary)]/12 disabled:opacity-40"
+              className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pr-10 text-base font-normal leading-6 text-[var(--text-1)] outline-none transition-all duration-200 placeholder:text-[var(--text-3)] focus:border-[var(--primary)] focus:ring-[4px] focus:ring-[var(--primary)]/12 disabled:opacity-40"
               style={{ minHeight: '40px', maxHeight: '120px' }}
             />
             <motion.button
@@ -101,7 +101,7 @@ export function ChatInput({ ref, onSend, getFailedMessageText, disabled = false,
               onClick={handleSend}
               disabled={disabled || !text.trim()}
               aria-label="发送消息"
-              className="absolute bottom-[5px] right-1.5 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)] transition-all disabled:opacity-30"
+              className="absolute bottom-[5px] right-1.5 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-all disabled:opacity-30"
             >
               <Send size={14} aria-hidden />
             </motion.button>

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./record-pages.css";
 
 @theme {
   --font-sans: var(--font-sans);
@@ -114,7 +115,7 @@ input, textarea, select {
 
 ::selection {
   background-color: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 ::-webkit-scrollbar {
@@ -153,4 +154,34 @@ input, textarea, select {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* The workspace is deliberately paper-like: content, dates and decisions lead. */
+@layer base {
+  html { font-size: 16px; line-height: 1.6; }
+  button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 3px; }
+  button:disabled { cursor: not-allowed; }
+}
+.brand-lockup { display: inline-flex; align-items: center; gap: 12px; }
+.brand-lockup img { width: 48px; height: 48px; flex: none; }
+.brand-lockup strong { display: block; font-size: 22px; font-weight: 650; line-height: 1.3; letter-spacing: 2px; }
+.brand-lockup small { display: block; font-size: 10px; letter-spacing: 2px; color: var(--text-2); }
+.brand-wordmark { display: block; width: 100%; height: auto; background: #fffcf7; }
+.brand-animated svg { display: block; width: 100%; height: auto; }
+.tablet-brand img { width: 44px; height: 44px; }
+.sidebar-brand { padding: 16px 20px 8px; }
+.sidebar-brand p { font-size: 12px; margin-top: 4px; color: var(--text-3); }
+.sidebar-capture { margin: 0 16px 8px; padding: 12px; display: flex; gap: 10px; align-items: center; background: var(--primary); color: var(--on-primary); border-radius: 8px; font-size: 16px; font-weight: 600; }
+.sidebar-capture span { margin-left: auto; }
+.sidebar-navigation { scrollbar-width: thin; }
+.page-heading-icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; border: 1px solid var(--border); border-radius: 8px; color: var(--link); background: var(--surface); }
+.skip-link { position: fixed; top: -80px; left: 20px; z-index: 100; padding: 12px 20px; background: var(--surface); border: 2px solid var(--link); border-radius: 8px; }
+.skip-link:focus { top: 16px; }
+.splash-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: var(--z-splash); padding: 24px; }
+.splash-screen .brand-wordmark { max-width: 680px; }
+.login-wordmark { margin-bottom: 24px; }
+@media (max-width: 768px) {
+  .page-heading-icon { display: none; }
+  .brand-lockup strong { font-size: 22px; }
 }

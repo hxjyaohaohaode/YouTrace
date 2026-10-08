@@ -1,3 +1,4 @@
+import '../styles/home-coach.css';
 import { useState, useEffect, useRef } from 'react';
 import { liveQuery } from 'dexie';
 import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
@@ -41,10 +42,10 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
   const reduced = useReducedMotion();
   const toggleId = `toggle-${label}`;
   return (
-    <div className="flex items-center justify-between">
-      <label htmlFor={toggleId} className="cursor-pointer">
-        <p className="text-[13px] font-semibold text-[var(--text-1)]">{label}</p>
-        <p className="mt-0.5 text-xs font-medium text-[var(--text-3)]">{sub}</p>
+    <div className="flex items-center justify-between gap-4">
+      <label htmlFor={toggleId} className="min-w-0 cursor-pointer">
+        <p className="text-base font-semibold text-[var(--text-1)]">{label}</p>
+        <p className="mt-0.5 text-sm font-medium text-[var(--text-3)]">{sub}</p>
       </label>
       <button
         type="button"
@@ -53,12 +54,13 @@ function ToggleRow({ label, sub, checked, onChange }: ToggleRowProps) {
         role="switch"
         aria-checked={checked}
         aria-label={label}
-        className={`relative h-[26px] w-[46px] shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)]' : 'bg-[var(--surface-2)]'}`}
+        className="relative h-11 w-[46px] shrink-0 rounded-lg"
       >
+        <span aria-hidden className={`absolute inset-x-0 top-[9px] h-[26px] rounded-full border border-[var(--control-border)] transition-colors ${checked ? 'bg-[var(--primary)]' : 'bg-[var(--surface-2)]'}`} />
         <motion.div
           animate={{ x: checked ? 22 : 3 }}
           transition={{ duration: reduced ? 0 : 0.16, ease: 'easeOut' }}
-          className="absolute top-[3px] h-[20px] w-[20px] rounded-full bg-white shadow-sm"
+          className="absolute top-[12px] h-[20px] w-[20px] rounded-full border border-[var(--control-border)] bg-white shadow-sm"
         />
       </button>
     </div>
@@ -122,8 +124,8 @@ function SyncPanel() {
 
   if (!isAuthenticated) {
     return (
-      <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
-        <p className="text-xs leading-relaxed text-[var(--text-3)]">
+      <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
+        <p className="text-sm leading-relaxed text-[var(--text-3)]">
           未登录。数据仅保存在本设备；登录后自动开启多设备同步。
         </p>
       </div>
@@ -131,21 +133,21 @@ function SyncPanel() {
   }
 
   return (
-    <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+    <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
       {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
       {!stats && !error && <p role="status" className="text-sm text-[var(--text-3)]">正在读取本设备状态…</p>}
       {stats?.localBlock && <p role="alert" className="rounded-xl border border-[var(--warning)] p-3 text-sm leading-6">旧版未确认请求含有未核对字段，已在本机停止发送。原请求、编号与修改都保留；反复点击同步不会上传它们。请先导出完整备份，再核对兼容处理。不要清空资料或把此状态当成网络故障。</p>}
       {stats && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
               <span className={`h-2 w-2 rounded-full ${stats.pending > 0 ? 'bg-[var(--warning)]' : 'bg-[var(--success)]'}`} aria-hidden />
               <div>
-                <p className="text-[13px] font-semibold text-[var(--text-1)]">
+                <p className="text-base font-semibold text-[var(--text-1)]">
                   {stats.pending > 0 ? `${stats.pending} 条记录修改待确认${stats.blocked ? `，${stats.blocked} 条需要检查` : ''}` : '记录：暂无待确认修改'}
                 </p>
                 {stats.lastPush && (
-                  <p className="mt-0.5 text-xs text-[var(--text-3)]">
+                  <p className="mt-0.5 text-sm text-[var(--text-3)]">
                     上次记录推送 {new Date(stats.lastPush).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 )}
@@ -155,17 +157,17 @@ function SyncPanel() {
               type="button"
               onClick={() => void handleSyncNow()}
               disabled={syncing}
-              className="flex items-center gap-1.5 rounded-full bg-[var(--primary-soft)] px-4 py-2 text-xs font-semibold text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/12 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full bg-[var(--primary-soft)] px-4 py-2 text-sm font-semibold text-[var(--link)] transition-colors hover:bg-[var(--primary)]/12 disabled:opacity-50"
             >
               <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} aria-hidden />
               {syncing ? '同步中…' : '立即同步'}
             </button>
           </div>
 
-          {stats.pendingPreferences > 0 && <p className="text-xs text-[var(--warning)]">{stats.pendingPreferences} 项偏好尚未获云端确认，本设备设置仍有效。立即同步可重试。</p>}
+          {stats.pendingPreferences > 0 && <p className="text-sm text-[var(--warning)]">{stats.pendingPreferences} 项偏好尚未获云端确认，本设备设置仍有效。立即同步可重试。</p>}
           <div className="flex items-center gap-2 border-t border-[var(--border-light)] pt-3">
             <Database size={13} className="shrink-0 text-[var(--text-4)]" aria-hidden />
-            <p className="text-xs text-[var(--text-3)]">
+            <p className="text-sm text-[var(--text-3)]">
               当前账号本设备共 {stats.localRecords} 条记录，包含打卡与目标。旧目标需要在目标页明确选择同步，请定期导出备份
             </p>
           </div>
@@ -288,21 +290,21 @@ export default function Settings() {
   };
 
   return (
-    <div className="w-full">
+    <div className="settings-page w-full">
       <motion.div
         initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="mx-auto max-w-2xl"
       >
-        <h1 className="mb-6 text-xl font-bold tracking-tight text-[var(--text-1)]">设置</h1>
+        <h1 className="mb-2 text-[28px] font-semibold tracking-tight text-[var(--text-1)]">设置</h1><p className="mb-8 text-sm leading-6 text-[var(--text-2)]">调整记录的节奏，管理账号和数据。每一项都由你决定。</p>
 
         <div className="space-y-8">
           <PreferenceSyncPanel />
           {preferenceError && <p role="alert" className="text-sm text-[var(--danger)]">{preferenceError}</p>}
           <section className="space-y-3" aria-label="教练风格">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Sparkles size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Sparkles size={14} className="text-[var(--link)]" aria-hidden />
               教练风格
             </h2>
             <div className="space-y-2" role="radiogroup" aria-label="教练风格">
@@ -315,14 +317,14 @@ export default function Settings() {
                   role="radio"
                   className={`flex w-full items-center gap-3.5 rounded-[var(--radius-lg)] border p-4 text-left transition-all duration-200 ${
                     settings.coachStyle === opt.key
-                      ? 'border-[var(--primary)]/20 bg-gradient-to-r from-[var(--primary-soft)] to-[var(--primary-muted)] shadow-[var(--shadow-xs)]'
+                      ? 'border-[var(--primary)]/20 bg-[var(--primary-soft)] shadow-[var(--shadow-xs)]'
                       : 'border-[var(--border-light)] bg-[var(--surface)] hover:border-[var(--border)] hover:shadow-[var(--shadow-xs)]'
                   }`}
                 >
                   <span className="text-2xl" aria-hidden>{opt.emoji}</span>
                   <div>
-                    <p className={`text-[13px] font-bold ${settings.coachStyle === opt.key ? 'text-[var(--primary)]' : 'text-[var(--text-1)]'}`}>{opt.label}</p>
-                    <p className="mt-0.5 text-xs font-medium text-[var(--text-3)]">{opt.desc}</p>
+                    <p className={`text-base font-bold ${settings.coachStyle === opt.key ? 'text-[var(--link)]' : 'text-[var(--text-1)]'}`}>{opt.label}</p>
+                    <p className="mt-0.5 text-sm font-medium text-[var(--text-3)]">{opt.desc}</p>
                   </div>
                 </button>
               ))}
@@ -330,15 +332,15 @@ export default function Settings() {
           </section>
 
           <section className="space-y-3" aria-label="预算">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Wallet size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Wallet size={14} className="text-[var(--link)]" aria-hidden />
               月度预算
             </h2>
-            <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+            <div className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
               <div className="flex items-end gap-3">
                 <div className="flex-1">
-                  <p className="mb-2 text-xs leading-6 text-[var(--text-2)]">{budgetStatus === 'unset' ? '还没有设置预算。留空不代表零预算，按需设置即可。' : budgetStatus === 'unknown' ? '这里保留了旧版本的预算值，无法判断是默认值还是你设置的。请核对后保存，不会自动清空。' : '已由你确认的每月预算'}</p>
-                  <label htmlFor="budget-input" className="mb-1 block text-xs font-medium text-[var(--text-3)]">每月总预算（元）</label>
+                  <p className="mb-2 text-sm leading-6 text-[var(--text-2)]">{budgetStatus === 'unset' ? '还没有设置预算。留空不代表零预算，按需设置即可。' : budgetStatus === 'unknown' ? '这里保留了旧版本的预算值，无法判断是默认值还是你设置的。请核对后保存，不会自动清空。' : '已由你确认的每月预算'}</p>
+                  <label htmlFor="budget-input" className="mb-1 block text-sm font-medium text-[var(--text-3)]">每月总预算（元）</label>
                   <input
                     id="budget-input"
                     type="number"
@@ -355,17 +357,17 @@ export default function Settings() {
                 </div>
                 <Button size="sm" variant="ghost" disabled={budgetSaving} aria-busy={budgetSaving} onClick={() => void handleBudgetSave()}>{budgetSaving ? '保存中…' : '保存'}</Button>
               </div>
-              <p className="mt-2 text-xs text-[var(--text-3)]">{budgetStatus === 'unset' ? '预算只保存在本设备，尚未设置' : `预算保存在本设备；当前 ¥${(monthBudgetFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2, useGrouping: false })}`}</p>
-              <p id="budget-feedback" role={budgetError ? 'alert' : 'status'} aria-live={budgetError ? 'assertive' : 'polite'} className={`mt-1 min-h-5 text-xs ${budgetError ? 'text-[var(--danger)]' : 'text-[var(--text-2)]'}`}>{budgetFeedback}</p>
+              <p className="mt-2 text-sm text-[var(--text-3)]">{budgetStatus === 'unset' ? '预算只保存在本设备，尚未设置' : `预算保存在本设备；当前 ¥${(monthBudgetFen / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2, useGrouping: false })}`}</p>
+              <p id="budget-feedback" role={budgetError ? 'alert' : 'status'} aria-live={budgetError ? 'assertive' : 'polite'} className={`mt-1 min-h-5 text-sm ${budgetError ? 'text-[var(--danger)]' : 'text-[var(--text-2)]'}`}>{budgetFeedback}</p>
             </div>
           </section>
 
           <section className="space-y-3" aria-label="推送设置">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Bell size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Bell size={14} className="text-[var(--link)]" aria-hidden />
               推送设置
             </h2>
-            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
               <ToggleRow
                 label="教练推送"
                 sub="打开应用时显示洞察与提醒，不是系统后台推送"
@@ -380,11 +382,11 @@ export default function Settings() {
               />
 
               <TimeSettingInput id="evening-review-time" label="晚间复盘时间" value={settings.eveningReviewTime} onSave={(value, expected) => settings.updateSetting('eveningReviewTime', value, expected)} onVerify={() => readPreferenceTime('eveningReviewTime')} />
-              {!settings.eveningReviewEnabled && <p className="text-xs text-[var(--text-3)]">复盘已关闭，仍可调整保留的时间</p>}
+              {!settings.eveningReviewEnabled && <p className="text-sm text-[var(--text-3)]">复盘已关闭，仍可调整保留的时间</p>}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-light)] pt-2">
                 <div>
-                  <p className="text-[13px] font-semibold text-[var(--text-1)]">推送频率</p>
-                  <p className="mt-0.5 text-xs font-medium text-[var(--text-3)]">每设备每天最多条数（0 为暂停）</p>
+                  <p className="text-base font-semibold text-[var(--text-1)]">推送频率</p>
+                  <p className="mt-0.5 text-sm font-medium text-[var(--text-3)]">每设备每天最多条数（0 为暂停）</p>
                 </div>
                 <div className="flex items-center gap-2" role="radiogroup" aria-label="每日推送上限">
                   {[0, 1, 2, 3].map((n) => (
@@ -395,9 +397,9 @@ export default function Settings() {
                       aria-checked={settings.coachPushFrequency === n}
                       role="radio"
                       aria-label={`每天最多${n}条`}
-                      className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-all duration-200 ${
+                      className={`flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold transition-all duration-200 ${
                         settings.coachPushFrequency === n
-                          ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)]'
+                          ? 'bg-[var(--primary)] text-[var(--on-primary)]'
                           : 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)]'
                       }`}
                     >
@@ -410,11 +412,11 @@ export default function Settings() {
           </section>
 
           <section className="space-y-3" aria-label="免打扰">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Clock size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Clock size={14} className="text-[var(--link)]" aria-hidden />
               免打扰
             </h2>
-            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
               <ToggleRow
                 label="免打扰时段"
                 sub="此期间不推送教练消息"
@@ -425,13 +427,13 @@ export default function Settings() {
                   <TimeSettingInput id="quiet-start" label="免打扰开始" value={settings.quietHours.start} onSave={(value, expected) => settings.updateQuietHours({ start: value }, { start: expected })} onVerify={() => readPreferenceTime('quietStart')} />
                   <TimeSettingInput id="quiet-end" label="免打扰结束" value={settings.quietHours.end} onSave={(value, expected) => settings.updateQuietHours({ end: value }, { end: expected })} onVerify={() => readPreferenceTime('quietEnd')} />
               </motion.div>
-              {!settings.quietHours.enabled && <p className="text-xs text-[var(--text-3)]">免打扰已关闭，时段与未保存输入仍保留</p>}
+              {!settings.quietHours.enabled && <p className="text-sm text-[var(--text-3)]">免打扰已关闭，时段与未保存输入仍保留</p>}
             </div>
           </section>
 
           <section className="space-y-3" aria-label="外观">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Moon size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Moon size={14} className="text-[var(--link)]" aria-hidden />
               外观
             </h2>
             <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="主题">
@@ -444,9 +446,9 @@ export default function Settings() {
                     onClick={() => savePreference('theme', opt.key)}
                     role="radio"
                     aria-checked={settings.theme === opt.key}
-                    className={`flex flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border py-4 text-[13px] font-semibold transition-all duration-200 ${
+                    className={`flex flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border py-4 text-base font-semibold transition-all duration-200 ${
                       settings.theme === opt.key
-                        ? 'border-[var(--primary)]/20 bg-gradient-to-r from-[var(--primary-soft)] to-[var(--primary-muted)] text-[var(--primary)] shadow-[var(--shadow-xs)]'
+                        ? 'border-[var(--primary)]/20 bg-[var(--primary-soft)] text-[var(--link)] shadow-[var(--shadow-xs)]'
                         : 'border-[var(--border-light)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border)]'
                     }`}
                   >
@@ -459,8 +461,8 @@ export default function Settings() {
           </section>
 
           <section className="space-y-3" aria-label="同步状态">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <RefreshCw size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <RefreshCw size={14} className="text-[var(--link)]" aria-hidden />
               数据同步
             </h2>
             <SyncPanel />
@@ -469,11 +471,11 @@ export default function Settings() {
           </section>
 
           <section className="space-y-3" aria-label="账号">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Shield size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Shield size={14} className="text-[var(--link)]" aria-hidden />
               账号
             </h2>
-            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
               {isAuthenticated ? (
                 <>
                   <Button variant="ghost" size="sm" icon={LogOut} onClick={handleLogout}>退出登录</Button>
@@ -481,38 +483,38 @@ export default function Settings() {
                     <Button variant="ghost" size="sm" icon={UserX} className="text-[var(--danger)]" onClick={() => setShowDeleteAccountConfirm(true)}>
                       注销账号（删除全部云端数据）
                     </Button>
-                    <p className="mt-2 text-xs leading-relaxed text-[var(--text-3)]">
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--text-3)]">
                       将永久删除服务器上该手机号的全部记录：花销、待办、习惯、速记、日记、日程、目标、账号偏好、教练对话与当前本地缓存。升级前隔离保留的原始资料不会在此删除；请先导出并关闭旧版窗口。
                     </p>
                   </div>
                 </>
               ) : (
-                <p className="text-xs leading-relaxed text-[var(--text-3)]">当前未登录。登录后可跨设备同步数据并使用 AI 教练。</p>
+                <p className="text-sm leading-relaxed text-[var(--text-3)]">当前未登录。登录后可跨设备同步数据并使用 AI 教练。</p>
               )}
             </div>
           </section>
 
           <section className="space-y-3" aria-label="数据透明">
-            <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.1em] text-[var(--text-3)]">
-              <Shield size={14} className="text-[var(--primary)]" aria-hidden />
+            <h2 className="flex items-center gap-2 settings-section-title">
+              <Shield size={14} className="text-[var(--link)]" aria-hidden />
               数据透明
             </h2>
-            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6 shadow-[var(--shadow-sm)]">
+            <div className="space-y-4 rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-6">
               <div>
-                <p className="text-[13px] font-bold text-[var(--text-1)]">你的数据属于你</p>
-                <p className="mt-1 text-xs leading-relaxed text-[var(--text-2)]">
+                <p className="text-base font-bold text-[var(--text-1)]">你的数据属于你</p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--text-2)]">
                   当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；新目标和提醒偏好支持账号同步；旧目标需逐项确认上传，草稿、外观和预算仍留本机。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
                 </p>
               </div>
               {generationError && <div role="alert" className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm">升级前资料状态暂时无法读取，原始资料没有删除</p><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>重新检查保留资料</Button></div>}
               {generationRecovery?.sourcePresent && <div className="rounded-xl border border-[var(--warning)]/30 p-3">
                 <p className="text-sm font-semibold">升级前账号资料已隔离保留</p>
-                <p className="mt-1 text-xs text-[var(--text-2)]">请关闭旧版窗口，避免继续在那里编辑。旧窗口后续修改不会自动导入本窗口；可单独导出升级时原始资料与旧窗口当前资料，核对后再恢复。此备份不会上传。</p>
-                {generationRecovery.changedTables.length > 0 && <p role="status" className="mt-2 text-xs text-[var(--warning)]">发现 {generationRecovery.changedTables.length} 类旧版资料与升级时不同，可能包含尚未转入的修改</p>}
-                {generationRecovery.cleared && <p className="mt-2 text-xs text-[var(--text-2)]">当前本地数据已清除，保留资料不会重新自动导入</p>}
+                <p className="mt-1 text-sm text-[var(--text-2)]">请关闭旧版窗口，避免继续在那里编辑。旧窗口后续修改不会自动导入本窗口；可单独导出升级时原始资料与旧窗口当前资料，核对后再恢复。此备份不会上传。</p>
+                {generationRecovery.changedTables.length > 0 && <p role="status" className="mt-2 text-sm text-[var(--warning)]">发现 {generationRecovery.changedTables.length} 类旧版资料与升级时不同，可能包含尚未转入的修改</p>}
+                {generationRecovery.cleared && <p className="mt-2 text-sm text-[var(--text-2)]">当前本地数据已清除，保留资料不会重新自动导入</p>}
                 <div className="mt-2 flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => void handleExport('generation')}>导出升级前保留资料</Button><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>检查旧窗口修改</Button></div>
               </div>}
-              {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-xs text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
+              {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-sm text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
               <div className="flex gap-2 border-t border-[var(--border-light)] pt-4">
                 <Button variant="ghost" size="sm" icon={Download} onClick={() => void handleExport()} className="flex-1">
                   导出数据
@@ -534,9 +536,9 @@ export default function Settings() {
             <div>
               <p className="text-sm text-[var(--text-1)]">此操作只清除当前账号在本设备的记录、目标、草稿、打卡和设置，不影响其他账号和升级前隔离保留的原始资料；保留资料不会自动重新导入。未同步修改存在时将阻止清除，请先同步或导出。</p>
               {isLoggedIn() && (
-                <p className="mt-2 text-xs text-[var(--text-2)]">注意：服务端已有同步数据不会删除，重新联网后会恢复到本设备。</p>
+                <p className="mt-2 text-sm text-[var(--text-2)]">注意：服务端已有同步数据不会删除，重新联网后会恢复到本设备。</p>
               )}
-              <p className="mt-2 text-xs font-bold text-[var(--danger)]">此操作不可撤销！</p>
+              <p className="mt-2 text-sm font-bold text-[var(--danger)]">此操作不可撤销！</p>
             </div>
           </div>
         </Modal>
@@ -546,7 +548,7 @@ export default function Settings() {
             <AlertTriangle size={20} className="mt-0.5 shrink-0 text-[var(--danger)]" aria-hidden />
             <div>
               <p className="text-sm text-[var(--text-1)]">此操作将永久删除你在服务端的全部数据与当前本地缓存，且无法恢复。升级前隔离保留的原始资料不会在此删除；请先导出备份，并关闭旧版窗口。</p>
-              <p className="mt-2 text-xs font-bold text-[var(--danger)]">请谨慎操作！</p>
+              <p className="mt-2 text-sm font-bold text-[var(--danger)]">请谨慎操作！</p>
             </div>
           </div>
         </Modal>

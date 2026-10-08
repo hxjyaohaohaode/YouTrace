@@ -40,7 +40,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
           peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/40 peer-focus-visible:ring-offset-1
           ${checked
             ? 'border-transparent bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)]'
-            : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--primary)]/40'
+            : 'border-[var(--control-border)] bg-[var(--surface)] hover:border-[var(--link)]'
           }
         `}
       >
@@ -49,7 +49,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, className
           animate={checked ? { scale: 1, opacity: 1 } : { scale: 0.5, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
         >
-          <Check size={11} className="text-white" strokeWidth={3} />
+          <Check size={11} className="text-[var(--on-primary)]" strokeWidth={3} />
         </motion.span>
       </span>
       {label && (

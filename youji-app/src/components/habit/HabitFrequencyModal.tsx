@@ -36,19 +36,19 @@ export function HabitFrequencyModal({ habit, onClose }: { habit: HabitView; onCl
   </>}>
     <div className="space-y-4 text-sm leading-relaxed">
       <p className="break-words font-semibold">{habit.icon} {habit.name}</p>
-      <p className="text-xs text-[var(--text-3)]" aria-label="上次修改时间">本机记录最近更新：{updatedText}（北京时间）</p>
-      {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl border border-[var(--danger)]/30 p-3 text-[var(--danger)]">{error}。当前所选频率仍保留。</p>}
+      <p className="text-sm text-[var(--text-3)]" aria-label="上次修改时间">本机记录最近更新：{updatedText}（北京时间）</p>
+      {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg border border-[var(--danger)]/30 p-3 text-[var(--danger)]">{error}。当前所选频率仍保留。</p>}
       <div><p className="mb-2 font-semibold">当前频率</p><div role="group" aria-label="选择频率" className="flex gap-2">
-        {(['daily', 'weekly'] as const).map(value => <button key={value} type="button" disabled={saving} aria-pressed={frequency === value} onClick={() => setFrequency(value)} className={`min-h-11 rounded-full px-5 text-sm font-semibold disabled:opacity-40 ${frequency === value ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text-2)]'}`}>{value === 'weekly' ? '每周一次' : '每天'}</button>)}
+        {(['daily', 'weekly'] as const).map(value => <button key={value} type="button" disabled={saving} aria-pressed={frequency === value} onClick={() => setFrequency(value)} className={`min-h-11 rounded-full px-5 text-sm font-semibold disabled:opacity-40 ${frequency === value ? 'bg-[var(--primary)] text-[var(--on-primary)]' : 'bg-[var(--surface-2)] text-[var(--text-2)]'}`}>{value === 'weekly' ? '每周一次' : '每天'}</button>)}
       </div></div>
       <section aria-label="频率调整预览" className="space-y-2 rounded-xl bg-[var(--surface-2)] p-3">
         <p className="font-semibold">保存后立即按新频率显示当前进度</p>
         <p>保存前：{describe(before)}</p><p>保存后：{describe(after)}</p>
-        <p className="text-xs text-[var(--text-3)]">今天 {previewDate}{after.doneToday ? '已经记录' : '未打卡'}；改变频率不会替你补记或撤销任何日期。</p>
+        <p className="text-sm text-[var(--text-3)]">今天 {previewDate}{after.doneToday ? '已经记录' : '未打卡'}；改变频率不会替你补记或撤销任何日期。</p>
       </section>
       <section aria-label="频率调整范围说明" className="space-y-2">
       <p>历史打卡日期保持原样，历史页只展示实际记录，不用新频率回算过去的达成率。</p>
-      <p className="text-xs text-[var(--text-3)]">暂不支持指定未来生效日期，也不提供历次频率规则回溯。若原记录或打卡在其他位置变化，需要重新打开并核对预览。</p>
+      <p className="text-sm text-[var(--text-3)]">暂不支持指定未来生效日期，也不提供历次频率规则回溯。若原记录或打卡在其他位置变化，需要重新打开并核对预览。</p>
       </section>
     </div>
   </Modal>;

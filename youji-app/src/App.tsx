@@ -39,7 +39,7 @@ function ReadyRoutes({ ready, failed }: { ready: boolean; failed: boolean }) {
     <div className="flex max-w-sm flex-col items-center gap-3 px-5 text-center">
       {failed || unavailable || databaseBlocked ? <>
         <p className="text-sm text-[var(--text-2)]">{recoveryError ? `本地资料升级未完成：${recoveryError}。原始资料仍保留，请勿清除浏览器数据；可关闭旧窗口、检查可用空间后重试` : databaseBlocked ? '请先关闭这台设备其他有迹标签页，再重试升级。记录仍原样保留' : unavailable ? '暂时无法确认登录身份，记录仍保存在本设备' : '加载遇到问题'}</p>
-        <button type="button" onClick={() => window.location.reload()} className="rounded-full bg-[var(--primary)] px-6 py-2.5 text-sm font-semibold text-white">重试</button>
+        <button type="button" onClick={() => window.location.reload()} className="rounded-lg bg-[var(--primary)] px-6 py-2.5 text-base font-semibold text-[var(--on-primary)]">重试</button>
       </> : <>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" aria-hidden />
         <p className="text-sm text-[var(--text-3)]" role="status">加载中…</p>

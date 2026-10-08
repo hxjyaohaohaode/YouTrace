@@ -31,7 +31,9 @@ test('a stopped initial read failure never claims to still be loading or to be e
 test('unread Goal statistics do not turn a read failure into a known zero collection', () => {
   assert.equal(goalSummaryLabel(false, false, '读取失败', 0, 0, 0), '目标统计暂未读取');
   assert.equal(goalSummaryLabel(false, true, null, 0, 0, 0), '正在读取目标统计…');
-  assert.equal(goalSummaryLabel(true, false, null, 0, 0, 0), '0/0 完成 · 平均进度 0%');
+  assert.equal(goalSummaryLabel(true, false, null, 0, 0, 0), '还没有目标');
+  assert.equal(goalSummaryLabel(true, false, '读取失败', 0, 0, 0), '上次读取时还没有目标');
+  assert.equal(goalSummaryLabel(true, false, null, 1, 2, 75), '1/2 完成 · 平均进度 75%');
   assert.equal(goalSummaryLabel(true, false, '读取失败', 1, 2, 75), '上次读取：1/2 完成 · 平均进度 75%');
 });
 

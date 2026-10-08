@@ -103,7 +103,7 @@ export function Modal({ open, onClose, title, children, footer, className = '', 
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/50 backdrop-blur-md"
+            className="absolute inset-0 bg-black/40"
             aria-hidden
           />
           <motion.div
@@ -116,7 +116,7 @@ export function Modal({ open, onClose, title, children, footer, className = '', 
             animate={isMobile ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
             exit={isMobile ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
             transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className={`relative z-10 w-full bg-[var(--surface)] shadow-[var(--shadow-xl)] outline-none ${isMobile ? 'max-h-[85vh] overflow-y-auto rounded-t-[var(--radius-xl)] pb-[env(safe-area-inset-bottom)]' : 'mx-4 max-w-lg rounded-[var(--radius-xl)]'} ${className}`}
+            className={`relative z-10 w-full bg-[var(--surface)] shadow-[var(--shadow-xl)] outline-none ${isMobile ? 'max-h-[85vh] overflow-y-auto rounded-t-[var(--radius-xl)] pb-[env(safe-area-inset-bottom)]' : 'mx-4 max-h-[90dvh] overflow-y-auto max-w-lg rounded-[var(--radius-xl)]'} ${className}`}
           >
             {isMobile && (
               <div className="flex justify-center pb-1 pt-3">
@@ -125,12 +125,12 @@ export function Modal({ open, onClose, title, children, footer, className = '', 
             )}
             {title && (
               <div className="flex items-center justify-between border-b border-[var(--border-light)] px-5 py-4 sm:px-7 sm:py-6">
-                <h3 id={titleId} className="text-base font-bold text-[var(--text-1)]">{title}</h3>
+                <h3 id={titleId} className="text-lg font-semibold text-[var(--text-1)]">{title}</h3>
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="关闭"
-                  className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)]"
+                  className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-1)]"
                 >
                   <X size={18} aria-hidden />
                 </button>

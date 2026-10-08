@@ -16,7 +16,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
         {label && (
-          <label htmlFor={inputId} className="text-[13px] font-semibold text-[var(--text-1)]">
+          <label htmlFor={inputId} className="text-sm font-semibold text-[var(--text-1)]">
             {label}
           </label>
         )}
@@ -32,12 +32,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${inputId}-error` : undefined}
             className={`
-              h-12 w-full rounded-[var(--radius-md)] border bg-[var(--surface)] text-sm
+              h-12 w-full rounded-[var(--radius-md)] border bg-[var(--surface)] text-base
               text-[var(--text-1)] outline-none transition-all duration-200
               placeholder:text-[var(--text-3)]
               focus:border-[var(--primary)] focus:ring-[4px] focus:ring-[var(--primary)]/12
               ${icon ? 'pl-11 pr-4' : 'px-4'}
-              ${error ? 'border-[var(--danger)] shadow-[0_0_8px_rgba(217,64,82,0.15)] focus:border-[var(--danger)] focus:ring-[var(--danger)]/12' : 'border-[var(--border)]'}
+              ${error ? 'border-[var(--danger)] shadow-[0_0_8px_rgba(217,64,82,0.15)] focus:border-[var(--danger)] focus:ring-[var(--danger)]/12' : 'border-[var(--control-border)]'}
               hover:border-[var(--primary)]/40
             `}
             {...props}

@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { CalendarDays, Calendar as CalendarWeek, Calendar } from 'lucide-react';
 import { useExpenseStore } from '../../stores/expenseStore';
 import { getToday } from '../../utils/date';
 import { getExpensePeriodTotals } from '../../utils/expensePeriod';
@@ -9,43 +8,15 @@ function formatYuan(fen: number): string {
 }
 
 export function StatsRow() {
-  const items = useExpenseStore((s) => s.items);
-
+  const items = useExpenseStore((state) => state.items);
   const today = getToday();
-  const totals = useMemo(
-    () => getExpensePeriodTotals(items, today),
-    [items, today]
-  );
+  const totals = useMemo(() => getExpensePeriodTotals(items, today), [items, today]);
   const stats = [
-    { label: '今日', value: totals.today, icon: CalendarDays },
-    { label: '本周', value: totals.week, icon: CalendarWeek },
-    { label: '本月', value: totals.month, icon: Calendar },
+    { label: '今日', value: totals.today },
+    { label: '本周', value: totals.week },
+    { label: '本月', value: totals.month },
   ];
-
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))' }}>
-      {stats.map((stat) => {
-        const Icon = stat.icon;
-
-        return (
-          <div
-            key={stat.label}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-[var(--primary)]/10 bg-gradient-to-br from-[var(--primary)]/5 to-[var(--primary-light)]/5 p-3"
-          >
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)]">
-                <Icon size={14} className="text-white" aria-hidden />
-              </div>
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-3)]">{stat.label}</span>
-            </div>
-
-            <p aria-label={`${stat.label}支出人民币${formatYuan(stat.value)}元`} className="ml-auto min-w-0 max-w-full break-all text-right font-mono text-lg font-bold tabular-nums text-[var(--text-1)] sm:text-xl">
-              ¥{formatYuan(stat.value)}
-            </p>
-
-          </div>
-        );
-      })}
-    </div>
-  );
+  return <section className="expense-totals" aria-label="支出汇总">
+    {stats.map(stat => <div key={stat.label}><span>{stat.label}支出</span><p aria-label={`${stat.label}支出人民币${formatYuan(stat.value)}元`}>¥{formatYuan(stat.value)}</p></div>)}
+  </section>;
 }

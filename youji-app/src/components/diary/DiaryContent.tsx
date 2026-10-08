@@ -6,10 +6,9 @@ import { Plus, BookOpen, Sparkles, ChevronDown, ChevronUp, Edit3, Trash2 } from 
 import { useDiaryStore } from '../../stores/diaryStore';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { RingProgress } from '../ui/ProgressBar';
 import { toast } from '../../services/toastBus';
 import type { DiaryRecord } from '../../db';
-import { formatDateLabel } from '../../utils/date';
+import { getToday, formatDateLabel } from '../../utils/date';
 import { getMoodMeta } from '../../utils/icons';
 
 function DiaryEntryCard({ item, onEdit, onDelete }: { item: DiaryRecord; onEdit: () => void; onDelete: () => void }) {
@@ -24,18 +23,18 @@ function DiaryEntryCard({ item, onEdit, onDelete }: { item: DiaryRecord; onEdit:
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)]"
+      className="diary-entry"
     >
-      <div className="px-5 py-4">
+      <div className="diary-entry-body">
         <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-bold text-[var(--text-1)]">{item.date} · {formatDateLabel(item.date)}</span>
+            <span className="diary-entry-date">{item.date} <span>· {formatDateLabel(item.date)}</span></span>
             {moodInfo && (
               <span
                 className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
                 style={{
-                  background: `linear-gradient(135deg, ${moodInfo.color}18, ${moodInfo.color}08)`,
-                  color: moodInfo.color,
+                  background: 'var(--surface-2)',
+                  color: 'var(--text-2)',
                   border: `1px solid ${moodInfo.color}20`,
                 }}
               >
@@ -56,16 +55,16 @@ function DiaryEntryCard({ item, onEdit, onDelete }: { item: DiaryRecord; onEdit:
           </div>
         </div>
 
-        <p className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[var(--text-1)] ${item.content.length > 100 && !expanded ? 'line-clamp-3' : ''}`}>
+        <p className={`diary-prose whitespace-pre-wrap break-words ${item.content.length > 400 && !expanded ? 'line-clamp-6' : ''}`}>
           {item.content}
         </p>
 
-        {item.content.length > 100 && (
+        {(item.content.length > 400 || item.aiInsight) && (
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
             aria-expanded={expanded}
-            className="mt-1.5 flex items-center gap-0.5 text-xs font-semibold text-[var(--primary)]"
+            className="mt-1.5 flex items-center gap-0.5 text-xs font-semibold text-[var(--link)]"
           >
             {expanded ? <ChevronUp size={12} aria-hidden /> : <ChevronDown size={12} aria-hidden />}
             {expanded ? '收起' : '展开'}
@@ -76,18 +75,18 @@ function DiaryEntryCard({ item, onEdit, onDelete }: { item: DiaryRecord; onEdit:
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="mt-3 rounded-[var(--radius-md)] bg-gradient-to-r from-[var(--primary-soft)] to-[var(--primary-muted)] border border-[var(--primary)]/10 px-3 py-2.5"
+            className="mt-6 border-l-2 border-[var(--primary)] px-4 py-2"
           >
             <div className="mb-1 flex items-center gap-1.5">
-              <Sparkles size={12} className="text-[var(--primary)]" aria-hidden />
-              <span className="text-[11px] font-bold text-[var(--primary)]">AI 洞察</span>
+              <Sparkles size={12} className="text-[var(--link)]" aria-hidden />
+              <span className="text-xs font-semibold text-[var(--link)]">AI 洞察</span>
             </div>
-            <p className="text-xs leading-relaxed text-[var(--primary)]/80">{item.aiInsight}</p>
+            <p className="text-sm leading-7 text-[var(--text-2)]">{item.aiInsight}</p>
           </motion.div>
         )}
 
         {item.source !== 'manual' && (
-          <div className="mt-2 flex items-center gap-1 text-[10px] font-medium text-[var(--text-3)]">
+          <div className="mt-4 flex items-center gap-1 text-xs text-[var(--text-3)]">
             {item.source === 'quicknote_aggregated' && '📝 来自已确认速记'}
             {item.source === 'ai_generated' && '🤖 AI 生成'}
           </div>
@@ -167,59 +166,24 @@ export function DiaryContent() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="record-page diary-page">
       {returnPath && <Button variant="ghost" onClick={() => { if (window.history.state?.idx > 0) navigate(-1); else navigate(returnPath); }}>← {source?.label || '返回来源'}</Button>}
       {!loaded && <section role="status" className="space-y-2 rounded-xl border border-[var(--border)] p-4"><p>{loadError ? `日记暂未读出：${loadError}` : '正在查找日记；若等待较久，可重试读取'}</p><Button variant="soft" onClick={() => void useDiaryStore.getState().loadFromDB().catch(() => undefined)}>重试读取</Button></section>}
       {recordId && loaded && !target && <section role="status" className="space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这篇日记。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
       {target && dismissed === requestKey && <Button variant="soft" onClick={() => openEdit(target)}>重新打开 {target.date} 的日记</Button>}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight text-[var(--text-1)]">日记</h1>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={openCreate}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] shadow-[var(--shadow-glow)] text-white transition-colors"
-          aria-label="写日记"
-        >
-          <Plus size={18} aria-hidden />
-        </motion.button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-[var(--radius-lg)] bg-gradient-to-br from-[var(--primary-soft)] to-[var(--primary-muted)] border border-[var(--primary)]/15 p-4">
-          <div className="mb-1.5 flex items-center gap-2">
-            <BookOpen size={16} className="text-[var(--primary)]" aria-hidden />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-3)]">日记总数</span>
-          </div>
-          <p className="text-2xl font-bold tracking-tight text-[var(--text-1)]">{items.length}</p>
-        </div>
-        <div className="rounded-[var(--radius-lg)] bg-gradient-to-br from-[var(--accent-soft)] to-[var(--primary-muted)] border border-[var(--accent)]/15 p-4">
-          <div className="mb-1.5 flex items-center gap-2">
-            <RingProgress value={avgMoodScore} max={10} size={28} strokeWidth={4} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-3)]">平均心情</span>
-          </div>
-          <p className="text-2xl font-bold tracking-tight text-[var(--text-1)]">{avgMoodScore || '-'}</p>
-        </div>
-      </div>
+      <header className="record-page-heading">
+        <div><p className="record-eyebrow">记录与回看 / JOURNAL</p><h1>日记</h1><p className="record-deck">把经历写下来，也给自己留一点回看的空间。</p></div>
+        <Button onClick={openCreate} aria-label="写日记"><Plus size={18} aria-hidden />写日记</Button>
+      </header>
+      <div className="diary-index-line"><span>{loaded ? `${items.length} 篇已记录` : '正在读取记录'}</span>{avgMoodScore > 0 && <span>已记录心情的平均分 {avgMoodScore}/10</span>}<span>按日记日期排列</span></div>
 
       {sortedItems.length === 0 && loaded ? (
-        <div className="py-16 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--surface-2)]">
-            <BookOpen size={28} className="text-[var(--text-3)]" aria-hidden />
-          </div>
-          <p className="text-sm font-medium text-[var(--text-3)]">还没有日记</p>
-          <p className="mt-1 text-xs text-[var(--text-3)]">写下第一篇，或用速记整理后确认保存</p>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-5 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            <Plus size={14} aria-hidden />
-            写第一篇日记
-          </button>
-        </div>
+        <section className="diary-empty" aria-label="开始写日记">
+          <div className="diary-empty-date"><span>{getToday().slice(0, 7).replace('-', ' / ')}</span><strong>{getToday().slice(8)}</strong><span>{formatDateLabel(getToday())}</span></div>
+          <div className="diary-empty-writing"><BookOpen size={24} aria-hidden className="text-[var(--link)]" /><h2>今天，有什么想留下？</h2><p>还没有日记。一个片段、一段心情，或一句想记住的话，都可以成为第一篇。</p><Button onClick={openCreate}><Plus size={16} aria-hidden />写第一篇日记</Button><button type="button" className="record-text-link" onClick={() => navigate('/quick-note')}>也可以从速记开始 →</button></div>
+        </section>
       ) : (
-        <div className="space-y-3">
+        <div className="diary-entries">
           <AnimatePresence mode="popLayout">
             {sortedItems.map((item) => (
               <DiaryEntryCard

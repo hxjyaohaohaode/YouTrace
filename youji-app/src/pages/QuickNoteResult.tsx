@@ -17,13 +17,14 @@ import { currentCaptureRecord, currentReceiptSyncStatus, failedReceiptRead, type
 import { recordDiagnostic } from '../services/diagnostics';
 import { captureSaveFailure } from '../services/capturePresentation';
 
+
 const field = 'min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)] focus:outline-2 focus:outline-[var(--primary)]';
 function Frame({ children, title, back, footer }: { children: ReactNode; title: string; back: () => void; footer?: ReactNode }) {
   const reduced = useReducedMotion();
-  return <motion.section initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0 : 0.16 }} className="fixed inset-0 flex flex-col bg-[var(--bg)]" style={{ zIndex: 'var(--z-page-overlay)' }} aria-labelledby="review-title" data-component="capture-review">
-    <header className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3"><button type="button" aria-label="返回" onClick={back} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)]"><ArrowLeft size={20} aria-hidden /></button><h1 id="review-title" className="text-lg font-bold">{title}</h1></header>
-    <div className="min-h-0 flex-1 overflow-y-auto"><div className="mx-auto max-w-3xl space-y-4 px-4 pb-8">{children}</div></div>
-    {footer && <footer className="border-t border-[var(--border)] bg-[var(--surface)] p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}><div className="mx-auto max-w-3xl">{footer}</div></footer>}
+  return <motion.section initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reduced ? 0 : 0.16 }} className="capture-workspace capture-review fixed inset-0 flex flex-col bg-[var(--bg)]" style={{ zIndex: 'var(--z-page-overlay)' }} aria-labelledby="review-title" data-component="capture-review">
+    <header className="capture-header mx-auto flex w-full items-center gap-4"><button type="button" aria-label="返回" onClick={back} className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-[var(--border)]"><ArrowLeft size={20} aria-hidden /></button><div><p className="record-eyebrow">CAPTURE / 核对与保存</p><h1 id="review-title">{title}</h1></div></header>
+    <div className="min-h-0 flex-1 overflow-y-auto"><div className="review-body mx-auto space-y-5">{children}</div></div>
+    {footer && <footer className="border-t border-[var(--border)] bg-[var(--surface)] p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}><div className="capture-footer mx-auto">{footer}</div></footer>}
   </motion.section>;
 }
 export default function QuickNoteResult() {
@@ -49,7 +50,7 @@ export default function QuickNoteResult() {
   return <CaptureReview key={loaded.draft.id} original={loaded.draft} />;
 }
 function Section({ title, children, add }: { title: string; children: ReactNode; add?: () => void }) {
-  return <section aria-label={title} className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><header className="flex items-center justify-between gap-2"><h2 className="font-bold">{title}</h2>{add && <Button variant="ghost" onClick={add} aria-label={`添加${title}`}><Plus size={16} aria-hidden />添加</Button>}</header>{children}</section>;
+  return <section aria-label={title} className="review-section space-y-4"><header className="flex items-center justify-between gap-2"><h2 className="text-lg font-semibold">{title}</h2>{add && <Button variant="ghost" onClick={add} aria-label={`添加${title}`}><Plus size={16} aria-hidden />添加</Button>}</header>{children}</section>;
 }
 function Remove({ label, onClick }: { label: string; onClick: () => void }) { return <Button variant="ghost" aria-label={`移除${label}`} onClick={onClick}><Trash2 size={17} aria-hidden /></Button>; }
 function CaptureReview({ original }: { original: CaptureDraft }) {

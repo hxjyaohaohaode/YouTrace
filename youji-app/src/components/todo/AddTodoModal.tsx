@@ -70,19 +70,19 @@ function TodoEditor({ onClose, item, draftId }: Omit<AddTodoModalProps, 'open'>)
     <Button onClick={() => void save()} disabled={saving || !draft.ready || stale || !form.text.trim() || Boolean(draftId && !draft.restored)}>{saving ? '保存中…' : deleted ? '另存为新待办' : '保存'}</Button>
   </>}>
     <div className="space-y-4">
-      <p className="text-xs text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复未提交的编辑稿；保存前不会修改待办' : '取消会保留本机草稿，不修改待办'}</p>
+      <p className="text-sm text-[var(--text-3)]">{draft.loading ? '正在读取草稿…' : draft.pending ? '正在保留草稿…' : draft.restored ? '已恢复未提交的编辑稿；保存前不会修改待办' : '取消会保留本机草稿，不修改待办'}</p>
       {deleted && <p role="status" className="text-sm">原待办已不存在，不会恢复已删除的编号。{draftId && !draft.loading && !draft.restored ? '未找到这条记录的本机草稿。' : '可检查编辑稿后另存为新待办。'}</p>}
       {visibleError && <div ref={errorRegion} tabIndex={-1} role="alert" className="text-sm text-[var(--danger)] outline-none">{visibleError}{draft.error && <Button variant="ghost" onClick={draft.retry}>重试保留草稿</Button>}</div>}
       {stale && <div role="alert" className="space-y-2 rounded-lg bg-[var(--surface-2)] p-3 text-sm">记录已有更新或被删除，你的编辑稿仍保留{current && <><p className="break-words">最新内容：{current.text} · {current.dueDate || '无日期'} · {current.priority === 'high' ? '高' : current.priority === 'low' ? '低' : '中'} · {current.done ? '已完成' : '未完成'}</p><Button variant="soft" onClick={() => update({ base: current })}>已核对，继续使用我的编辑稿</Button></>}</div>}
       <fieldset disabled={saving || !draft.ready || Boolean(draftId && !draft.restored)} className="space-y-4">
         <Input id="todo-text" ref={firstInput} label="内容 *" value={form.text} onChange={(event) => update({ text: event.target.value })} maxLength={200} placeholder="要做什么？" />
-        <label className="block text-sm font-semibold">优先级<select value={form.priority} onChange={(event) => update({ priority: event.target.value as Priority })} className="mt-2 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label>
+        <label className="block text-sm font-semibold">优先级<select value={form.priority} onChange={(event) => update({ priority: event.target.value as Priority })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label>
         <Input id="todo-date" label="截止日期（可留空）" type="date" value={form.dueDate} onChange={(event) => update({ dueDate: event.target.value })} />
         <div className="flex flex-wrap gap-2">{[['今天', getToday()], ['明天', addDays(getToday(), 1)], ['无日期', '']].map(([label, date]) => <Button key={label} variant="soft" size="sm" onClick={() => update({ dueDate: date })}>{label}</Button>)}</div>
-        <p className="text-xs text-[var(--text-3)]">实际截止日期：{form.dueDate || '无截止日期'}</p>
+        <p className="text-sm text-[var(--text-3)]">实际截止日期：{form.dueDate || '无截止日期'}</p>
         {item && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]" checked={form.done} onChange={(event) => update({ done: event.target.checked })} />已完成</label>}
       </fieldset>
-      {confirmDelete && <section className="space-y-3 rounded-xl border border-[var(--danger)] p-3" aria-label="确认删除待办"><p className="break-words text-sm">删除「{item?.text}」？删除会同步，不能撤销为原记录。当前编辑稿会保留。</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={saving}>保留待办</Button><Button variant="danger" onClick={() => void remove()} disabled={saving || stale}>确认删除</Button></div></section>}
+      {confirmDelete && <section className="space-y-3 rounded-lg border border-[var(--danger)] p-3" aria-label="确认删除待办"><p className="break-words text-sm">删除「{item?.text}」？删除会同步，不能撤销为原记录。当前编辑稿会保留。</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => setConfirmDelete(false)} disabled={saving}>保留待办</Button><Button variant="danger" onClick={() => void remove()} disabled={saving || stale}>确认删除</Button></div></section>}
     </div>
   </Modal>;
 }

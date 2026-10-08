@@ -13,6 +13,7 @@ export function goalLoadingMessage(loading: boolean, readError: string | null): 
 
 export function goalSummaryLabel(loaded: boolean, loading: boolean, readError: string | null, done: number, total: number, average: number): string {
   if (!loaded) return loading ? '正在读取目标统计…' : '目标统计暂未读取';
+  if (total === 0) return readError ? '上次读取时还没有目标' : '还没有目标';
   return `${readError ? '上次读取：' : ''}${done}/${total} 完成 · 平均进度 ${average}%`;
 }
 

@@ -1,3 +1,4 @@
+import '../components/schedule/planning.css';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { Plus, CheckSquare } from 'lucide-react';
@@ -28,7 +29,7 @@ export default function Todo() {
   };
 
   return (
-    <div className="w-full">
+    <div className="planning-page w-full">
       {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← {source.label || '返回来源'}</Button>}
       {recordId && !loaded && <p role="status">正在查找这条记录…</p>}
       {recordId && loaded && !target && <section role="status" className="mb-4 space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这条记录。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
@@ -37,16 +38,16 @@ export default function Todo() {
         icon={CheckSquare}
         gradient="from-[var(--primary)] to-[var(--primary-light)]"
         title="待办"
-        subtitle="管理你的任务清单"
+        subtitle="把要做的事放在这里，一次完成一件"
         actions={
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => { setDismissed(requestKey); setShowModal(true); }}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)]"
+            className="planning-create"
             aria-label="新建待办"
           >
-            <Plus size={20} aria-hidden />
+            <Plus size={18} aria-hidden /><span>新建待办</span>
           </motion.button>
         }
       />

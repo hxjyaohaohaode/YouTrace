@@ -1,0 +1,62 @@
+/* Planning workspaces: one useful action per row, real dates and quiet hierarchy. */
+.planning-page { min-width: 0; }
+.planning-create { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: 8px; background: var(--primary); color: var(--on-primary, #1A1520); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.planning-page button:focus-visible { outline: 2px solid var(--link, #925017); outline-offset: 3px; }
+.planning-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 12px; }
+.planning-section-heading h2 { font-size: 18px; font-weight: 600; }
+.planning-section-heading > span { font-size: 14px; color: var(--text-2); }
+.planning-empty { border: 1px dashed var(--border); border-radius: 12px; padding: 40px 24px; text-align: center; background: var(--surface); }
+.planning-empty h3 { font-size: 18px; font-weight: 600; }
+.planning-empty p { margin-top: 8px; color: var(--text-2); font-size: 14px; line-height: 1.6; }
+.planning-footnote { margin-top: 20px; font-size: 12px; line-height: 1.6; color: var(--text-3); }
+.schedule-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.schedule-actions > p { font-size: 18px; font-weight: 600; }
+.schedule-actions > p span { display: block; margin-top: 4px; font-size: 12px; color: var(--text-3); font-weight: 400; }
+.schedule-date-title { display: flex; align-items: center; gap: 16px; }
+.schedule-date-title strong { font-size: 22px; }
+.schedule-date-title button { min-height: 44px; color: var(--link); font-size: 14px; }
+.schedule-view-switch { max-width: 320px; border-radius: 8px; }
+.schedule-view-switch button { border-radius: 6px; min-height: 44px; }
+.agenda-list { margin: 0; padding: 0; list-style: none; }
+.agenda-list li + li { border-top: 1px solid var(--border); }
+.agenda-row { display: flex; align-items: center; width: 100%; gap: 20px; padding: 20px 4px; text-align: left; border-radius: 8px; }
+.agenda-row:hover, .todo-action-row:hover, .week-agenda-row:hover { background: var(--surface-2); }
+.agenda-time { width: 64px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.agenda-time strong { display: block; font-size: 18px; font-weight: 600; }
+.agenda-time > span { display: block; font-size: 14px; color: var(--text-3); margin-top: 4px; }
+.agenda-marker { width: 4px; height: 44px; border-radius: 4px; flex-shrink: 0; }
+.agenda-detail { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.agenda-detail strong { display: block; font-size: 16px; font-weight: 600; line-height: 1.6; }
+.agenda-detail > span { display: block; margin-top: 4px; font-size: 14px; color: var(--text-2); }
+.agenda-edit { color: var(--link); font-size: 14px; }
+.calendar-week > button { min-height: 96px; }
+.calendar-month-week { border-top: 1px solid var(--border); }
+.calendar-month-week > button { min-height: 88px; }
+.week-agenda-row { border-bottom: 1px solid var(--border); }
+.planning-list-summary { display: flex; align-items: baseline; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.planning-list-summary strong { font-size: 22px; font-weight: 600; }
+.planning-list-summary span { color: var(--text-2); font-size: 14px; }
+.todo-action-list { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.todo-action-row + .todo-action-row { border-top: 1px solid var(--border); }
+.todo-action-row input { width: 22px; height: 22px; }
+.todo-action-row button { min-height: 44px; }
+.habit-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.habit-summary h2, .goal-introduction h2 { font-size: 22px; font-weight: 600; }
+.habit-summary p, .goal-introduction p { margin-top: 8px; font-size: 14px; line-height: 1.7; color: var(--text-2); }
+.habit-recap { display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid var(--border); padding: 20px 0; }
+.habit-recap > div { padding: 0 20px; }
+.habit-recap > div:first-child { padding-left: 0; border-right: 1px solid var(--border); }
+.habit-recap span { display: block; font-size: 14px; color: var(--text-2); }
+.habit-recap strong { display: block; margin-top: 8px; font-size: 28px; font-weight: 600; }
+.habit-recap small { font-size: 14px; font-weight: 400; color: var(--text-2); }
+.habit-records { display: grid; gap: 16px; }
+.habit-record { border-radius: 12px; }
+.habit-seven-days button { min-height: 56px; }
+.habit-today-button[aria-pressed="true"] { background: var(--primary-soft); color: var(--link); }
+.goal-introduction { margin-bottom: 24px; padding: 20px 0; border-block: 1px solid var(--border); }
+.goal-horizons { display: grid; gap: 32px; }
+.goal-records { display: grid; gap: 12px; }
+.goal-record { border-radius: 12px; }
+.goal-progress-options button { border-radius: 8px; min-height: 44px; }
+@media (min-width: 1100px) { .habit-records { grid-template-columns: repeat(2, minmax(0, 1fr)); } .goal-record > div:last-child { max-width: 560px; } }
+@media (max-width: 540px) { .agenda-row { gap: 12px; } .agenda-edit { display: none; } .agenda-time { width: 56px; } .schedule-date-title { gap: 8px; } .schedule-date-title strong { font-size: 18px; } .habit-summary { flex-wrap: wrap; } .habit-record { padding: 16px; } .habit-record > div:first-child { flex-wrap: wrap; } .habit-record > div:first-child > div { min-width: 140px; } .calendar-month-week > button { min-height: 64px; } .todo-action-row > div { gap: 12px; padding-inline: 12px; } }

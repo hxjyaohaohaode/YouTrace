@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Plus, ChevronLeft, ChevronRight, Clock, MapPin } from 'lucide-react';
 import { useScheduleStore, expandRecurringForRange, type ScheduleOccurrence } from '../../stores/scheduleStore';
 import { Card } from '../ui/Card';
@@ -14,7 +14,7 @@ const weekDayNames = ['一', '二', '三', '四', '五', '六', '日'];
 const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
 const scheduleTypeConfig: Record<ScheduleType, { label: string; color: string }> = {
-  class: { label: '课程', color: '#7C6FFF' },
+  class: { label: '课程', color: '#C9553E' },
   study: { label: '自习', color: '#2EA06B' },
   work: { label: '工作', color: '#45B7D1' },
   social: { label: '社交', color: '#E8853D' },
@@ -54,166 +54,22 @@ function getMonthDates(date: Date): Date[][] {
   );
 }
 
-const DAY_START_HOUR = 0;
-const DAY_END_HOUR = 24;
-const HOUR_HEIGHT = 56;
-const GRID_HEIGHT = (DAY_END_HOUR - DAY_START_HOUR) * HOUR_HEIGHT;
-
-function toMinutes(time: string): number {
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
-}
-
-interface PositionedItem {
-  item: ScheduleOccurrence;
-  virtualId: string;
-  top: number;
-  height: number;
-  column: number;
-  columns: number;
-}
-
-function layoutDayItems(
-  items: ScheduleOccurrence[],
-): PositionedItem[] {
-  const bounded = items
-    .map((item) => {
-      const startTotal = toMinutes(item.startTime);
-      const endTotal = toMinutes(item.endTime);
-      const top = ((startTotal - DAY_START_HOUR * 60) / 60) * HOUR_HEIGHT;
-      const height = Math.max(44, ((endTotal - startTotal) / 60) * HOUR_HEIGHT);
-      return { item, virtualId: item.virtualId, rawTop: top, height };
-    })
-    .filter(({ rawTop, height }) => rawTop < GRID_HEIGHT && rawTop + height > 0)
-    .sort((a, b) => a.rawTop - b.rawTop || b.height - a.height);
-
-  const positioned: PositionedItem[] = [];
-  let cluster: typeof bounded = [];
-  let clusterEnd = -1;
-
-  const flushCluster = () => {
-    if (cluster.length === 0) return;
-    const columns: number[] = [];
-    const assigned: Array<{ entry: (typeof bounded)[number]; column: number }> = [];
-    for (const entry of cluster) {
-      let column = columns.findIndex((end) => end <= entry.rawTop);
-      if (column === -1) {
-        column = columns.length;
-      }
-      columns[column] = entry.rawTop + entry.height;
-      assigned.push({ entry, column });
-    }
-    for (const { entry, column } of assigned) {
-      positioned.push({
-        item: entry.item,
-        virtualId: entry.virtualId,
-        top: Math.max(0, entry.rawTop),
-        height: Math.min(entry.height, GRID_HEIGHT - Math.max(0, entry.rawTop)),
-        column,
-        columns: columns.length,
-      });
-    }
-    cluster = [];
-    clusterEnd = -1;
-  };
-
-  for (const entry of bounded) {
-    if (cluster.length > 0 && entry.rawTop >= clusterEnd) {
-      flushCluster();
-    }
-    cluster.push(entry);
-    clusterEnd = Math.max(clusterEnd, entry.rawTop + entry.height);
-  }
-  flushCluster();
-
-  return positioned;
-}
-
 function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurrence) => void }) {
   const items = useScheduleStore((s) => s.items);
-  const hours = Array.from({ length: DAY_END_HOUR - DAY_START_HOUR }, (_, i) => i + DAY_START_HOUR);
-
-  const positioned = useMemo(() => {
-    const expanded = expandRecurringForRange(items, date, date);
-    return layoutDayItems(expanded);
-  }, [items, date]);
-
-  return (
-    <div className="relative overflow-x-auto">
-      <div className="flex w-full min-w-0">
-        <div className="w-14 shrink-0">
-          {hours.map((h) => (
-            <div key={h} className="h-14 border-b border-[var(--border)]/30 pr-2 text-right text-xs text-[var(--text-3)]">
-              {`${h}:00`}
-            </div>
-          ))}
-        </div>
-        <div className="relative flex-1" style={{ height: GRID_HEIGHT }}>
-          {hours.map((h) => (
-            <div key={h} className="h-14 border-b border-[var(--border)]/30" />
-          ))}
-          <AnimatePresence>
-            {positioned.map(({ item, virtualId, top, height, column, columns }) => {
-              const config = scheduleTypeConfig[item.type] ?? scheduleTypeConfig.other;
-              const widthPercent = 100 / columns;
-              return (
-                <motion.div
-                  key={virtualId}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  onClick={() => onEdit(item)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onEdit(item);
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${item.startTime}-${item.endTime} ${item.title}`}
-                  className="absolute scroll-my-2 cursor-pointer rounded-[var(--radius-md)] px-2.5 py-1.5 transition-shadow hover:shadow-md"
-                  style={{
-                    top: `${top}px`,
-                    height: `${height}px`,
-                    left: `calc(${column * widthPercent}% + 4px)`,
-                    width: `calc(${widthPercent}% - 8px)`,
-                    borderLeft: '3px solid transparent',
-                    borderImage: `linear-gradient(to bottom, ${config.color}, ${config.color}88) 1`,
-                    backgroundColor: `${config.color}12`,
-                  }}
-                >
-                  <p className="truncate text-xs font-semibold" style={{ color: config.color }}>
-                    {item.title}
-                  </p>
-                  {height > 40 && (
-                    <div className="mt-0.5 flex items-center gap-1">
-                      <Clock size={10} className="text-[var(--text-3)]" aria-hidden />
-                      <span className="text-[10px] text-[var(--text-3)]">
-                        {item.startTime}-{item.endTime}
-                      </span>
-                    </div>
-                  )}
-                  {height > 56 && item.location && (
-                    <div className="mt-0.5 flex items-center gap-1">
-                      <MapPin size={10} className="text-[var(--text-3)]" aria-hidden />
-                      <span className="truncate text-[10px] text-[var(--text-3)]">{item.location}</span>
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
-      </div>
-      {positioned.length === 0 && (
-        <div className="py-10 text-center">
-          <p className="text-sm text-[var(--text-3)]">这天没有日程</p>
-        </div>
-      )}
-    </div>
-  );
+  const agenda = useMemo(() => expandRecurringForRange(items, date, date).sort((a, b) => a.startTime.localeCompare(b.startTime)), [items, date]);
+  return <section aria-label={`${date} 日程清单`} className="day-agenda">
+    <div className="planning-section-heading"><h2>当天安排</h2><span>{agenda.length} 项 · {date}</span></div>
+    {agenda.length ? <ol className="agenda-list">{agenda.map(item => {
+      const config = scheduleTypeConfig[item.type] ?? scheduleTypeConfig.other;
+      return <li key={item.virtualId}><button type="button" className="agenda-row" onClick={() => onEdit(item)} aria-label={`${item.startTime}-${item.endTime} ${item.title}`}>
+        <span className="agenda-time"><strong>{item.startTime}</strong><span>{item.endTime}</span></span>
+        <span className="agenda-marker" style={{ backgroundColor: config.color }} aria-hidden />
+        <span className="agenda-detail"><strong>{item.title}</strong><span>{config.label}{item.location ? ` · ${item.location}` : ''}{item.repeat === 'weekly' ? ' · 每周重复' : ''}</span></span>
+        <span className="agenda-edit">编辑</span>
+      </button></li>;
+    })}</ol> : <div className="planning-empty"><h3>这一天还没有安排</h3><p>添加一个确定的计划，其余时间留给自己。</p></div>}
+    <p className="planning-footnote">按开始时间排列，包含凌晨与夜间安排。时间按中国标准时间（UTC+8）记录。</p>
+  </section>;
 }
 
 function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: (d: string) => void; onEdit: (item: ScheduleOccurrence) => void }) {
@@ -241,7 +97,7 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
 
   return (
     <div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="calendar-week grid grid-cols-7 gap-1">
         {weekDates.map((d, i) => {
           const dateStr = formatDate(d);
           const isToday = dateStr === today;
@@ -264,9 +120,9 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
               <span className="text-xs font-medium text-[var(--text-3)]">{weekDayNames[i]}</span>
               <span className={`mt-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition-all duration-200 sm:h-8 sm:w-8 ${
                 isToday
-                  ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-xs)]'
+                  ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-[var(--on-primary)] shadow-[var(--shadow-xs)]'
                   : isSelected
-                  ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
+                  ? 'bg-[var(--primary-soft)] text-[var(--link)]'
                   : 'text-[var(--text-1)]'
               }`}>
                 {d.getUTCDate()}
@@ -287,7 +143,7 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
         })}
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="schedule-week-agenda mt-4 space-y-2">
         {selectedDayItems.map((item) => {
           const config = scheduleTypeConfig[item.type] ?? scheduleTypeConfig.other;
           return (
@@ -298,14 +154,14 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] px-4 py-3 text-left shadow-[var(--shadow-sm)]"
+              className="week-agenda-row flex w-full items-center gap-3 px-4 py-4 text-left"
             >
               <div
                 className="h-10 w-1.5 shrink-0 rounded-full"
                 style={{ background: `linear-gradient(to bottom, ${config.color}, ${config.color}66)` }}
               />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--text-1)]">{item.title}</p>
+                <p className="break-words text-base font-semibold text-[var(--text-1)]">{item.title}</p>
                 <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-3)]">
                   <Clock size={12} aria-hidden />
                   <span>{item.startTime}-{item.endTime}</span>
@@ -318,8 +174,8 @@ function WeekView({ date, onSelectDate, onEdit }: { date: string; onSelectDate: 
                 </div>
               </div>
               <span
-                className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold text-white"
-                style={{ background: `linear-gradient(135deg, ${config.color}, ${config.color}cc)` }}
+                className="shrink-0 rounded-full bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold text-[var(--text-1)]"
+                style={{ borderLeft: `3px solid ${config.color}` }}
               >
                 {config.label}
               </span>
@@ -362,7 +218,7 @@ function MonthView({ date, onSelectDate }: { date: string; onSelectDate: (d: str
         ))}
       </div>
       {weeks.map((week, wi) => (
-        <div key={wi} className="grid grid-cols-7 gap-0.5">
+        <div key={wi} className="calendar-month-week grid grid-cols-7 gap-0.5">
           {week.map((d) => {
             const dateStr = formatDate(d);
             const isCurrentMonth = d.getUTCMonth() === currentMonth;
@@ -385,9 +241,9 @@ function MonthView({ date, onSelectDate }: { date: string; onSelectDate: (d: str
               >
                 <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm transition-all duration-200 sm:h-8 sm:w-8 ${
                   isToday
-                    ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] font-bold text-white shadow-[var(--shadow-xs)]'
+                    ? 'bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] font-bold text-[var(--on-primary)] shadow-[var(--shadow-xs)]'
                     : isSelected
-                    ? 'bg-[var(--primary-soft)] font-semibold text-[var(--primary)]'
+                    ? 'bg-[var(--primary-soft)] font-semibold text-[var(--link)]'
                     : 'text-[var(--text-1)]'
                 }`}>
                   {d.getUTCDate()}
@@ -418,6 +274,7 @@ export function ScheduleContent({ initialRecord, initialOccurrence }: { initialR
   const [editItem, setEditItem] = useState<ScheduleOccurrence | undefined>(() => initialOccurrence ? structuredClone(initialOccurrence) : initialRecord ? { ...structuredClone(initialRecord), virtualId: initialRecord.id, occurrenceDate: initialRecord.date, source: structuredClone(initialRecord) } : undefined);
   const [formKey, setFormKey] = useState(0);
 
+  const loaded = useScheduleStore((s) => s.loaded);
   const selectedDate = useScheduleStore((s) => s.selectedDate);
   const setSelectedDate = useScheduleStore((s) => s.setSelectedDate);
 
@@ -457,39 +314,38 @@ export function ScheduleContent({ initialRecord, initialOccurrence }: { initialR
   const viewLabels: Record<ViewMode, string> = { day: '日', week: '周', month: '月' };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-end">
+    <div className="schedule-workspace space-y-4">
+      <div className="schedule-actions"><p>日程安排 <span>中国标准时间 · UTC+8</span></p>
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={openCreate}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)]"
+          className="planning-create"
           aria-label="新建日程"
         >
-          <Plus size={20} aria-hidden />
+          <Plus size={18} aria-hidden /><span>新建日程</span>
         </motion.button>
       </div>
 
-      <Card variant="glass" className="!rounded-[var(--radius-xl)]">
+      <Card variant="default" className="schedule-datebar">
         <div className="flex items-center justify-between px-3 py-2.5">
           <button type="button" onClick={() => navigateDate(-1)} className="flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-[var(--surface-2)]" aria-label="上一页">
             <ChevronLeft size={18} className="text-[var(--text-2)]" aria-hidden />
           </button>
-          <span className="text-sm font-bold text-[var(--text-1)]">{headerDate}</span>
+          <div className="schedule-date-title"><strong>{headerDate}</strong><button type="button" onClick={() => setSelectedDate(getToday())}>回到今天</button></div>
           <button type="button" onClick={() => navigateDate(1)} className="flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-[var(--surface-2)]" aria-label="下一页">
             <ChevronRight size={18} className="text-[var(--text-2)]" aria-hidden />
           </button>
         </div>
       </Card>
 
-      <div className="flex rounded-full bg-[var(--surface-2)] p-1" role="tablist" aria-label="视图切换">
+      <div className="schedule-view-switch flex bg-[var(--surface-2)] p-1" role="group" aria-label="视图切换">
         {(['day', 'week', 'month'] as ViewMode[]).map((v) => (
           <button
             key={v}
             type="button"
             onClick={() => setView(v)}
-            role="tab"
-            aria-selected={view === v}
+            aria-pressed={view === v}
             className={`flex-1 rounded-full py-2 text-sm font-medium transition-all duration-200 sm:py-2.5 ${
               view === v
                 ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-sm'
@@ -501,10 +357,11 @@ export function ScheduleContent({ initialRecord, initialOccurrence }: { initialR
         ))}
       </div>
 
-      <Card variant="default" className="!rounded-[var(--radius-xl)] !p-4">
-        {view === 'day' && <DayView date={selectedDate} onEdit={handleEdit} />}
-        {view === 'week' && <WeekView date={selectedDate} onSelectDate={setSelectedDate} onEdit={handleEdit} />}
-        {view === 'month' && <MonthView date={selectedDate} onSelectDate={(d) => { setSelectedDate(d); setView('day'); }} />}
+      <Card variant="default" className="schedule-content-panel !p-4">
+        {!loaded && <p role="status" className="planning-empty">正在读取日程安排…</p>}
+        {loaded && view === 'day' && <DayView date={selectedDate} onEdit={handleEdit} />}
+        {loaded && view === 'week' && <WeekView date={selectedDate} onSelectDate={setSelectedDate} onEdit={handleEdit} />}
+        {loaded && view === 'month' && <MonthView date={selectedDate} onSelectDate={(d) => { setSelectedDate(d); setView('day'); }} />}
       </Card>
 
       {showModal && <ScheduleEditor key={formKey} selectedDate={selectedDate} item={editItem} onClose={() => { setShowModal(false); setEditItem(undefined); }} />}

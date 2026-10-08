@@ -7,18 +7,18 @@ import { Button } from '../ui/Button';
 import { formatDateLabel, getNaturalWeekDates, getToday } from '../../utils/date';
 
 const priorityConfig: Record<Priority, { gradient: string; label: string }> = {
-  high: { gradient: 'bg-gradient-to-r from-[var(--danger)] to-[#FF6B8A]', label: '高' },
-  medium: { gradient: 'bg-gradient-to-r from-[var(--warning)] to-[#F0C040]', label: '中' },
-  low: { gradient: 'bg-gradient-to-r from-[var(--success)] to-[#3FBF7E]', label: '低' },
+  high: { gradient: 'bg-[var(--danger)]/10 text-[var(--danger)]', label: '高' },
+  medium: { gradient: 'bg-[var(--primary-soft)] text-[var(--link)]', label: '中' },
+  low: { gradient: 'bg-[var(--surface-2)] text-[var(--text-2)]', label: '低' },
 };
 
 type GroupKey = 'overdue' | 'today' | 'week' | 'later' | 'done';
 
 const groupConfig: Record<GroupKey, { label: string; icon: typeof AlertCircle; color: string }> = {
   overdue: { label: '逾期', icon: AlertCircle, color: 'text-[var(--danger)]' },
-  today: { label: '今天', icon: Clock, color: 'text-[var(--primary)]' },
-  week: { label: '本周', icon: Calendar, color: 'text-[var(--warning)]' },
-  later: { label: '更晚', icon: Calendar, color: 'text-[var(--text-3)]' },
+  today: { label: '今天', icon: Clock, color: 'text-[var(--link)]' },
+  week: { label: '本周', icon: Calendar, color: 'text-[var(--link)]' },
+  later: { label: '稍后与未定日期', icon: Calendar, color: 'text-[var(--text-3)]' },
   done: { label: '已完成', icon: Check, color: 'text-[var(--success)]' },
 };
 
@@ -62,14 +62,14 @@ function TodoRow({ item, onEdit }: TodoRowProps) {
     catch (reason) { toast.error(reason instanceof Error ? reason.message : '未保存，请重试'); }
     finally { guard.current = false; setPending(false); }
   };
-  return <motion.div layout className="relative" id={`todo-record-${item.id}`} tabIndex={-1}>
-    <div className="flex w-full items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-light)] bg-[var(--surface)] px-4 py-3.5 shadow-[var(--shadow-sm)]">
+  return <motion.div layout className="todo-action-row relative" id={`todo-record-${item.id}`} tabIndex={-1}>
+    <div className="flex w-full items-center gap-4 px-4 py-4">
       <input type="checkbox" checked={item.done} onChange={() => void toggle()} disabled={pending} aria-label={`${item.done ? '取消完成' : '完成'} ${item.text}`} className="h-5 w-5 shrink-0 accent-[var(--primary)]" />
       <button type="button" onClick={onEdit} className="min-w-0 flex-1 rounded text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑待办 ${item.text} ${item.dueDate || '无日期'}`}>
-        <p className={`break-words text-[13px] font-medium ${item.done ? 'text-[var(--text-3)] line-through' : 'text-[var(--text-1)]'}`}>{item.text}</p>
-        <p className="mt-0.5 text-[11px] text-[var(--text-3)]">{dueLabel(item)}{item.dueDate ? ` · ${item.dueDate}` : ''} · 编辑</p>
+        <p className={`break-words text-base font-medium ${item.done ? 'text-[var(--text-3)] line-through' : 'text-[var(--text-1)]'}`}>{item.text}</p>
+        <p className="mt-0.5 text-sm text-[var(--text-3)]">{dueLabel(item)}{item.dueDate ? ` · ${item.dueDate}` : ''} · 编辑</p>
       </button>
-      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold text-white ${priority.gradient}`}>{priority.label}</span>
+      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${priority.gradient}`}>{priority.label}优先级</span>
     </div>
   </motion.div>;
 }
@@ -92,23 +92,24 @@ export function TodoList({ onEdit }: { onEdit: (item: TodoItem) => void }) {
   const activeCount = items.filter((i) => !i.done).length;
 
   if (!loaded) {
-    return null;
+    return <p role="status" className="planning-empty">正在读取待办清单…</p>;
   }
 
   if (items.length === 0) {
     return (
-      <div className="py-16 text-center">
+      <div className="planning-empty">
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--surface-2)]">
           <Check size={28} className="text-[var(--text-3)]" aria-hidden />
         </div>
         <p className="text-sm font-medium text-[var(--text-3)]">还没有待办</p>
-        <p className="mt-1 text-xs text-[var(--text-3)]">点右上角 + 添加第一件事</p>
+        <p className="mt-1 text-xs text-[var(--text-3)]">点击“新建待办”，记下下一步要做的事</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="todo-workspace space-y-5">
+      <div className="planning-list-summary"><strong>{activeCount} 件待办</strong><span>{items.length - activeCount} 件已完成</span></div>
       {undoStack.length > 0 && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--primary-soft)] p-3 text-sm"><span>已修改「{undoStack.at(-1)?.before.text}」的完成状态</span><Button variant="soft" onClick={() => void undo()} disabled={undoPending}>{undoPending ? '撤销中…' : '撤销上次完成状态'}</Button></div>}
       {activeCount === 0 && (
         <motion.div
@@ -128,12 +129,12 @@ export function TodoList({ onEdit }: { onEdit: (item: TodoItem) => void }) {
 
         return (
           <div key={key}>
-            <div className="mb-2.5 flex items-center gap-1.5 px-1">
+            <div className="planning-section-heading flex items-center gap-2">
               <Icon size={14} className={config.color} aria-hidden />
               <span className={`text-xs font-bold ${config.color}`}>{config.label}</span>
               <span className="text-xs font-medium text-[var(--text-3)]">({groupItems.length})</span>
             </div>
-            <div className="space-y-2">
+            <div className="todo-action-list">
               <AnimatePresence mode="popLayout">
                 {groupItems.map((item) => (
                   <TodoRow

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation, Navigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles } from 'lucide-react'
+import { Brand } from '../components/ui/Brand'
 import { useAuthStore } from '../stores/authStore'
 
 type Step = 'phone' | 'code' | 'register'
@@ -122,21 +122,19 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[var(--bg)] to-[var(--primary-muted)] p-4">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-5">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm"
+        className="w-full max-w-md"
       >
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] shadow-[var(--shadow-glow)]">
-            <Sparkles size={28} className="text-white" aria-hidden />
-          </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text-1)]">有迹</h1>
-          <p className="mt-1 text-sm text-[var(--text-2)]">你的 AI 生活教练</p>
+          <Brand variant="full" className="login-wordmark" />
+          <h1 className="mt-5 text-[28px] font-semibold text-[var(--text-1)]">欢迎使用有迹</h1>
+          <p className="mt-3 text-base text-[var(--text-2)]">登录后记录与回看日常，管理日程和待办。</p>
         </div>
 
-        <div className="rounded-[var(--radius-xl)] border border-[var(--glass-border)] bg-[var(--glass-bg)] p-6 shadow-[var(--glass-shadow)] backdrop-blur-xl">
+        <div className="rounded-[var(--radius-xl)] border border-[var(--glass-border)] bg-[var(--glass-bg)] p-6 ">
           <AnimatePresence mode="wait">
             {step === 'phone' && (
               <motion.div
@@ -165,7 +163,7 @@ export default function Login() {
                   type="button"
                   onClick={() => void handleSendCode()}
                   disabled={loading || resendCountdown > 0 || phone.length !== 11}
-                  className="mt-4 h-12 w-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] font-semibold text-white shadow-[var(--shadow-glow)] transition-transform active:scale-[0.98] disabled:opacity-50"
+                  className="mt-4 h-12 w-full rounded-lg bg-[var(--primary)] font-semibold text-[var(--on-primary)] transition-transform active:scale-[0.98] disabled:opacity-50"
                 >
                   {loading ? '发送中...' : resendCountdown > 0 ? `${resendCountdown}s 后重发` : '获取验证码'}
                 </button>
@@ -206,7 +204,7 @@ export default function Login() {
                   type="button"
                   onClick={() => void handleVerify()}
                   disabled={loading || code.length !== 6}
-                  className="mt-4 h-12 w-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] font-semibold text-white shadow-[var(--shadow-glow)] transition-transform active:scale-[0.98] disabled:opacity-50"
+                  className="mt-4 h-12 w-full rounded-lg bg-[var(--primary)] font-semibold text-[var(--on-primary)] transition-transform active:scale-[0.98] disabled:opacity-50"
                 >
                   {loading ? '验证中...' : '验证'}
                 </button>
@@ -248,7 +246,7 @@ export default function Login() {
                   type="button"
                   onClick={() => void handleRegister()}
                   disabled={loading || !nickname.trim()}
-                  className="mt-4 h-12 w-full rounded-full bg-gradient-to-r from-[var(--primary)] to-[var(--primary-light)] font-semibold text-white shadow-[var(--shadow-glow)] transition-transform active:scale-[0.98] disabled:opacity-50"
+                  className="mt-4 h-12 w-full rounded-lg bg-[var(--primary)] font-semibold text-[var(--on-primary)] transition-transform active:scale-[0.98] disabled:opacity-50"
                 >
                   {loading ? '注册中...' : '开始使用'}
                 </button>
@@ -259,7 +257,7 @@ export default function Login() {
 
         {new URLSearchParams(location.search).get('cleanup') === 'needed' && <p role="alert" className="mt-4 text-sm text-[var(--danger)]">云端账号已注销，本设备清理尚未完成。请关闭其他标签页后清理此网站的本地数据。</p>}
         <p className="mt-4 text-center text-xs text-[var(--text-3)]">
-          使用前请阅读<Link to="/data-info" className="ml-1 text-[var(--primary)] underline">数据处理说明</Link>
+          使用前请阅读<Link to="/data-info" className="ml-1 text-[var(--link)] underline">数据处理说明</Link>
         </p>
       </motion.div>
     </div>

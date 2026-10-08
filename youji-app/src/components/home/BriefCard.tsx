@@ -56,27 +56,25 @@ export function BriefCard({ data }: BriefCardProps) {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-        className="relative overflow-hidden rounded-[var(--radius-xl)] bg-gradient-to-br from-[var(--primary)] via-[var(--primary-light)] to-[#B06AFF] p-5 text-white shadow-[var(--shadow-glow)] sm:p-8"
+        className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 text-[var(--text-1)] sm:p-6"
       >
-        <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/8 blur-3xl" aria-hidden />
-        <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-white/5 blur-3xl" aria-hidden />
 
         <div className="relative z-10">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-white/15 backdrop-blur-sm">
-              <TrendingUp size={18} className="text-white" aria-hidden />
+            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--primary-soft)]">
+              <TrendingUp size={18} className="text-[var(--text-1)]" aria-hidden />
             </div>
             <span className="text-sm font-bold">记录简报</span>
           </div>
-          <p className="mb-4 text-xs leading-relaxed text-white/80">
+          <p className="mb-4 text-xs leading-relaxed text-[var(--text-2)]">
             {data.source ? `${data.source === 'server' ? '云端已同步记录' : '本机记录'} · 读取于 ${formatSnapshotTime(data.generatedAt)}（北京时间）` : '正在读取记录…'}
           </p>
 
           <div className="mb-5 space-y-4">
-            <div className="flex items-start gap-3 rounded-[var(--radius-md)] bg-white/12 p-4 backdrop-blur-sm">
-              <BarChart3 size={18} className="mt-0.5 shrink-0 text-white/90" aria-hidden />
+            <div className="flex items-start gap-3 rounded-[var(--radius-md)] bg-[var(--surface-2)] p-4">
+              <BarChart3 size={18} className="mt-0.5 shrink-0 text-[var(--text-2)]" aria-hidden />
               <div>
-                <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">{data.reviewDate ? `${data.reviewDate} 记录回顾` : '昨日复盘'}</p>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--text-2)]">{data.reviewDate ? `${data.reviewDate} 记录回顾` : '昨日复盘'}</p>
                 <p className="text-sm leading-relaxed">
                   已记录支出 ¥{data.yesterdayReview.spent.toFixed(2)}
                   {data.yesterdayReview.expenseCount !== undefined && `，共${data.yesterdayReview.expenseCount}笔`}
@@ -84,27 +82,27 @@ export function BriefCard({ data }: BriefCardProps) {
                   {hasHabitCount ? ` · 该日记为已打卡的习惯 ${habitDone} 项` : ' · 该日习惯打卡记录待确认'}
                   {data.yesterdayReview.moodScore !== null && ` · 心情 ${data.yesterdayReview.moodScore}/10`}
                 </p>
-                <p className="mt-1 text-[11px] leading-relaxed text-white/70">按读取时保留的习惯及该日打卡记录统计</p>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--text-2)]">按读取时保留的习惯及该日打卡记录统计</p>
               </div>
             </div>
 
             {data.weeklyInsights.length > 0 && (
               <div className="flex items-start gap-3">
-                <Target size={18} className="mt-0.5 shrink-0 text-white/80" aria-hidden />
+                <Target size={18} className="mt-0.5 shrink-0 text-[var(--text-2)]" aria-hidden />
                 <div>
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">洞察快照</p>
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--text-2)]">洞察快照</p>
                   <p className="text-sm font-semibold">{snapshotTitle}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-white/80">{data.weeklyInsights[0].description}</p>
-                  <p className="mt-2 text-[11px] leading-relaxed text-white/70">生成于 {formatSnapshotTime(data.weeklyInsights[0].createdAt)}（北京时间）；后续记录变动可能尚未计入</p>
+                  <p className="mt-1 text-xs leading-relaxed text-[var(--text-2)]">{data.weeklyInsights[0].description}</p>
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--text-2)]">生成于 {formatSnapshotTime(data.weeklyInsights[0].createdAt)}（北京时间）；后续记录变动可能尚未计入</p>
                 </div>
               </div>
             )}
 
             {data.todayActions.length > 0 && (
               <div className="flex items-start gap-3">
-                <TrendingUp size={18} className="mt-0.5 shrink-0 text-white/80" aria-hidden />
+                <TrendingUp size={18} className="mt-0.5 shrink-0 text-[var(--text-2)]" aria-hidden />
                 <div>
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-white/70">可选行动</p>
+                  <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--text-2)]">可选行动</p>
                   <ul className="mt-2 space-y-2">
                     {actions.map((action, i) => (
                       <motion.li
@@ -116,10 +114,10 @@ export function BriefCard({ data }: BriefCardProps) {
                         <button
                           type="button"
                           onClick={() => navigate(action.path)}
-                          className="group flex w-full items-center gap-3 rounded-[var(--radius-sm)] text-left text-sm transition-colors hover:bg-white/10"
+                          className="group flex w-full items-center gap-3 rounded-[var(--radius-sm)] text-left text-sm transition-colors hover:bg-[var(--surface-2)]"
                           aria-label={`去处理：${action.text}`}
                         >
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white/30 to-white/10 text-[10px] font-bold">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--primary-soft)] text-xs font-bold">
                             {i + 1}
                           </span>
                           <span className="min-w-0 flex-1 break-words leading-relaxed">{action.text}</span>
@@ -138,7 +136,7 @@ export function BriefCard({ data }: BriefCardProps) {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
               onClick={() => navigate('/coach')}
-              className="flex items-center gap-2 rounded-full bg-white/20 px-6 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:bg-white/30"
+              className="flex items-center gap-2 rounded-full bg-[var(--primary-soft)] px-6 py-3 text-sm font-semibold text-[var(--text-1)] transition-all hover:bg-[var(--surface-hover)]"
             >
               <MessageCircle size={16} aria-hidden />
               和教练聊聊
@@ -147,7 +145,7 @@ export function BriefCard({ data }: BriefCardProps) {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
               onClick={() => navigate('/insights')}
-              className="flex items-center gap-1 rounded-full bg-white/10 px-6 py-3 text-sm font-medium text-white/90 backdrop-blur-sm transition-all hover:bg-white/20"
+              className="flex items-center gap-1 rounded-full bg-[var(--surface-2)] px-6 py-3 text-sm font-medium text-[var(--text-2)] transition-all hover:bg-[var(--primary-soft)]"
             >
               查看完整分析
               <ArrowRight size={14} aria-hidden />
@@ -187,9 +185,9 @@ export function PushList() {
 }
 
 const pushTypeConfig: Record<string, { border: string; iconBg: string; iconColor: string }> = {
-  daily_brief: { border: 'border-l-[#5B5FC7]', iconBg: 'bg-[#5B5FC7]/10', iconColor: 'text-[#5B5FC7]' },
+  daily_brief: { border: 'border-l-[var(--link)]', iconBg: 'bg-[var(--link)]/10', iconColor: 'text-[var(--link)]' },
   anomaly: { border: 'border-l-[var(--danger)]', iconBg: 'bg-[var(--danger)]/10', iconColor: 'text-[var(--danger)]' },
-  follow_up: { border: 'border-l-[var(--violet)]', iconBg: 'bg-[var(--violet)]/10', iconColor: 'text-[var(--violet)]' },
+  follow_up: { border: 'border-l-[var(--link)]', iconBg: 'bg-[var(--link)]/10', iconColor: 'text-[var(--link)]' },
   positive: { border: 'border-l-[var(--success)]', iconBg: 'bg-[var(--success)]/10', iconColor: 'text-[var(--success)]' },
   evening_review: { border: 'border-l-[var(--warning)]', iconBg: 'bg-[var(--warning)]/10', iconColor: 'text-[var(--warning)]' },
 };
@@ -235,7 +233,7 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
           <div className="min-w-0 flex-1">
             <button type="button" onClick={handleOpen}
             disabled={pending} className="block w-full text-left">
-              <p className="break-words text-[13px] font-bold text-[var(--text-1)] group-hover:text-[var(--primary)]">{push.title}</p>
+              <p className="break-words text-base font-bold text-[var(--text-1)] group-hover:text-[var(--link)]">{push.title}</p>
               <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--text-2)]">{push.body}</p>
             </button>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -262,7 +260,7 @@ function PushCard({ push, onRead, onAct, onDismiss }: { push: CoachPushRecord; o
                   })}
                   className={`rounded-[var(--radius-sm)] px-3.5 py-2 text-xs font-semibold transition-all ${
                     action.type === 'chat'
-                      ? 'bg-[var(--primary-soft)] text-[var(--primary)] hover:bg-[var(--primary)]/12'
+                      ? 'bg-[var(--primary-soft)] text-[var(--link)] hover:bg-[var(--primary)]/12'
                       : action.type === 'confirm'
                       ? 'bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--border)]'
                       : 'text-[var(--text-3)] hover:text-[var(--text-2)]'

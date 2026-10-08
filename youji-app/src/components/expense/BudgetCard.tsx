@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import { RingProgress } from '../ui/ProgressBar';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { getBusinessMonth } from '../../utils/date';
@@ -38,9 +37,9 @@ export function BudgetCard() {
   };
   const confirmed = budgetStatus === 'configured';
   const remaining = monthBudget - total;
-  return <section className="rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-4 shadow-[var(--shadow-sm)] sm:p-6" aria-label="月预算">
-    <div className="flex flex-wrap items-center gap-4">
-      {confirmed && monthBudget > 0 && <RingProgress value={total} max={monthBudget} size={100} />}
+  return <section className="budget-section" aria-label="月预算">
+    <h2 className="mb-5 text-lg font-semibold">本月预算</h2><div className="flex flex-wrap items-center gap-4">
+
       <div className="min-w-0 flex-1"><p className="text-xs text-[var(--text-3)]">本月已花</p><p className="break-words font-mono text-2xl font-bold">¥{yuan(total)}</p>
         <p className="mt-2 text-sm">{budgetStatus === 'unset' ? '尚未设置月预算' : budgetStatus === 'unknown' ? `本设备已有预算 ¥${yuan(monthBudget)}（来源未确认）` : `月预算 ¥${yuan(monthBudget)}`}</p>
         {confirmed && <p className={`mt-2 text-sm ${remaining < 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}`}>{monthBudget === 0 ? `已明确设置为 0 元${total > 0 ? `，支出 ¥${yuan(total)}` : ''}` : remaining < 0 ? `超出预算 ¥${yuan(-remaining)}` : `剩余 ¥${yuan(remaining)}`}</p>}

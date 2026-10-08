@@ -6,6 +6,7 @@ import { generateWeeklyReview, computeWeeklyStats } from '../../services/lifeInt
 
 export function WeeklyReviewCard() {
   const navigate = useNavigate();
+  const [error, setError] = useState(false);
   const [review, setReview] = useState<string | null>(null);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof computeWeeklyStats>> | null>(null);
 
@@ -18,27 +19,29 @@ export function WeeklyReviewCard() {
           setReview(r);
           setStats(s);
         }
-      } catch { /* ignore */ }
+      } catch { if (!cancelled) setError(true); }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  if (!stats || stats.daysActive === 0) return null;
+  if (error) return <p role="status" className="text-sm text-[var(--text-2)]">近7天回顾暂时无法读取。原始记录仍可在时间线查看。</p>;
+  if (!stats) return <p role="status" className="text-sm text-[var(--text-2)]">正在读取近7天记录…</p>;
+  if (stats.daysActive === 0) return null;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-      className="group w-full rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-5 text-left shadow-[var(--shadow-sm)] transition-all hover:border-[var(--primary)]/20 hover:shadow-[var(--shadow-md)]"
+      className="group w-full rounded-[var(--radius-xl)] border border-[var(--border-light)] bg-[var(--surface)] p-5 text-left transition-all hover:border-[var(--primary)]/20"
       aria-label="查看近7天回顾和时间线"
     >
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--primary-muted)]">
-            <BarChart3 size={16} className="text-[var(--primary)]" aria-hidden />
+            <BarChart3 size={16} className="text-[var(--link)]" aria-hidden />
           </div>
-          <h3 className="text-[13px] font-bold text-[var(--text-1)]">近7天回顾</h3>
+          <h3 className="text-lg font-bold text-[var(--text-1)]">近7天回顾</h3>
         </div>
         <button type="button" onClick={() => navigate('/timeline')} aria-label="查看时间线" className="flex min-h-11 min-w-11 items-center justify-center"><ChevronRight size={16} className="text-[var(--text-4)]" aria-hidden /></button>
       </div>
@@ -48,13 +51,13 @@ export function WeeklyReviewCard() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
-          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">消费</p>
+          <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-[var(--text-4)]">消费</p>
           <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">
             ¥{(stats.expenseTotalFen / 100).toFixed(2)}
           </p>
-          <p className="mt-0.5 text-[11px] text-[var(--text-3)]">共{stats.expenseCount}笔</p>
+          <p className="mt-0.5 text-xs text-[var(--text-3)]">共{stats.expenseCount}笔</p>
           {stats?.weekOverWeekPct !== null && stats?.weekOverWeekPct !== undefined && (
-            <span className={`mt-0.5 flex items-center gap-0.5 text-[10px] font-semibold ${stats.weekOverWeekPct > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}`}>
+            <span className={`mt-0.5 flex items-center gap-0.5 text-xs font-semibold ${stats.weekOverWeekPct > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}`}>
               {stats.weekOverWeekPct > 0 ? <TrendingUp size={10} aria-hidden /> : stats.weekOverWeekPct < 0 ? <TrendingDown size={10} aria-hidden /> : <Minus size={10} aria-hidden />}
               {Math.abs(stats.weekOverWeekPct)}%
             </span>
@@ -62,25 +65,25 @@ export function WeeklyReviewCard() {
         </div>
 
         <div>
-          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">习惯实际记录</p>
+          <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-[var(--text-4)]">习惯实际记录</p>
           <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">{stats?.habitRecordCount ?? 0} 次</p>
         </div>
 
         <div>
-          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">日记</p>
+          <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-[var(--text-4)]">日记</p>
           <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">{stats?.diaryEntryCount ?? 0} 篇</p>
         </div>
 
         <div>
-          <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-4)]">活跃</p>
+          <p className="mb-0.5 text-xs font-medium uppercase tracking-wide text-[var(--text-4)]">活跃</p>
           <p className="font-mono text-base font-bold tabular-nums text-[var(--text-1)]">{stats?.daysActive ?? 0}/7 天</p>
         </div>
       </div>
 
       {review && (
         <details className="mt-3 border-t border-[var(--border-light)] pt-3">
-          <summary className="cursor-pointer text-xs font-semibold text-[var(--primary)]">展开完整回顾</summary>
-          <pre className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--text-2)]">{review}</pre>
+          <summary className="cursor-pointer text-xs font-semibold text-[var(--link)]">展开完整回顾</summary>
+          <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-[var(--text-2)]">{review}</pre>
         </details>
       )}
     </motion.div>

@@ -26,7 +26,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 border-t border-[var(--glass-border)] bg-[var(--glass-bg)]/80 backdrop-blur-2xl pb-[env(safe-area-inset-bottom)]"
+      className="fixed bottom-0 left-0 right-0 border-t border-[var(--glass-border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)]"
       style={{ zIndex: 'var(--z-nav)' }}
       role="navigation"
       aria-label="主导航"
@@ -49,11 +49,11 @@ export function BottomNav() {
                 <motion.div
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.92 }}
-                  className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)]"
+                  className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--primary)] text-[var(--on-primary)] border border-[var(--border)]"
                 >
                   <Icon size={24} />
                 </motion.div>
-                <span className="mt-1 text-[11px] font-bold text-[var(--text-1)]">{item.label}</span>
+                <span className="mt-1 text-xs font-bold text-[var(--text-1)]">{item.label}</span>
               </button>
             );
           }
@@ -70,10 +70,10 @@ export function BottomNav() {
                 <Icon
                   size={20}
                   strokeWidth={isActive ? 2.2 : 1.8}
-                  className={`transition-colors duration-200 ${isActive ? 'text-[var(--primary)]' : 'text-[var(--text-3)]'}`}
+                  className={`transition-colors duration-200 ${isActive ? 'text-[var(--link)]' : 'text-[var(--text-3)]'}`}
                 />
               </div>
-              <span className={`text-[11px] transition-colors duration-200 ${isActive ? 'text-[var(--text-1)] font-bold' : 'text-[var(--text-3)] font-medium'}`}>
+              <span className={`text-xs transition-colors duration-200 ${isActive ? 'text-[var(--text-1)] font-bold' : 'text-[var(--text-3)] font-medium'}`}>
                 {item.label}
               </span>
             </button>

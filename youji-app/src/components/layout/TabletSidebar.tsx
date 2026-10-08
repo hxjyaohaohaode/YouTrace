@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { staticPageEntry } from '../../lib/navigation';
 import { useAuthStore } from '../../stores/authStore';
+import { Brand } from '../ui/Brand';
 import { motion } from 'framer-motion';
 import {
   Home, Calendar, Mic, BarChart3, MessageCircle, BookOpen,
@@ -35,17 +36,11 @@ export function TabletSidebar() {
 
   return (
     <aside
-      className="fixed left-0 top-0 flex h-full w-[76px] flex-col items-center border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-2xl"
+      className="fixed left-0 top-0 flex h-full w-[76px] flex-col items-center border-r border-[var(--glass-border)] bg-[var(--sidebar)]"
       style={{ zIndex: 'var(--z-nav)' }}
     >
       <div className="flex h-16 w-full items-center justify-center border-b border-[var(--glass-border)]">
-        <motion.div
-          whileHover={{ rotate: 15, scale: 1.1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] shadow-[var(--shadow-glow)]"
-        >
-          <Sparkles size={18} className="text-white" />
-        </motion.div>
+        <Brand variant="mark" className="tablet-brand" />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 scrollbar-hide" aria-label="主导航">
@@ -59,9 +54,9 @@ export function TabletSidebar() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.92 }}
               onClick={() => navigate(item.path, { state: staticPageEntry(item.path, ownerId) })}
-              className={`relative mb-1 flex w-full flex-col items-center gap-1 py-2.5 transition-all duration-200 ${
+              className={`relative mb-1 flex w-full flex-col items-center gap-1 py-1.5 transition-all duration-200 ${
                 isActive
-                  ? 'text-[var(--primary)]'
+                  ? 'text-[var(--link)]'
                   : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
               }`}
               aria-label={item.label}
@@ -71,7 +66,7 @@ export function TabletSidebar() {
               <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all ${isActive ? 'bg-gradient-to-br from-[var(--primary-soft)] to-[var(--primary-muted)]' : ''}`}>
                 <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
               </div>
-              <span className={`text-[11px] font-medium ${isActive ? 'text-[var(--text-1)]' : ''}`}>{item.label}</span>
+              <span className={`text-xs font-medium ${isActive ? 'text-[var(--text-1)]' : ''}`}>{item.label}</span>
               {isActive && (
                 <motion.div
                   layoutId="tabletSidebarIndicator"

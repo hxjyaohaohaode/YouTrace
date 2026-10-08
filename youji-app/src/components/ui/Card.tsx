@@ -13,9 +13,9 @@ export interface CardProps {
 }
 
 const variantStyles: Record<CardVariant, string> = {
-  default: 'bg-[var(--surface)] border border-[var(--border-light)] shadow-[var(--shadow-sm)]',
-  glass: 'bg-[var(--glass-bg)] backdrop-blur-xl border border-[var(--glass-border)] shadow-[var(--glass-shadow)]',
-  gradient: 'bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] text-white shadow-[var(--shadow-glow)]',
+  default: 'bg-[var(--surface)] border border-[var(--border-light)] ',
+  glass: 'bg-[var(--glass-bg)]  border border-[var(--glass-border)] ',
+  gradient: 'bg-[var(--primary-soft)] text-[var(--text-1)] border border-[var(--border)]',
   elevated: 'bg-[var(--surface)] shadow-[var(--shadow-lg)] border border-[var(--border-light)]',
 };
 

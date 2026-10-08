@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
-import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowLeft, Trash2, Sparkles, Target, Phone } from 'lucide-react';
+import { useReducedMotion } from 'framer-motion';
+import { ArrowLeft, Trash2, Target, Phone } from 'lucide-react';
 import { useCoachStore } from '../stores/coachStore';
 import { MessageList } from '../components/coach/MessageList';
 import { ChatInput } from '../components/coach/ChatInput';
@@ -13,6 +13,9 @@ import { Button } from '../components/ui/Button';
 import { assessEmotionState, detectCrisisKeywords, getCrisisResponse } from '../services/emotionEngine';
 import { mainlandPsychologicalSupport } from '../../server/src/services/safetyResources';
 import { getRecordCoverageWelcome, subscribeRecordCoverage } from '../services/coldStartStrategy';
+
+import { Brand } from '../components/ui/Brand';
+import '../styles/home-coach.css';
 
 const quickQuestions = [
   '帮我看看这周的花销',
@@ -74,28 +77,26 @@ export default function Coach() {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-[var(--bg)]"
+      className="coach-page flex h-full min-h-0 flex-col bg-[var(--bg)]"
     >
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--glass-border)] bg-[var(--glass-bg)]/80 px-4 py-3 backdrop-blur-xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--bg)] px-4 py-4">
         <div className="flex items-center gap-3">
           {isMobile && (
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-2)] transition-colors hover:bg-[var(--surface-2)]"
+              className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-2)] transition-colors hover:bg-[var(--surface-2)]"
               aria-label="返回首页"
             >
               <ArrowLeft size={18} aria-hidden />
             </button>
           )}
           <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] shadow-[var(--shadow-glow)]">
-              <Sparkles size={18} className="text-white" aria-hidden />
-            </div>
+            <Brand variant="mark" className="coach-header-brand" />
             <div>
-              <h1 className="text-[15px] font-bold text-[var(--text-1)]">AI 教练</h1>
-              <p className="text-[11px] font-medium text-[var(--text-3)]">
-                {isTyping ? '正在思考...' : emotionState.shouldShowHotline ? '在线 · 如需帮助请拨打热线' : '在线'}
+              <h1 className="text-lg font-bold text-[var(--text-1)]">AI 教练</h1>
+              <p className="text-xs font-medium text-[var(--text-3)]">
+                {isTyping ? '正在思考...' : emotionState.shouldShowHotline ? '如需即时支持，可拨打热线' : '从你的问题和记录出发'}
               </p>
             </div>
           </div>
@@ -116,7 +117,7 @@ export default function Coach() {
           <button
             type="button"
             onClick={() => navigate('/insights')}
-            className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--primary)]"
+            className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--primary)]"
             aria-label="教练洞察"
           >
             <Target size={16} aria-hidden />
@@ -125,7 +126,7 @@ export default function Coach() {
             <button
               type="button"
               onClick={() => setConfirmClear(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
+              className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-3)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--danger)]"
               aria-label="清空对话"
             >
               <Trash2 size={16} aria-hidden />
@@ -141,49 +142,15 @@ export default function Coach() {
         followingRef.current = nearBottom; setFollowing(nearBottom);
       }}>
         {!hasMessages ? (
-          <div className="flex flex-col items-center px-6 py-8 sm:py-12">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-              className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-light)] shadow-[var(--shadow-glow)]"
-            >
-              <Sparkles size={36} className="text-white" aria-hidden />
-            </motion.div>
-            <motion.h2
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="mb-2 text-lg font-bold text-[var(--text-1)]"
-            >
-              AI 教练
-            </motion.h2>
-            <motion.p
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="mb-6 max-w-xs text-center text-sm leading-relaxed text-[var(--text-2)]"
-            >
-              {recordWelcome}
-            </motion.p>
-
-            <motion.div
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              className="flex w-full max-w-sm flex-col gap-2"
-            >
-              {quickQuestions.map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => void handleSend(q)}
-                  className="rounded-[var(--radius-lg)] border border-[var(--primary)]/15 bg-gradient-to-r from-[var(--primary-soft)] to-[var(--primary-muted)] px-4 py-3 text-left text-sm font-medium text-[var(--text-1)] transition-all hover:border-[var(--primary)]/30 hover:shadow-[var(--shadow-xs)]"
-                >
-                  {q}
-                </button>
-              ))}
-            </motion.div>
+          <div className="coach-welcome">
+            <p className="editorial-eyebrow">有迹 · AI 教练</p>
+            <h2>从一件具体的事聊起。</h2>
+            <p>{recordWelcome}</p>
+            <div className="coach-starters" aria-label="开始一段对话">
+              {quickQuestions.map(q => <button key={q} type="button" aria-label={q} onClick={() => void handleSend(q)}>{q} <span aria-hidden>↗</span></button>)}
+            </div>
+            <p className="coach-boundary">发送后，问题与相关记录摘要会交给在线模型。回复可能不准确；涉及记录变更时，请先核对内容，再确认执行。</p>
+            <button type="button" onClick={() => navigate('/insights')} className="mt-4 min-h-11 text-sm text-[var(--link)] underline">先查看可核对的记录依据</button>
           </div>
         ) : (
           <MessageList messages={messages} onExecuteActions={executeActions} onExecuteSmartAction={executeSmartAction} onEditMessage={(messageId) => inputRef.current?.editMessage(messageId)} isTyping={isTyping} />

@@ -80,13 +80,22 @@ export async function runExpenseFilterDifference(h, options) {
     actions.push({ kind: 'native-expense-filter-selection', surface: label, selector, option: options[index] });
   }
   async function checkpoint(stage, rows, selection, frozen) {
-    const initial = await stable(), monthRead = await read(page, MONTH), categoryRead = await read(page, CATEGORY), scopeRead = await read(page, '#expense-detail-scope'), statusRead = await read(page, `${SECTION} [role=status]`);
+    const initial = await stable(), monthRead = await read(page, MONTH), categoryRead = await read(page, CATEGORY), localScopeRead = await read(page, '#expense-local-scope');
+    assert.ok(localScopeRead.visible && localScopeRead.text.includes('本机记录') && localScopeRead.text.includes(`已加载 ${rows.length} 笔`));
+    const disclosure = `${SECTION} details.expense-scope-disclosure`;
+    assert.equal(await page.$eval(disclosure, node => node.open), false, 'Detailed scope starts collapsed so the real ledger remains primary');
+    await tap(page, `${disclosure} summary`);
+    assert.equal(await page.$eval(disclosure, node => node.open), true);
+    const scopeRead = await read(page, '#expense-detail-scope');
+    await tap(page, `${disclosure} summary`);
+    assert.equal(await page.$eval(disclosure, node => node.open), false);
+    const statusRead = await read(page, `${SECTION} [role=status]`);
     assert.ok(monthRead.visible && categoryRead.visible);
     assert.ok(scopeRead.visible && scopeRead.text.includes('仅筛选本机当前已加载的记录') && scopeRead.text.includes('不代表远端全部历史') && scopeRead.text.includes('统计不随明细筛选变化'));
     const final = await stable(), result = scopeResult(final, rows, selection);
     assert.ok(scopeResult(initial, rows, selection).pass && statusRead.visible && normalize(statusRead.text) === result.status);
     if (!result.expected.length) { const empty = await read(page, await exact(page, `${SECTION} p`, '没有符合当前筛选的记录')); assert.ok(empty.visible); }
-    await capture(page, `${prefix}-${stage}`); await saveJSON(stage, { initial, final, monthRead, categoryRead, scopeRead, statusRead, result });
+    await capture(page, `${prefix}-${stage}`); await saveJSON(stage, { initial, final, monthRead, categoryRead, localScopeRead, scopeRead, statusRead, result });
     await observe(page, `${prefix}-${stage}-exact-loaded-membership`, result.pass, JSON.stringify(result)); assert.ok(result.pass);
     const after = await facts(`${prefix}-${stage}`); assert.ok(checks.businessSourcesPreserved(frozen, after), 'Reading and selecting filters cannot rewrite any sampled source or ledger'); return after;
   }

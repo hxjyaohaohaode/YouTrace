@@ -128,6 +128,7 @@ function componentDriver(initialText = '') {
   const storeHook = Object.assign((selector: (state: ReturnType<typeof useCoachStore.getState>) => unknown) => selector(useCoachStore.getState()), { getState: useCoachStore.getState });
   const coach = compile(componentSources[0], {
     ...common, 'react-router-dom': { useLocation: () => ({ state: { prefill } }), useNavigate: () => () => undefined },
+    '../components/ui/Brand': { Brand: 'img' }, '../styles/home-coach.css': {},
     '../stores/coachStore': { useCoachStore: storeHook }, '../components/coach/MessageList': list, '../components/coach/ChatInput': input,
     '../hooks/useMediaQuery': { useMediaQuery: () => false }, '../components/ui/Modal': { Modal: modal }, '../components/ui/Button': { Button: 'button' },
     '../services/emotionEngine': { assessEmotionState: () => ({ shouldShowHotline: false }), detectCrisisKeywords: () => false, getCrisisResponse: () => '' },
