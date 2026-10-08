@@ -6,7 +6,7 @@ import { Button } from '../ui/Button';
 
 type Conflict = NonNullable<PreferenceSyncStatus['conflict']>;
 type Comparison = Conflict & { accountLabel: string };
-const stateLabels = { local: '偏好仅保存在本机', loading: '正在核对账号偏好', synced: '账号偏好已同步', pending: '本机修改已保存，等待云端确认', conflict: '偏好有不同版本，请核对后选择', blocked: '偏好尚未同步，原稿已保留' };
+const stateLabels = { local: '偏好仅保存在本机', loading: '正在核对账号偏好', synced: '上次核对时，账号偏好已同步', pending: '本机修改已保存，等待云端确认', conflict: '偏好有不同版本，请核对后选择', blocked: '偏好尚未同步，原稿已保留' };
 function PreferenceValues({ values }: { values: Conflict['local'] }) {
   return <dl className="space-y-1 text-xs leading-6">
     <div><dt className="inline">教练风格：</dt><dd className="inline">{values.coachStyle === 'gentle' ? '温柔型' : values.coachStyle === 'strict' ? '严格型' : '数据型'}</dd></div>

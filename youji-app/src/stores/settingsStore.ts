@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { liveQuery } from 'dexie';
 import { db, getSetting, generateLocalId, LOCAL_DATA_EPOCH_KEY } from '../db';
 import { api, isLoggedIn } from '../services/apiClient';
+import { PreferenceDisplayReadError } from '../lib/timePreferenceOutcome';
 
 export type CoachStyle = 'gentle' | 'strict' | 'data';
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -384,7 +385,7 @@ export const useSettingsStore = create<SettingsState>(() => ({
         Object.assign(state.queued.changes, { [key]: value });
       });
     }
-    await refreshView();
+    try { await refreshView(); } catch (cause) { throw new PreferenceDisplayReadError(cause); }
     if (key !== 'theme' && db.ownerId) schedule(key === 'coachStyle' ? 0 : 300);
   },
   updateQuietHours: async (changes, expected) => {
@@ -397,7 +398,7 @@ export const useSettingsStore = create<SettingsState>(() => ({
       if (!state.queued) state.queued = { changes: {}, baseRevision: state.server?.revision ?? null, base: cloneAccount(before), ...(state.active ? { parentId: state.active.id } : {}) };
       state.queued.changes.quietHours = quietHours;
     });
-    await refreshView();
+    try { await refreshView(); } catch (cause) { throw new PreferenceDisplayReadError(cause); }
     if (db.ownerId) schedule(300);
   },
   resetSettings: async () => {

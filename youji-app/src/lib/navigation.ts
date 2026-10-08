@@ -53,7 +53,9 @@ export function staticPageEntry(path: string, ownerId: string | undefined) {
     : undefined;
 }
 export function isStaticPageEntry(state: unknown, ownerId: string, path: string, navigationType: string) {
-  if (navigationType !== 'PUSH' || !ownerId || !state || typeof state !== 'object' || Array.isArray(state) || !staticPageEntry(path, ownerId)) return false;
+  if (!ownerId || !state || typeof state !== 'object' || Array.isArray(state) || !staticPageEntry(path, ownerId)) return false;
   const value = state as Record<string, unknown>;
+  const normalizedTimeline = navigationType === 'REPLACE' && path === '/timeline' && value.timelineRangeNormalized === true;
+  if (navigationType !== 'PUSH' && !normalizedTimeline) return false;
   return value.entry === 'youtrace-static-page' && value.ownerId === ownerId && value.path === path;
 }

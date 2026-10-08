@@ -6,7 +6,7 @@ import { prisma } from './utils/db.js'
 
 console.log(`Youji server running on port ${env.port}`)
 
-const server = serve({ fetch: app.fetch, port: env.port })
+const server = serve({ fetch: app.fetch, port: env.port, hostname: process.env.HOST?.trim() || undefined })
 
 let shuttingDown = false
 
