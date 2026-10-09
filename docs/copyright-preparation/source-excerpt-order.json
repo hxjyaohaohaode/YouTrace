@@ -1,0 +1,1289 @@
+{
+  "project": "YouTrace",
+  "identity_scope": "本轮所列生产文件的原始字节快照，须先逐文件比对才能用于后续HEAD。完整工程tree和同步状态另由外部回执绑定。",
+  "production_file_set_sha256": "9837398eeb41736daa92c45ca819a3a81b687a0db33c5c204e6fa585b0bd8671",
+  "not_ready_for_submission": true,
+  "suggested_review_order": [
+    {
+      "order": 1,
+      "path": "youji-app/src/main.tsx",
+      "bytes": 375,
+      "physical_lines": 14,
+      "sha256": "db2abad0f631b88dda34f1d5ac492c3e17ed2272dfb5822612da534c7b387639"
+    },
+    {
+      "order": 2,
+      "path": "youji-app/src/App.tsx",
+      "bytes": 4117,
+      "physical_lines": 70,
+      "sha256": "21fb1b65e36ebe155e5cfa116a77d23743b3f7bef9ce197031e2362ae670ce50"
+    },
+    {
+      "order": 3,
+      "path": "youji-app/src/routes/index.tsx",
+      "bytes": 4105,
+      "physical_lines": 80,
+      "sha256": "5e0fd75cb0040e5f650d34c70ab11fe85ab03b12918bfaa0a069e4f519ca222b"
+    },
+    {
+      "order": 4,
+      "path": "youji-app/src/hooks/useAppInit.ts",
+      "bytes": 10231,
+      "physical_lines": 199,
+      "sha256": "4663d12529f353b0747cc6e3120e1d535218b4217be356ccdacda87914d4afe3"
+    },
+    {
+      "order": 5,
+      "path": "youji-app/src/stores/authStore.ts",
+      "bytes": 6227,
+      "physical_lines": 160,
+      "sha256": "8a4cb49fb70b374fb8234f0b30b3c59436bbe4994cf2bd10816bcb2cd119470c"
+    },
+    {
+      "order": 6,
+      "path": "youji-app/src/db/accountGeneration.ts",
+      "bytes": 19075,
+      "physical_lines": 294,
+      "sha256": "4df4f85a0849eb3aca03758373c39006763ebd34ab0c8a36a493b2a0cbe07244"
+    },
+    {
+      "order": 7,
+      "path": "youji-app/src/db/index.ts",
+      "bytes": 12169,
+      "physical_lines": 305,
+      "sha256": "2ed9f3e68f31df1c903ad31b9b6cc4a70064260fa043b0bcd02ae3d8e13f3240"
+    },
+    {
+      "order": 8,
+      "path": "youji-app/src/services/localActor.ts",
+      "bytes": 1855,
+      "physical_lines": 34,
+      "sha256": "ed056796514b1b661a25e82ffb5edc82c709a2a0b4300b88e193ac3b45ded0e3"
+    },
+    {
+      "order": 9,
+      "path": "youji-app/src/services/localMutation.ts",
+      "bytes": 1989,
+      "physical_lines": 37,
+      "sha256": "c3dd7982b9a14b8f2ab84b55e19848366dd49a772323dd1550d96afff323307d"
+    },
+    {
+      "order": 10,
+      "path": "youji-app/src/services/syncIdentity.ts",
+      "bytes": 625,
+      "physical_lines": 8,
+      "sha256": "06d8f2e99c3252b3683383a4d4ac90cd4f3262f4d8260782fe3a297040e01208"
+    },
+    {
+      "order": 11,
+      "path": "youji-app/src/services/apiClient.ts",
+      "bytes": 7854,
+      "physical_lines": 223,
+      "sha256": "6944705992c355f60d0659c9f2b5a5facfc3e29aeb26377c3a450c65a25ccefb"
+    },
+    {
+      "order": 12,
+      "path": "youji-app/src/services/syncEngine.ts",
+      "bytes": 28546,
+      "physical_lines": 479,
+      "sha256": "364eddca894c5c50f74c3d9ff1cd6d6e62ecf71e23f11d7e7f7de33cbf072072"
+    },
+    {
+      "order": 13,
+      "path": "youji-app/src/services/recordPayloads.ts",
+      "bytes": 6434,
+      "physical_lines": 74,
+      "sha256": "470960ade3338f9f0baa448d129b0c0749f3b8a39e40bb82f72b5cb3fbae8494"
+    },
+    {
+      "order": 14,
+      "path": "youji-app/src/services/goalPayload.ts",
+      "bytes": 1319,
+      "physical_lines": 15,
+      "sha256": "f80fb37c014c364096541a4c8cce216ca8712c78275f2a00289c364dcfc7620f"
+    },
+    {
+      "order": 15,
+      "path": "youji-app/src/stores/settingsStore.ts",
+      "bytes": 26185,
+      "physical_lines": 428,
+      "sha256": "9d1397fffaf75ef6b4010058a1b118a88a7f48c861cb23239ce81f3ceadab3e8"
+    },
+    {
+      "order": 16,
+      "path": "youji-app/src/services/parser.ts",
+      "bytes": 7376,
+      "physical_lines": 89,
+      "sha256": "21dedb3ac4f240ffee8c0a84a9e1ceaa820846025271921481490ccdae4ca263"
+    },
+    {
+      "order": 17,
+      "path": "youji-app/src/services/quickNoteIntegration.ts",
+      "bytes": 21138,
+      "physical_lines": 195,
+      "sha256": "0d8ac4f758dbfa2e765c9a9fd6bbcbd78170535dbd887a3b1b3a7bb54cba2b3b"
+    },
+    {
+      "order": 18,
+      "path": "youji-app/src/stores/quickNoteStore.ts",
+      "bytes": 2462,
+      "physical_lines": 85,
+      "sha256": "5fd73712cc4edc458ba144b612609150dc2e7b9b6ab8bd7f0de0280acfa0620e"
+    },
+    {
+      "order": 19,
+      "path": "youji-app/src/pages/QuickNote.tsx",
+      "bytes": 19174,
+      "physical_lines": 220,
+      "sha256": "83fab26e14f3628058de8d19489ea3c3811002c409903ec4121cf6052147bc71"
+    },
+    {
+      "order": 20,
+      "path": "youji-app/src/pages/QuickNoteResult.tsx",
+      "bytes": 27505,
+      "physical_lines": 161,
+      "sha256": "2b586f5774cd39f9b166f8971aa0c5cd463ce00fe0f80faf7e3af395a7ca61ce"
+    },
+    {
+      "order": 21,
+      "path": "youji-app/src/services/capturePresentation.ts",
+      "bytes": 1525,
+      "physical_lines": 26,
+      "sha256": "ed07ab93fee62cf39cfe8dee718e75420b3473e615552085ae0af51dac31b519"
+    },
+    {
+      "order": 22,
+      "path": "youji-app/src/services/captureReceiptView.ts",
+      "bytes": 3167,
+      "physical_lines": 30,
+      "sha256": "b6014e524f3f8f68206f8ad00ca81fb0fa4a0f653268c08fe9dc9c667ec4de30"
+    },
+    {
+      "order": 23,
+      "path": "youji-app/src/stores/scheduleStore.ts",
+      "bytes": 7488,
+      "physical_lines": 93,
+      "sha256": "db6dd2b58e4dcd88b626ce63807a748ce29e5eccd9ebfac9a27bb5c49d9783a5"
+    },
+    {
+      "order": 24,
+      "path": "youji-app/src/components/schedule/ScheduleContent.tsx",
+      "bytes": 19321,
+      "physical_lines": 405,
+      "sha256": "03f0f9bd8bc68b3adfb574482947e56ea7737a04d4ade0291ed5d76ef406a653"
+    },
+    {
+      "order": 25,
+      "path": "youji-app/src/components/schedule/ScheduleEditor.tsx",
+      "bytes": 10289,
+      "physical_lines": 82,
+      "sha256": "295132b250017ce708bbe289a3f1318a6068f62a6dbf193322320a01aae8011d"
+    },
+    {
+      "order": 26,
+      "path": "youji-app/src/components/schedule/index.ts",
+      "bytes": 53,
+      "physical_lines": 1,
+      "sha256": "bf3931eb5df98b892c2bd93006a77374a22cf95b4b866a7358fe5015a2b08090"
+    },
+    {
+      "order": 27,
+      "path": "youji-app/src/components/schedule/planning.css",
+      "bytes": 5770,
+      "physical_lines": 66,
+      "sha256": "eb0b478c04cfda3cc02e9ce11fed4e1aef564971e2a3c073ba091fca23847869"
+    },
+    {
+      "order": 28,
+      "path": "youji-app/src/components/schedule/scheduleDraft.ts",
+      "bytes": 2278,
+      "physical_lines": 39,
+      "sha256": "6524d09eb985e77aa639875834691431b003f65cc4a32be19afafc850a2eeef0"
+    },
+    {
+      "order": 29,
+      "path": "youji-app/src/components/schedule/scheduleErrors.ts",
+      "bytes": 821,
+      "physical_lines": 11,
+      "sha256": "67f790b077ca9951377b94f4ca4b92773990f9ef9c1967df690ed55129473d4b"
+    },
+    {
+      "order": 30,
+      "path": "youji-app/src/components/schedule/useScheduleEditorDraft.ts",
+      "bytes": 3701,
+      "physical_lines": 76,
+      "sha256": "89244971e3e84195a0576a1cd06e048bac99dd78d6e205bac2830bec51c66f2c"
+    },
+    {
+      "order": 31,
+      "path": "youji-app/src/pages/Schedule.tsx",
+      "bytes": 2402,
+      "physical_lines": 31,
+      "sha256": "71dd253d4927a0c0aaf68bfe7a9838f92905662f0115653fcd184ab51afa308e"
+    },
+    {
+      "order": 32,
+      "path": "youji-app/src/stores/expenseStore.ts",
+      "bytes": 9791,
+      "physical_lines": 189,
+      "sha256": "1481f992de1daa27b71d83a5dc1e0628c12192ee408a6d87090e11eb103de4cf"
+    },
+    {
+      "order": 33,
+      "path": "youji-app/src/components/expense/AddExpenseModal.tsx",
+      "bytes": 8435,
+      "physical_lines": 84,
+      "sha256": "944aa992ea63ba7cc0855741dc06b28bd86f233c34cbe76fee96055c7712d9d6"
+    },
+    {
+      "order": 34,
+      "path": "youji-app/src/components/expense/BudgetCard.tsx",
+      "bytes": 4868,
+      "physical_lines": 58,
+      "sha256": "0a1e7b588ee6ba462becaeb0c89f382f180ea5eb30ed9cb97efa172d54613ebb"
+    },
+    {
+      "order": 35,
+      "path": "youji-app/src/components/expense/ExpenseDetail.tsx",
+      "bytes": 8189,
+      "physical_lines": 125,
+      "sha256": "960b8f08b7aeee1f5f2c6ae8754b1a008a4db0968f5d6055002e8ef38d248c4a"
+    },
+    {
+      "order": 36,
+      "path": "youji-app/src/components/expense/StatsRow.tsx",
+      "bytes": 925,
+      "physical_lines": 22,
+      "sha256": "5d17acee73209b2c48ea6634908142097f4283bc4fd75fe56d096a3070cd3ff0"
+    },
+    {
+      "order": 37,
+      "path": "youji-app/src/components/expense/expenseDraft.ts",
+      "bytes": 2262,
+      "physical_lines": 39,
+      "sha256": "0e0e762a426328388e564ae90cd9db0940d092f4c6e1d22372671e3fbd8b792b"
+    },
+    {
+      "order": 38,
+      "path": "youji-app/src/components/expense/expenseListFilter.ts",
+      "bytes": 1635,
+      "physical_lines": 49,
+      "sha256": "8b169d17dd9f4ba0bada096d35a914adc03f56141a3b28de489938937ff44497"
+    },
+    {
+      "order": 39,
+      "path": "youji-app/src/components/expense/expensePresentation.ts",
+      "bytes": 2036,
+      "physical_lines": 28,
+      "sha256": "d41b7079e9eea928bfe50ef6581c75fc99fe6acef69765292944d062c3272478"
+    },
+    {
+      "order": 40,
+      "path": "youji-app/src/components/expense/index.ts",
+      "bytes": 184,
+      "physical_lines": 4,
+      "sha256": "79d8ab77397bbce74362fd8583199ae302e08e43df8968889d7e74511a8f4d6c"
+    },
+    {
+      "order": 41,
+      "path": "youji-app/src/components/expense/useExpenseEditorDraft.ts",
+      "bytes": 3693,
+      "physical_lines": 76,
+      "sha256": "2d7113fda9f49cb3113ad3a7d1ff6ddb98fb65b81c61ba060795b8afd74a0459"
+    },
+    {
+      "order": 42,
+      "path": "youji-app/src/pages/Expense.tsx",
+      "bytes": 9996,
+      "physical_lines": 181,
+      "sha256": "daec166b08366c89d69a323348c89307ddde9ed948f288506b711b4b430f00b7"
+    },
+    {
+      "order": 43,
+      "path": "youji-app/src/stores/todoStore.ts",
+      "bytes": 6296,
+      "physical_lines": 118,
+      "sha256": "1925d4a85d3fcb7e379fa97d947dd3ee3ef25ad3498c70df47bfa746ac5aca3c"
+    },
+    {
+      "order": 44,
+      "path": "youji-app/src/components/todo/AddTodoModal.tsx",
+      "bytes": 8324,
+      "physical_lines": 92,
+      "sha256": "adeec00fbb7a691f3b1dcff007cc76911f9a37db07695a913bb26b942829bd39"
+    },
+    {
+      "order": 45,
+      "path": "youji-app/src/components/todo/TodoList.tsx",
+      "bytes": 7354,
+      "physical_lines": 153,
+      "sha256": "3c87241f7a7f0880669659a886f1bd18ae328a27dee5edb4915018a98459558b"
+    },
+    {
+      "order": 46,
+      "path": "youji-app/src/components/todo/index.ts",
+      "bytes": 86,
+      "physical_lines": 2,
+      "sha256": "6a8d973baece0a814c7aa6ff848a3020721cd3c2b6a473561acff2046bb587af"
+    },
+    {
+      "order": 47,
+      "path": "youji-app/src/components/todo/todoDraft.ts",
+      "bytes": 2214,
+      "physical_lines": 39,
+      "sha256": "ad0fa97a684343ce76f4744556c3298a8cfa9dbbb9488756a131813b4a9fb4c9"
+    },
+    {
+      "order": 48,
+      "path": "youji-app/src/components/todo/todoPresentation.ts",
+      "bytes": 867,
+      "physical_lines": 16,
+      "sha256": "295714e72742901b9e2f86fdfe0fe155db025c6d11d230dcb757e811276cd91d"
+    },
+    {
+      "order": 49,
+      "path": "youji-app/src/components/todo/useTodoEditorDraft.ts",
+      "bytes": 3669,
+      "physical_lines": 76,
+      "sha256": "372be973a2b31ba447c99ad457a6dca05fdf02dc8b72512e755550307a16bee0"
+    },
+    {
+      "order": 50,
+      "path": "youji-app/src/pages/Todo.tsx",
+      "bytes": 3433,
+      "physical_lines": 60,
+      "sha256": "04a8d59e3e3f0b38e3fbce01e030007323c86363a5318d1baa316e63734cb050"
+    },
+    {
+      "order": 51,
+      "path": "youji-app/src/stores/habitStore.ts",
+      "bytes": 16557,
+      "physical_lines": 291,
+      "sha256": "d8ae824ea9a7e287786c06f406df49bf94bca689503d67afc41d08e2a7a50371"
+    },
+    {
+      "order": 52,
+      "path": "youji-app/src/components/habit/HabitFrequencyModal.tsx",
+      "bytes": 4692,
+      "physical_lines": 55,
+      "sha256": "c666427707a3066f5cfb04d5203ce60a7c88fc667d5bc3c0c4c74bbff495a845"
+    },
+    {
+      "order": 53,
+      "path": "youji-app/src/components/habit/HabitList.tsx",
+      "bytes": 15107,
+      "physical_lines": 218,
+      "sha256": "5df30f78097ddd0665aa6e8e3997963ca018014bd2455f052dc193be1c1bee0f"
+    },
+    {
+      "order": 54,
+      "path": "youji-app/src/components/habit/habitErrors.ts",
+      "bytes": 593,
+      "physical_lines": 7,
+      "sha256": "362674287d794be88f7f37d3e93371ee90b4f284c837fba1bef889465b2c5475"
+    },
+    {
+      "order": 55,
+      "path": "youji-app/src/components/habit/index.ts",
+      "bytes": 41,
+      "physical_lines": 1,
+      "sha256": "ee5c26074310eb066422a4e0f1f2009b686a58b4d19bbe28e599796605081b07"
+    },
+    {
+      "order": 56,
+      "path": "youji-app/src/pages/Habit.tsx",
+      "bytes": 3208,
+      "physical_lines": 28,
+      "sha256": "b4c5ca32dca03e1c320be53689e08cd80c0f98f9f3fd7b03d25b60549e77a92a"
+    },
+    {
+      "order": 57,
+      "path": "youji-app/src/stores/diaryStore.ts",
+      "bytes": 6910,
+      "physical_lines": 108,
+      "sha256": "d693d48473aa9d865c01b7791d7b1d3eae651d2d761831a43c3531e21aba63ba"
+    },
+    {
+      "order": 58,
+      "path": "youji-app/src/components/diary/DiaryContent.tsx",
+      "bytes": 12160,
+      "physical_lines": 221,
+      "sha256": "3c0f3c984e75b65b58ee0330a495c53093e03551533425949e9075ca61bce574"
+    },
+    {
+      "order": 59,
+      "path": "youji-app/src/components/diary/DiaryEditor.tsx",
+      "bytes": 12449,
+      "physical_lines": 113,
+      "sha256": "8e1ee65bb2fdfd3d32665bc276d90b688c874e4962e38b7c8d17c2f1b17d3db1"
+    },
+    {
+      "order": 60,
+      "path": "youji-app/src/components/diary/diaryDraft.ts",
+      "bytes": 3443,
+      "physical_lines": 56,
+      "sha256": "e5f615163031b9d1037120645e6f42bb84636e126279601e39404ef0a2873b0f"
+    },
+    {
+      "order": 61,
+      "path": "youji-app/src/components/diary/diaryPresentation.ts",
+      "bytes": 1079,
+      "physical_lines": 16,
+      "sha256": "fffb03f01c0ca87326a5ca6eb8ec586caccad9f0b53a881ff8c98f63e5b75602"
+    },
+    {
+      "order": 62,
+      "path": "youji-app/src/components/diary/index.ts",
+      "bytes": 47,
+      "physical_lines": 1,
+      "sha256": "c0eea7ed004e6a592c14f37d911caf5543b31e9ce12eb8a280905f731db94a4b"
+    },
+    {
+      "order": 63,
+      "path": "youji-app/src/components/diary/useDiaryEditorDraft.ts",
+      "bytes": 4207,
+      "physical_lines": 78,
+      "sha256": "5b2c6fa1f6a41412d10b2ad9815f1c8b4cda919f7979ca6931f9638476d19114"
+    },
+    {
+      "order": 64,
+      "path": "youji-app/src/components/diary/useDiaryFocusReturn.ts",
+      "bytes": 2754,
+      "physical_lines": 60,
+      "sha256": "96f05da302b5ca6566a8d268fbf2a44724301fd951c5d0487883f86f4af711d7"
+    },
+    {
+      "order": 65,
+      "path": "youji-app/src/pages/Diary.tsx",
+      "bytes": 181,
+      "physical_lines": 9,
+      "sha256": "1170d50cd261f7d5dfa68898b0a6f218dbe6e7d027f13cc006e6190766ecceb5"
+    },
+    {
+      "order": 66,
+      "path": "youji-app/src/stores/goalStore.ts",
+      "bytes": 30718,
+      "physical_lines": 508,
+      "sha256": "f624400af5b94f5c2dec5b51ea374c161d221776ccffa44453ab88492bb17fbd"
+    },
+    {
+      "order": 67,
+      "path": "youji-app/src/components/goal/GoalErrorAlert.tsx",
+      "bytes": 542,
+      "physical_lines": 10,
+      "sha256": "5eb6d24c9fb068e3d80118760c21ffc37a5b974b4ceee4058dc5cb2414d475bb"
+    },
+    {
+      "order": 68,
+      "path": "youji-app/src/components/goal/goalErrors.ts",
+      "bytes": 1737,
+      "physical_lines": 23,
+      "sha256": "b022e337af43a0845d06afaa864e992f9de759051bbaf210c30b0c5a0083eb52"
+    },
+    {
+      "order": 69,
+      "path": "youji-app/src/pages/Goal.tsx",
+      "bytes": 21164,
+      "physical_lines": 143,
+      "sha256": "c4cd86f9aaa759dc04be4e1b6da8ceca3dc65a08263251c0bb0815e673f70c8e"
+    },
+    {
+      "order": 70,
+      "path": "youji-app/src/lib/homeOverview.ts",
+      "bytes": 5249,
+      "physical_lines": 114,
+      "sha256": "a8077191b6c9f373854c402c23e70da304cbc6222ed421cd34d66a1d15da21a6"
+    },
+    {
+      "order": 71,
+      "path": "youji-app/src/services/timelineEntries.ts",
+      "bytes": 5164,
+      "physical_lines": 47,
+      "sha256": "f847651b52936f3f59acd3c1108b8d71172dee4b16a952d2fc9ab29003c12fc6"
+    },
+    {
+      "order": 72,
+      "path": "youji-app/src/pages/Home.tsx",
+      "bytes": 12344,
+      "physical_lines": 182,
+      "sha256": "ccc0ed516d6d958c093f908a7c02d970cf3c0d3585a588aea405bf6c2b0ad21c"
+    },
+    {
+      "order": 73,
+      "path": "youji-app/src/pages/Timeline.tsx",
+      "bytes": 10151,
+      "physical_lines": 79,
+      "sha256": "3c6e09c9540043d6b88d7986103ce8324a271e0642e1320569e4e92f63f91f14"
+    },
+    {
+      "order": 74,
+      "path": "youji-app/src/services/coachEngine.ts",
+      "bytes": 6981,
+      "physical_lines": 201,
+      "sha256": "4df1e17f2c1bf40316078971e0963d36fb537f1bdc25d63967d1c1d5a3fc072b"
+    },
+    {
+      "order": 75,
+      "path": "youji-app/src/services/lifeIntelligence.ts",
+      "bytes": 12655,
+      "physical_lines": 299,
+      "sha256": "d47368a7b46f578876566ddb6ed6572f62aebd3a10d2ea9d671cc7f1464b55e2"
+    },
+    {
+      "order": 76,
+      "path": "youji-app/src/services/emotionEngine.ts",
+      "bytes": 3129,
+      "physical_lines": 85,
+      "sha256": "36fcd747661a1c637b2cd5271627383595d134f003a5a5090dc6cb44670371af"
+    },
+    {
+      "order": 77,
+      "path": "youji-app/src/services/coldStartStrategy.ts",
+      "bytes": 4600,
+      "physical_lines": 126,
+      "sha256": "1ef0e84c807e0f25522b216a3b3637a5c38ecd7e9cf54080b66a650a139c61c2"
+    },
+    {
+      "order": 78,
+      "path": "youji-app/src/services/insightLibrary.ts",
+      "bytes": 13811,
+      "physical_lines": 68,
+      "sha256": "27e5358344d955356edc255e9027aae2346baf55a9f850e6b47193ccec2cb758"
+    },
+    {
+      "order": 79,
+      "path": "youji-app/src/services/pushControl.ts",
+      "bytes": 6719,
+      "physical_lines": 182,
+      "sha256": "646d60f0ad077d35b6da03d940c69f8c6b280c385917ee3a057bf57ff58dc427"
+    },
+    {
+      "order": 80,
+      "path": "youji-app/src/stores/coachStore.ts",
+      "bytes": 32653,
+      "physical_lines": 897,
+      "sha256": "b199374b5c36d7f0eff16152e51cfb6351e91bd783a46098b414688b86922bc5"
+    },
+    {
+      "order": 81,
+      "path": "youji-app/src/pages/Coach.tsx",
+      "bytes": 8971,
+      "physical_lines": 190,
+      "sha256": "8a3e55723b831e44bb09346546d47b708a2e8695591271a0a7383b5d55cf3339"
+    },
+    {
+      "order": 82,
+      "path": "youji-app/src/pages/CoachInsights.tsx",
+      "bytes": 15521,
+      "physical_lines": 292,
+      "sha256": "4e5ba127e87c99bd67938039b314b36f7bb9be5350f418d1e9fb1809b76cb31d"
+    },
+    {
+      "order": 83,
+      "path": "youji-app/src/components/coach/ChatInput.tsx",
+      "bytes": 5217,
+      "physical_lines": 132,
+      "sha256": "831ad4c4143bfcb40046db069ec35eac578662d950181a3c572d22f7eabe2674"
+    },
+    {
+      "order": 84,
+      "path": "youji-app/src/components/coach/CurrentRecordObservations.tsx",
+      "bytes": 14223,
+      "physical_lines": 74,
+      "sha256": "65b34292f311853d15b0efb487f0a76f39e3a2b69017ccb42a49bd4cbafc2f83"
+    },
+    {
+      "order": 85,
+      "path": "youji-app/src/components/coach/MessageList.tsx",
+      "bytes": 9204,
+      "physical_lines": 256,
+      "sha256": "d5c8a8d8e314938830cdf8dd5ee36239f485f7b959e9d78046953407713c311e"
+    },
+    {
+      "order": 86,
+      "path": "youji-app/src/components/coach/index.ts",
+      "bytes": 86,
+      "physical_lines": 2,
+      "sha256": "fd52cdc4d485252221eb51cfb0f604948075bf550439fe2b60c72b12cab8f358"
+    },
+    {
+      "order": 87,
+      "path": "youji-app/src/components/home/BriefCard.tsx",
+      "bytes": 14406,
+      "physical_lines": 288,
+      "sha256": "532fd141786504bac49e6cda3eabf3d1952bc508bbbdf5d14f5caddcb1b0793e"
+    },
+    {
+      "order": 88,
+      "path": "youji-app/src/components/home/Greeting.tsx",
+      "bytes": 736,
+      "physical_lines": 10,
+      "sha256": "55816e2520f4715160779a35425f2c54ff148c5bc2abbdc2891039f21690fc3c"
+    },
+    {
+      "order": 89,
+      "path": "youji-app/src/components/home/OverviewCard.tsx",
+      "bytes": 3951,
+      "physical_lines": 101,
+      "sha256": "502dc1930697da8f27ddb0fc5cdbc41e07b0043d0fa0145e3c655c001c693781"
+    },
+    {
+      "order": 90,
+      "path": "youji-app/src/components/home/QuickActions.tsx",
+      "bytes": 1032,
+      "physical_lines": 14,
+      "sha256": "2c21abdc4475a2979e8e5ee69bb0b7a32a0da577902bd34b3bcb2fb8d6f21884"
+    },
+    {
+      "order": 91,
+      "path": "youji-app/src/components/home/WeeklyReviewCard.tsx",
+      "bytes": 4753,
+      "physical_lines": 91,
+      "sha256": "33e2b856849708fd4cf2b08c7fe323c8cbbccd1f0d0b9ef8e27259525195e205"
+    },
+    {
+      "order": 92,
+      "path": "youji-app/src/components/home/index.ts",
+      "bytes": 174,
+      "physical_lines": 4,
+      "sha256": "78f4c9dc797ee63cc1fba9f283807f85da9b13c4e7abc5ee1599571246a99cc1"
+    },
+    {
+      "order": 93,
+      "path": "youji-app/src/components/layout/AppLayout.tsx",
+      "bytes": 2179,
+      "physical_lines": 45,
+      "sha256": "6940b9d3b78665e8eb4a4aa0e5169bcd2c08929e5790bc6f30ea76a34821acf5"
+    },
+    {
+      "order": 94,
+      "path": "youji-app/src/components/layout/BottomNav.tsx",
+      "bytes": 3815,
+      "physical_lines": 85,
+      "sha256": "ce024ef293117e12183957c56690e4a4d923b3e6e2d90114c52eb78e115f12de"
+    },
+    {
+      "order": 95,
+      "path": "youji-app/src/components/layout/DesktopSidebar.tsx",
+      "bytes": 3895,
+      "physical_lines": 87,
+      "sha256": "ee069e0405140327e2e707857711238f3c881c66ef780938cfc5c2ced7216cca"
+    },
+    {
+      "order": 96,
+      "path": "youji-app/src/components/layout/LegacyDataNotice.tsx",
+      "bytes": 763,
+      "physical_lines": 12,
+      "sha256": "a188a140b172ffa7dfeb0e39da16bb7dee90c44bcca9cda9ed83cf6ffb39e73e"
+    },
+    {
+      "order": 97,
+      "path": "youji-app/src/components/layout/PageHeader.tsx",
+      "bytes": 1304,
+      "physical_lines": 34,
+      "sha256": "6079d7dbf3de6332aa0c54ce4826585227ea4306c467f018c8c9d8c4e021b9fd"
+    },
+    {
+      "order": 98,
+      "path": "youji-app/src/components/layout/RuntimeObserver.tsx",
+      "bytes": 1462,
+      "physical_lines": 25,
+      "sha256": "e0be8c67722e268e4b7c2be1ff1df39d2437dbc778580a7ba225812d5e009013"
+    },
+    {
+      "order": 99,
+      "path": "youji-app/src/components/layout/StaticPageEntry.tsx",
+      "bytes": 3122,
+      "physical_lines": 52,
+      "sha256": "2e2653b5e87600832a29fa545bdcdd4df00cf49292223bdadb8eb3957c477d03"
+    },
+    {
+      "order": 100,
+      "path": "youji-app/src/components/layout/TabletSidebar.tsx",
+      "bytes": 3481,
+      "physical_lines": 83,
+      "sha256": "48cb8d7210ab578d55aac167b10f37223f177071f880244c743f68582f96aa96"
+    },
+    {
+      "order": 101,
+      "path": "youji-app/src/components/layout/index.ts",
+      "bytes": 182,
+      "physical_lines": 4,
+      "sha256": "43f9f13d27ff50bbcb4360448cdc1cb58779952eaafc9fbc37c37e04afbf21ca"
+    },
+    {
+      "order": 102,
+      "path": "youji-app/src/components/settings/DiagnosticsPanel.tsx",
+      "bytes": 1668,
+      "physical_lines": 16,
+      "sha256": "781f7fce359f6dfa8206b441c6f9adf962985cbe91feabc3f847dd79385e1b13"
+    },
+    {
+      "order": 103,
+      "path": "youji-app/src/components/settings/LegacyGoalRecovery.tsx",
+      "bytes": 6489,
+      "physical_lines": 67,
+      "sha256": "b77d48fc60fd4a502f0d8026f09e366f1b5670d7ac9f42396fa6b9b547c38eb5"
+    },
+    {
+      "order": 104,
+      "path": "youji-app/src/components/settings/PreferenceSyncPanel.tsx",
+      "bytes": 4933,
+      "physical_lines": 44,
+      "sha256": "cf2c0444accb48f4924821fdb6d924ffa71ed80ad3dca2708418b890405f09dc"
+    },
+    {
+      "order": 105,
+      "path": "youji-app/src/components/settings/SyncConflictPanel.tsx",
+      "bytes": 4592,
+      "physical_lines": 52,
+      "sha256": "5d7bf1d3ee0be293a59ca260a9c2d308cabe72a92d2c914cec8819318c0bc1f3"
+    },
+    {
+      "order": 106,
+      "path": "youji-app/src/components/settings/TimeSettingInput.tsx",
+      "bytes": 7086,
+      "physical_lines": 72,
+      "sha256": "9639bed20fb25b3d4ba100015a0e645b97159a05ee10135f65e5cf61c0883dca"
+    },
+    {
+      "order": 107,
+      "path": "youji-app/src/components/ui/Brand.tsx",
+      "bytes": 1066,
+      "physical_lines": 8,
+      "sha256": "1d3d13b04620ae8bf9e4826f9c2c32c4c48f2b93d6cf0ee3e10bf3954a00893b"
+    },
+    {
+      "order": 108,
+      "path": "youji-app/src/components/ui/Button.tsx",
+      "bytes": 1952,
+      "physical_lines": 48,
+      "sha256": "b8bb591b5705c9e75e027e6d3db28b5e78b2a6a46236e2ecdb336e1701462f54"
+    },
+    {
+      "order": 109,
+      "path": "youji-app/src/components/ui/Card.tsx",
+      "bytes": 1323,
+      "physical_lines": 34,
+      "sha256": "a645030f4a26a28ef5766a108b7272c02999ee6933d60a1b008879490408dce0"
+    },
+    {
+      "order": 110,
+      "path": "youji-app/src/components/ui/Checkbox.tsx",
+      "bytes": 2061,
+      "physical_lines": 62,
+      "sha256": "1e60cf4bbc2979abfea916bcac92aa00d971ff702531b95cd40591cc493d4b81"
+    },
+    {
+      "order": 111,
+      "path": "youji-app/src/components/ui/Chip.tsx",
+      "bytes": 894,
+      "physical_lines": 30,
+      "sha256": "2c631978442ebd3ffa60798948dcc08597985df786a76916ef9316a60c42681c"
+    },
+    {
+      "order": 112,
+      "path": "youji-app/src/components/ui/ErrorBoundary.tsx",
+      "bytes": 1523,
+      "physical_lines": 51,
+      "sha256": "32749b6fc8995681f084c7b2f45b4de359b35f3206d0c668cb84f910b31456bb"
+    },
+    {
+      "order": 113,
+      "path": "youji-app/src/components/ui/Input.tsx",
+      "bytes": 2363,
+      "physical_lines": 65,
+      "sha256": "d8d6365629fba82288944a9a5d60f86e3e587179aa815597ea9830320cc80bfd"
+    },
+    {
+      "order": 114,
+      "path": "youji-app/src/components/ui/MiniChart.tsx",
+      "bytes": 4511,
+      "physical_lines": 168,
+      "sha256": "441b64364f1a7be728dc1471e79f200d3d08e30beff6236bffa271130d971368"
+    },
+    {
+      "order": 115,
+      "path": "youji-app/src/components/ui/Modal.tsx",
+      "bytes": 5846,
+      "physical_lines": 150,
+      "sha256": "4d71896093a7efb10bfd250ba0673a5b84a3113b17c7ef5469d5d9aae9ad826c"
+    },
+    {
+      "order": 116,
+      "path": "youji-app/src/components/ui/ProgressBar.tsx",
+      "bytes": 3219,
+      "physical_lines": 111,
+      "sha256": "ac618cd0e978310f0220f45e18b98acc213d3bf19b585925e31d41da2297f2f6"
+    },
+    {
+      "order": 117,
+      "path": "youji-app/src/components/ui/SplashScreen.tsx",
+      "bytes": 3159,
+      "physical_lines": 55,
+      "sha256": "604b3dd6ccfe70ca19ad2a91c4f038a2c4bc816351233c9ce6c39e657d302cb8"
+    },
+    {
+      "order": 118,
+      "path": "youji-app/src/components/ui/Toast.tsx",
+      "bytes": 3935,
+      "physical_lines": 97,
+      "sha256": "39017e148c79da972fefe274f69e1c0e699dd7631ca0217c6ac545a882cdb18c"
+    },
+    {
+      "order": 119,
+      "path": "youji-app/src/components/ui/index.ts",
+      "bytes": 952,
+      "physical_lines": 31,
+      "sha256": "c541a0219955196c69c2a62da54bb23dfaf4773fc963286168bd80f9182bb2d5"
+    },
+    {
+      "order": 120,
+      "path": "youji-app/src/components/ui/modalFocus.ts",
+      "bytes": 909,
+      "physical_lines": 16,
+      "sha256": "28859a50ae9d9bc483a4a4e85b2c45d1cb59a5af3997fcf7816b9ccc7ec466a0"
+    },
+    {
+      "order": 121,
+      "path": "youji-app/src/hooks/index.ts",
+      "bytes": 92,
+      "physical_lines": 2,
+      "sha256": "10a02bc70179290890367e9260ab2add1ac40caff91cfef8061fe5f5d551e346"
+    },
+    {
+      "order": 122,
+      "path": "youji-app/src/hooks/useMediaQuery.ts",
+      "bytes": 566,
+      "physical_lines": 22,
+      "sha256": "26d9c285a120a52b933f8087e8a171ead021593926d45bec0900bd7a2048a29d"
+    },
+    {
+      "order": 123,
+      "path": "youji-app/src/hooks/useScrambleText.ts",
+      "bytes": 1439,
+      "physical_lines": 49,
+      "sha256": "b4e82b08593a6462e05eef6fe45acfd9d718aca488e2a06caa0a63596a7904ee"
+    },
+    {
+      "order": 124,
+      "path": "youji-app/src/lib/navigation.ts",
+      "bytes": 4902,
+      "physical_lines": 61,
+      "sha256": "d33cba6e12665e1d3cb0b8187c79e90f3d848111d3fef9b71052d0be051fd0b7"
+    },
+    {
+      "order": 125,
+      "path": "youji-app/src/lib/preferenceErrors.ts",
+      "bytes": 649,
+      "physical_lines": 12,
+      "sha256": "be851d4f1eaeebf157582a78a527a4348c5ea5f53faf1f92c99f1bac1b16062e"
+    },
+    {
+      "order": 126,
+      "path": "youji-app/src/lib/timePreferenceOutcome.ts",
+      "bytes": 1692,
+      "physical_lines": 33,
+      "sha256": "57d4f430a952437ef1a879ef3ce5efb63f0370078f1186486cf742b694b53ba7"
+    },
+    {
+      "order": 127,
+      "path": "youji-app/src/pages/DataInfo.tsx",
+      "bytes": 2842,
+      "physical_lines": 14,
+      "sha256": "4b6ead7568992de36d5d20e5ae47a80ca5c774d269d1a076fd98c2019d9ef867"
+    },
+    {
+      "order": 128,
+      "path": "youji-app/src/pages/Login.tsx",
+      "bytes": 11423,
+      "physical_lines": 265,
+      "sha256": "37232f0f72ca3031aa9f4b3f273517575fcd564c074b5431428f7ef964839905"
+    },
+    {
+      "order": 129,
+      "path": "youji-app/src/pages/More.tsx",
+      "bytes": 3905,
+      "physical_lines": 43,
+      "sha256": "d11110982d528c7056d8e41131ebbfaadd06d0deaac825c44409c50c19b43a9b"
+    },
+    {
+      "order": 130,
+      "path": "youji-app/src/pages/Onboarding.tsx",
+      "bytes": 2090,
+      "physical_lines": 26,
+      "sha256": "be92eb4989085cc1171aad0faf5f0f30e112571c56245e99b431cc1ac9818c3a"
+    },
+    {
+      "order": 131,
+      "path": "youji-app/src/pages/Settings.tsx",
+      "bytes": 33649,
+      "physical_lines": 558,
+      "sha256": "922197883d03bdeaeb32974ee610bc5b7d09a06e9e5cabb3cd83dc8a0759abf1"
+    },
+    {
+      "order": 132,
+      "path": "youji-app/src/pages/timelineRange.ts",
+      "bytes": 1445,
+      "physical_lines": 31,
+      "sha256": "ba30f40a4ae0dc99f7db3e0d1ac59533f299a9fa4799a01ae0054aff375e67f5"
+    },
+    {
+      "order": 133,
+      "path": "youji-app/src/pages/timelineReturnFocus.ts",
+      "bytes": 1768,
+      "physical_lines": 42,
+      "sha256": "1c8df0d62e2b5cc4850dfcdb0d873899117ed4262855be20b3668b9d49048629"
+    },
+    {
+      "order": 134,
+      "path": "youji-app/src/services/diagnostics.ts",
+      "bytes": 1617,
+      "physical_lines": 13,
+      "sha256": "3b5bf5d3a86c1cd425c46230f1073c108cd9a465349e2c7bfe41e44f2d3971e5"
+    },
+    {
+      "order": 135,
+      "path": "youji-app/src/services/goalSource.ts",
+      "bytes": 3431,
+      "physical_lines": 55,
+      "sha256": "b5173307d09a7b8eef81735fe78cbdaaa248a1e50e726205091f035e8bd5e957"
+    },
+    {
+      "order": 136,
+      "path": "youji-app/src/services/habitSource.ts",
+      "bytes": 1963,
+      "physical_lines": 25,
+      "sha256": "2be41aadd8dd54d7f2c4f3ab58deb95103d1cdaa140c7e8f4c91516f639106b5"
+    },
+    {
+      "order": 137,
+      "path": "youji-app/src/services/initializationDiagnostics.ts",
+      "bytes": 7708,
+      "physical_lines": 110,
+      "sha256": "3465776c070a1cb85d7977da0c5167aa3ca9e6ac4dc7c887c0ec2bb308a58724"
+    },
+    {
+      "order": 138,
+      "path": "youji-app/src/services/pendingEditorMemory.ts",
+      "bytes": 1381,
+      "physical_lines": 14,
+      "sha256": "7944ee4a5d37c9da4d68ea650d7d9d8e4639a9c51913983adc8b615e9c47c7be"
+    },
+    {
+      "order": 139,
+      "path": "youji-app/src/services/readPreferenceTime.ts",
+      "bytes": 1033,
+      "physical_lines": 18,
+      "sha256": "f966201dd974eeebcc7dff2aaf539e6797bf3f93d0037f6f429ed990c37b47d9"
+    },
+    {
+      "order": 140,
+      "path": "youji-app/src/services/recordObservations.ts",
+      "bytes": 12298,
+      "physical_lines": 141,
+      "sha256": "966625d77214f7b8e92c4d61fb74326e82714909d68ea87c50ea17323be0bd9f"
+    },
+    {
+      "order": 141,
+      "path": "youji-app/src/services/sseParser.ts",
+      "bytes": 1369,
+      "physical_lines": 50,
+      "sha256": "b2c3e16f949166d7c6486c8ad55293b4568133dcef792f8dadde647a7147dde6"
+    },
+    {
+      "order": 142,
+      "path": "youji-app/src/services/toastBus.ts",
+      "bytes": 1366,
+      "physical_lines": 51,
+      "sha256": "249baab399a9ba00d8fca6b69d82bb640174673b1464c7b11b5627fd584ae197"
+    },
+    {
+      "order": 143,
+      "path": "youji-app/src/utils/actionPaths.ts",
+      "bytes": 1578,
+      "physical_lines": 56,
+      "sha256": "ada575b08dc69fc8262b26f448a92c212cdcda2bc6dec93a99f64e307442ecf7"
+    },
+    {
+      "order": 144,
+      "path": "youji-app/src/utils/date.ts",
+      "bytes": 3216,
+      "physical_lines": 113,
+      "sha256": "93eab7ecda1a5f6e7aa16264cff1c7ab8b932f4d8c8fc6842e10f1661783bb23"
+    },
+    {
+      "order": 145,
+      "path": "youji-app/src/utils/expensePeriod.ts",
+      "bytes": 1049,
+      "physical_lines": 28,
+      "sha256": "dcb4750814191f55a4cdbd42055b7f8d546c61c2a6de78a35f8d8c66c024c9bc"
+    },
+    {
+      "order": 146,
+      "path": "youji-app/src/utils/habitPeriod.ts",
+      "bytes": 1125,
+      "physical_lines": 22,
+      "sha256": "34e5d6bf8ee94c42b358a3842f9ede7b1d76617934d2b41a20ba60466b8b20f6"
+    },
+    {
+      "order": 147,
+      "path": "youji-app/src/utils/icons.ts",
+      "bytes": 3032,
+      "physical_lines": 75,
+      "sha256": "93484f6461d94bad1c6e0d1431a86ef1a9d1426406fd962eb833db43a62b7ac2"
+    },
+    {
+      "order": 148,
+      "path": "youji-app/src/utils/scheduleOccurrences.ts",
+      "bytes": 1755,
+      "physical_lines": 26,
+      "sha256": "3296b253800adea091b476f489e6bb3fedf97c50c2d34c9d5a1481b87984b004"
+    },
+    {
+      "order": 149,
+      "path": "youji-app/server/src/index.ts",
+      "bytes": 820,
+      "physical_lines": 27,
+      "sha256": "9768fe87c6488a0888195a186382a584d6716dfe9525a699320e0abe68276cc1"
+    },
+    {
+      "order": 150,
+      "path": "youji-app/server/src/app.ts",
+      "bytes": 3525,
+      "physical_lines": 105,
+      "sha256": "8f497f7a968a4181cabf95b9f743450596df2e454306fe0a285752bd345f8946"
+    },
+    {
+      "order": 151,
+      "path": "youji-app/server/src/middleware/auth.ts",
+      "bytes": 1149,
+      "physical_lines": 36,
+      "sha256": "111833608d547e070035a616897ebad097dedd5f2b79a2a74eba1f01964c4483"
+    },
+    {
+      "order": 152,
+      "path": "youji-app/server/src/utils/env.ts",
+      "bytes": 3013,
+      "physical_lines": 90,
+      "sha256": "58ee7539e584512039075d9a79b07a9110049031d2d5c2ac39edbc56d6ef4b96"
+    },
+    {
+      "order": 153,
+      "path": "youji-app/server/src/utils/session.ts",
+      "bytes": 2313,
+      "physical_lines": 79,
+      "sha256": "a6f1db863c6934927d91cd856da15f744b0ed7dd220c4945e3b624bec95c5559"
+    },
+    {
+      "order": 154,
+      "path": "youji-app/server/src/routes/auth.ts",
+      "bytes": 9615,
+      "physical_lines": 287,
+      "sha256": "533c16ee54b99e76a07bf23aac324a89f5acab7cb851e2cd624fc38530fa582e"
+    },
+    {
+      "order": 155,
+      "path": "youji-app/server/src/services/authSecurity.ts",
+      "bytes": 844,
+      "physical_lines": 28,
+      "sha256": "7d17d628d6d7107bd7416058719048e50aab424e3f48c37eb051b082cbdeb83d"
+    },
+    {
+      "order": 156,
+      "path": "youji-app/server/src/services/sms.ts",
+      "bytes": 1525,
+      "physical_lines": 60,
+      "sha256": "712865256ad5ab8d9ba97d17115aa3305d66408f563c93966c0b444d70a40fe1"
+    },
+    {
+      "order": 157,
+      "path": "youji-app/server/src/routes/user.ts",
+      "bytes": 2634,
+      "physical_lines": 52,
+      "sha256": "cf6f0628cfee4b7490e2024c0dc7c4c2c17719cb0cc8dec92f437c6fd4076f20"
+    },
+    {
+      "order": 158,
+      "path": "youji-app/server/src/services/settingsProtocol.ts",
+      "bytes": 5274,
+      "physical_lines": 71,
+      "sha256": "1a67caa5037800636a0c5e5c24be02aa09ccf49f6ba26dfdba9ea6982a30fd27"
+    },
+    {
+      "order": 159,
+      "path": "youji-app/server/src/services/syncProtocol.ts",
+      "bytes": 4941,
+      "physical_lines": 87,
+      "sha256": "51bf6abcd1827a9512935980dbbeaa6e1490401cd05b8f3a65d990cdfda92954"
+    },
+    {
+      "order": 160,
+      "path": "youji-app/server/src/routes/sync.ts",
+      "bytes": 24615,
+      "physical_lines": 420,
+      "sha256": "515f70133f00f1d9c659c9704e0d14683adfab09809731f02cccfb5f861ff9df"
+    },
+    {
+      "order": 161,
+      "path": "youji-app/server/src/routes/chat.ts",
+      "bytes": 21921,
+      "physical_lines": 502,
+      "sha256": "731b1c8ce8ce0cd2dc57e16e6bca737b47c8e94bc963c027bbe12d472409fcdd"
+    },
+    {
+      "order": 162,
+      "path": "youji-app/server/src/routes/coach.ts",
+      "bytes": 11445,
+      "physical_lines": 387,
+      "sha256": "a2116e7cdbcbc8df725e55a93729d8e02c2c3b65f13d431fecfdcf9499b36e96"
+    },
+    {
+      "order": 163,
+      "path": "youji-app/server/src/routes/diary.ts",
+      "bytes": 3285,
+      "physical_lines": 116,
+      "sha256": "a17c44339f75d01403d67f8270b6c71c66e4543bc487b5129a98ace3bfc85c56"
+    },
+    {
+      "order": 164,
+      "path": "youji-app/server/src/routes/expenses.ts",
+      "bytes": 3852,
+      "physical_lines": 128,
+      "sha256": "c60ff403d2357b46033ca1d5314028c93052e37da593bf8788d77638ba6f7930"
+    },
+    {
+      "order": 165,
+      "path": "youji-app/server/src/routes/habits.ts",
+      "bytes": 3179,
+      "physical_lines": 111,
+      "sha256": "b078ce3dbabb496f9992384b42f503a11d261fc08bbac49da2ce09d10f57300d"
+    },
+    {
+      "order": 166,
+      "path": "youji-app/server/src/routes/quickNotes.ts",
+      "bytes": 3700,
+      "physical_lines": 135,
+      "sha256": "d384ab65ebbff38fcac10686d8b1060e4644d5668789d9677df04a62631c411b"
+    },
+    {
+      "order": 167,
+      "path": "youji-app/server/src/routes/schedules.ts",
+      "bytes": 4039,
+      "physical_lines": 103,
+      "sha256": "1eb66668ad00fabfdb5b5129b71692c17a0a3c5e32b025ee56fbbf658fa40f5f"
+    },
+    {
+      "order": 168,
+      "path": "youji-app/server/src/routes/todos.ts",
+      "bytes": 2900,
+      "physical_lines": 95,
+      "sha256": "2b182f62a66109df1da667efc98e6af8cb34c9906bc3a278547e6178c09c06c7"
+    },
+    {
+      "order": 169,
+      "path": "youji-app/server/src/services/habitPeriod.ts",
+      "bytes": 1116,
+      "physical_lines": 15,
+      "sha256": "c79235a145acfed9bd1f2889b9733d9a635018f0d5caa8ae7b5ebb2318785568"
+    },
+    {
+      "order": 170,
+      "path": "youji-app/server/src/services/habitStats.ts",
+      "bytes": 839,
+      "physical_lines": 13,
+      "sha256": "80a1939c3604bfc567a701d2de1b32c9c1db855e4e1bca935e96deb6a6a40844"
+    },
+    {
+      "order": 171,
+      "path": "youji-app/server/src/services/openAiStream.ts",
+      "bytes": 2026,
+      "physical_lines": 73,
+      "sha256": "2b1c67dcb65b1fefd85b9f567842113238a129ed54b4434f4ef5216baf9326d6"
+    },
+    {
+      "order": 172,
+      "path": "youji-app/server/src/services/parser.ts",
+      "bytes": 5428,
+      "physical_lines": 144,
+      "sha256": "a579fa964bf366b6a55e60b9d6f698c9423253967e9a1829ddb78a81a52a9acb"
+    },
+    {
+      "order": 173,
+      "path": "youji-app/server/src/services/safetyResources.ts",
+      "bytes": 3532,
+      "physical_lines": 52,
+      "sha256": "c6a1ccbfeef5fc6b90ab436813725a6775b247ebbc9dde479630e6245ee4762b"
+    },
+    {
+      "order": 174,
+      "path": "youji-app/server/src/services/scheduleExceptions.ts",
+      "bytes": 2906,
+      "physical_lines": 29,
+      "sha256": "cf77b31d93343e9313f792207ae019c7dfe455ad1b8bb8e58640c2efa5ff3273"
+    },
+    {
+      "order": 175,
+      "path": "youji-app/server/src/utils/date.ts",
+      "bytes": 2531,
+      "physical_lines": 96,
+      "sha256": "5d2fe667cfc890742e173542a002ecaaa9c2ad533bfbb0e0d0721aa749b6bef9"
+    },
+    {
+      "order": 176,
+      "path": "youji-app/server/src/utils/db.ts",
+      "bytes": 88,
+      "physical_lines": 3,
+      "sha256": "726a980a561b08ad4192cad3fd0526e7207469ec6efd046d12c893d9c4c290e1"
+    },
+    {
+      "order": 177,
+      "path": "youji-app/server/src/utils/id.ts",
+      "bytes": 94,
+      "physical_lines": 5,
+      "sha256": "d7bb98263d6eb15a7257d9febd6b0a3a67a0d6f6656a3754d9be937a9ac72694"
+    },
+    {
+      "order": 178,
+      "path": "youji-app/server/src/utils/rateLimit.ts",
+      "bytes": 2346,
+      "physical_lines": 104,
+      "sha256": "6e9fecead3e4e7f88f17ec644b2c08b2efc50cb71eea6ce2360337843b15811b"
+    },
+    {
+      "order": 179,
+      "path": "youji-app/src/styles/global.css",
+      "bytes": 6090,
+      "physical_lines": 187,
+      "sha256": "9fa992b094c52e046a4f13786e032bf33a96ad293f9f4dd52524ec17afd9c0d0"
+    },
+    {
+      "order": 180,
+      "path": "youji-app/src/styles/home-coach.css",
+      "bytes": 5422,
+      "physical_lines": 53,
+      "sha256": "0cff8261e772078425470ae28c32576aad40cd13c33498843088a89ec29f4c2a"
+    },
+    {
+      "order": 181,
+      "path": "youji-app/src/styles/record-pages.css",
+      "bytes": 8212,
+      "physical_lines": 80,
+      "sha256": "5717763e1b7b4f6c8b0573f80b67e46ecff0c7cde4a626616badd77767ae65fb"
+    },
+    {
+      "order": 182,
+      "path": "youji-app/src/styles/tokens.css",
+      "bytes": 5041,
+      "physical_lines": 168,
+      "sha256": "91d23848dcd545bdae4137fe1649f480316815dea522ea6f0aa4046a26e0a3af"
+    }
+  ],
+  "listed_files": 182,
+  "listed_physical_lines": 18621,
+  "notes": [
+    "审阅顺序不是最终连续页或有效行数认定，也不证明作者和权属。",
+    "排除测试、工具、声明文件、依赖、编译副本、素材和来源未逐项确认的migration SQL；不填充代码凑页数。",
+    "正式定稿须先固定登记名称、版本、完整程序顺序和同版真实截图，再逐项核对。"
+  ]
+}

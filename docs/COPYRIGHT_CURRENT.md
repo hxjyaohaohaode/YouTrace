@@ -1,8 +1,8 @@
-# 有迹 YouTrace 当前软著技术材料索引
+# 有迹 YouTrace 技术材料草稿与源码边界
 
-编制日：2026-10-09。用途：从真实冻结源码整理的工程说明和操作手册框架，可供后续定稿复用。不是已经提交的登记材料，不认定权利人、作者贡献、开发完成日期、首次发表日期或法定登记版本。旧[候选索引](COPYRIGHT_CANDIDATE.md)和[架构快照](ARCHITECTURE_CURRENT.md)保留为历史；静态审核不是运行验收。
+原稿编制日：2026-10-09；生产文件清单与验证边界更新：2026-10-10（北京时间）。用途：从真实冻结源码整理的工程说明和操作手册框架，可供后续定稿复用。不是已经提交的登记材料，不认定权利人、作者贡献、开发完成日期、首次发表日期或法定登记版本。旧[候选索引](COPYRIGHT_CANDIDATE.md)和[架构快照](ARCHITECTURE_CURRENT.md)保留为历史；静态审核不是运行验收。
 
-注意：下述416文件/内容树是本文档补充前的工程候选身份。本次文档同步新增1文件、修改3文件，整库为417文件；业务代码和Logo不因该文档补充而变化。修改后的整库树及同步提交从外部校验收据或Git读取，不能复用416文件候选的树哈希。下述既有验收也只适用于所列旧基线或文档补充前候选，不代表新同步提交已经通过。
+版本读法：416文件候选与随后417文件的首次文档同步，是2026-10-09材料编制时的历史基线，不是当前HEAD文件数。本稿保留它们的原始身份及历史验收；第七章和仓内[生产文件身份](copyright-preparation/source-identity.json)、[审阅顺序](copyright-preparation/source-excerpt-order.json)已按本轮冻结生产字节重算。清单不包含自身，整库tree、同步提交及该提交CI由外部最终回执或Git读取，避免自引用，也不把旧CI直接继承给后续提交。
 
 路径约定：正文的源码路径默认相对应用目录youji-app；仓库根README、docs、设计稿和根Logo均明确加“仓库根/”前缀。准备包中的“YouTrace-交付源码SHA256清单.txt”记录的文件路径则相对仓库根，可用于逐文件校验；该清单不是功能验收证明。
 
@@ -10,8 +10,8 @@
 
 - 当前界面产品名：有迹 YouTrace。见 `index.html:7-10`、`src/components/ui/Brand.tsx:5-7`、`src/pages/Login.tsx:133`。内部目录/包名youji-app、youji-server及既有youji存储键是技术标识，不应列为另外两个软件名称。
 - 正式申请全称、简称、版本号：待申请方确认。本稿不采用前端0.0.0、后端1.0.0或旧设计稿V3.1.1作为正式版本。
-- 文档补充前源码内容树：`612ba824c49e4811f6bde723936af3c011e18c08`；416个文件。
-- 基线提交：`7e45e36bcbfb07191cfed446967f99dd1cda9a05`。本稿依据该提交之后的冻结内容候选编制；该基线提交不能作为后续同步提交的身份。416文件候选身份以对应准备包中的“YouTrace-交付源码SHA256清单.txt”为准，是否已同步及同步后的精确提交须另核GitHub主线。
+- 历史文档补充前源码内容树：`612ba824c49e4811f6bde723936af3c011e18c08`；416个文件。
+- 历史基线提交：`7e45e36bcbfb07191cfed446967f99dd1cda9a05`。本稿依据该提交之后的冻结内容候选编制；该基线提交不能作为后续同步提交的身份。该416文件身份只适用于当时的历史准备包；新版同名SHA256清单标识新版源码，不可反向当作此旧候选的清单。最新同步提交须另核GitHub主线。
 - 可见构建标识来自Git短修订号，导出源码无Git时为unknown。证据：`vite.config.ts:8-12,23`、`src/components/settings/DiagnosticsPanel.tsx:9-10`。正式截图时应另保留完整冻结身份清单，不能仅凭unknown或包版本认定同版。
 - 权利人/开发者与贡献、开发方式、完成和发表日期、授权关系：待真实资料确认。Git身份、文件时间、代码树哈希和本审计日期均不能代替这些事实。
 
@@ -86,7 +86,7 @@
 
 使用日/周/月视图定位安排，新增或修改标题、日期、开始结束时间、类型和地点；支持每周重复及按实现范围调整/取消单次安排。当前日程界面标示中国标准时间UTC+8。
 
-证据：`src/components/schedule/ScheduleContent.tsx:314-326`、`src/components/schedule/ScheduleEditor.tsx`、`src/stores/scheduleStore.ts`、`src/utils/scheduleOccurrences.ts`、`server/src/services/scheduleExceptions.ts`。
+证据：`src/components/schedule/ScheduleContent.tsx`、`src/components/schedule/ScheduleEditor.tsx`、`src/stores/scheduleStore.ts`、`src/utils/scheduleOccurrences.ts`、`server/src/services/scheduleExceptions.ts`。
 
 拟配图：日周月定位、编辑、单次/系列语义、取消和返回。不得写为外部日历双向同步或跨时区调度系统。
 
@@ -102,7 +102,7 @@
 
 按日期保存和回看文字，可自选心情；创建、修改、删除前确认，取消时保留本机编辑稿。同日冲突和其他位置修改需核对；已删除记录可按实际界面创建新ID副本，不称“撤销删除恢复原ID”。
 
-证据：`src/components/diary/DiaryContent.tsx`、`src/components/diary/DiaryEditor.tsx:57,98-107`、`src/components/diary/useDiaryEditorDraft.ts`、`src/stores/diaryStore.ts`。最新限定修复：`src/components/diary/DiaryContent.tsx:118-121` 令已建立的深链编辑快照不因同账号迟到读取失败卸载；不证明首次空账号原生弹窗异常已解决。
+证据：`src/components/diary/DiaryContent.tsx`、`src/components/diary/DiaryEditor.tsx:57,98-107`、`src/components/diary/useDiaryEditorDraft.ts`、`src/stores/diaryStore.ts`。此前限定修复：`src/components/diary/DiaryContent.tsx` 令已建立的深链编辑快照不因同账号迟到读取失败卸载；不证明首次空账号原生弹窗异常已解决。后续迟到回焦保护位于`src/components/diary/useDiaryFocusReturn.ts`，与首次空账号历史现象分开核验。
 
 拟配图：空态、新增、编辑、取消保稿、日期冲突、删除确认和明确的新副本状态。首次空账号日记异常仍需原生复测，不能先写“全部稳定通过”。
 
@@ -151,23 +151,25 @@
 
 依据：`README.md:37,57-59`、`src/pages/DataInfo.tsx:8-12`、`src/pages/QuickNote.tsx`、`src/pages/Coach.tsx`、`server/src/app.ts:64-77`和`server/src/index.ts`。源码范围与尚未完成的运行验证分开说明；上述边界不是永久产品规划。
 
-## 六、既有验收摘要与界面证据边界
+## 六、历史验收与本轮新增回归边界
 
-以下为截至2026-10-09已记录的验收摘要，本次材料整理没有重跑产品或新增原生浏览器验收：
+以下前三项保留2026-10-09首次材料编制时的416文件候选验收；计数与“尚未运行”均描述当时时点，不是当前HEAD的完整验证状态：
 
 - 非浏览器检查：Node24.19.0前端999/999；Node22.23.3前端999/999、后端73/73；相关lint/build通过。这些事实不代表真实浏览器或线上服务全部通过。
 - 日记限定回归：同8项测试在旧源码3通过5失败，在新源码8通过；使用React组件/路由和fake-indexeddb，不是真实浏览器画面或原生鼠标键盘验收。
 - 编制本文时，416文件冻结候选的普通浏览器E2E与21个原生用户任务组尚未运行；后续同步提交的CI状态须按其精确提交另核。历史首次空账号日记弹窗在保存前消失的问题仍未解释，不能因深链编辑的限定修复宣称已解决。
-- 可公开追溯的历史CI入口：[602716d8运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37208454062)、[2629d9e4运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37211614212)、[48ea8819运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37424048535)。这些均为旧版本，只能按各自提交和实际任务范围引用；不能替代当前候选的999/73摘要或新版整体验收。历史附件是否仍可访问需另行核对。
+- 可公开追溯的历史CI入口：[602716d8运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37208454062)、[2629d9e4运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37211614212)、[48ea8819运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37424048535)。这些均为旧版本，只能按各自提交和实际任务范围引用；不能替代上述历史416文件候选的999/73摘要或新版整体验收。历史附件是否仍可访问需另行核对。
 - 源码中的`仓库根/.github/workflows/ci.yml:55-60,108-118`定义截图/结果上传及14天保留。配置存在不表示已经执行或已生成可用图片。最终定稿仍需取得同版真实截图并保存原件。
+
+本轮更新（2026-10-10北京时间）：历史主线`7327e22700bb5fbb9639d0aef42182472a1656d6`、tree `e6a8c605efaf50aec4c538c405d7bffbde45be3f`共424文件，其[CI 37970818142](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37970818142)首次22项作业全过，日记50项、日程126项原生观察通过，覆盖当时迟到回焦和键盘可视性问题。本轮另外新增首次空账号审计前置与回归，仅修改3个测试层文件，生产实现与品牌不变；本地前端1045、后端73项通过。编制时新增首开原生场景尚未实跑，测试定义和本地通过不能替代它，也不能自动关闭历史首次空账号弹窗消失现象。含新增回归的精确提交、完整CI和实际工件仍须另行绑定。
 
 逐文件身份可用准备包中的“YouTrace-交付源码SHA256清单.txt”核对。正式截图应另记录冻结版本、实际执行提交/会话、原始文件SHA-256、页面和步骤、视窗尺寸、合成账号及限定范围；不得把旧图或模拟结果改标成新版实际操作，也不使用私人真实数据。
 
 ## 七、源码材料范围与排序
 
-严格正文候选：181个生产TS/TSX/CSS文件，共18,525物理行（含注释/空行；不等于正式排版有效行）。顺序：启动/认证 → 账号数据库和本地事务 → 同步协议 → 速记确认与回执 → 六类日常记录模块 → 首页/时间线/教练 → 服务端认证/业务/同步 → 公共组件与样式。上述为建议编排顺序；逐文件路径及哈希可与准备包中的“YouTrace-交付源码SHA256清单.txt”核对。该清单不代替作者来源确认。
+本轮严格正文候选：182个生产TS/TSX/CSS文件，共18,621物理行（含注释/空行；不等于正式排版有效行）。顺序：启动/认证 → 账号数据库和本地事务 → 同步协议 → 速记确认与回执 → 六类日常记录模块 → 首页/时间线/教练 → 服务端认证/业务/同步 → 公共组件与样式。上述为建议编排顺序；逐文件路径、字节、行数与哈希见仓内[source-excerpt-order.json](copyright-preparation/source-excerpt-order.json)，完整生产集合身份见[source-identity.json](copyright-preparation/source-identity.json)。上述182项摘要集合为`9837398eeb41736daa92c45ca819a3a81b687a0db33c5c204e6fa585b0bd8671`；适用后续版本前须重新逐文件核对，不能代替作者来源确认。
 
-排除104测试文件、43审计工具、两个依赖锁文件、node_modules/生成客户端/dist、九份素材、合成seed、声明文件及来源未逐项确认的migration SQL。schema、必要入口与配置可作为结构说明附录；选取不代表对所有项目文件的作者身份作出认定。不为凑篇幅插入第三方代码、生成文件或空白填充。
+本轮冻结候选按实际目录排除110测试文件、45审计工具、两个依赖锁文件、node_modules/生成客户端/dist、九份素材、合成seed、声明文件及来源未逐项确认的migration SQL。schema、必要入口与配置可作为结构说明附录；选取不代表对所有项目文件的作者身份作出认定。不为凑篇幅插入第三方代码、生成文件或空白填充。
 
 ## 八、依赖与素材来源补充
 

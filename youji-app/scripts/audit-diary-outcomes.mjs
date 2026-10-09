@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createHabitAuditClock, installAuditDate } from './audit-clock.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
+import { FIRST_OPEN_PROFILES, FIRST_OPEN_WINDOW_MS, firstOpenContinuityPass, installFirstDiaryObserver } from './audit-diary-first-open.mjs';
 
 const BASELINE = '07bc198487a883fc9e508520a2eaef6d2bd1dd74';
 const TODAY = '2026-10-07';
@@ -553,7 +554,87 @@ export async function runDiaryOutcomes(h, { scenarioSet } = {}) {
       if (active) await releaseQuota(page, `${label}-final-cleanup`).catch(error => { actions.push({ kind: 'diary-final-cleanup-additional-failure', surface: label, error: error.message }); });
     }
   }
+  async function firstEmptyDiary(page, profile) {
+    const label = surfaceNames.get(page), clock = h.clock ?? createHabitAuditClock(); let api;
+    await page.evaluateOnNewDocument(installAuditDate, clock);
+    await page.evaluateOnNewDocument(installFirstDiaryObserver);
+    const path = value => page.waitForFunction(value => location.pathname === value, { timeout: 15000 }, value);
+    try {
+      // Deliberately do not use login(): its onboarding/home captures and fixed
+      // sleeps settle startup before a first click. All business input stays native.
+      await page.goto(`${h.origin}/login`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('#login-phone'); await input(page, '#login-phone', profile.phone);
+      const sent = page.waitForResponse(r => r.url().endsWith('/api/auth/send-code') && r.request().method() === 'POST');
+      await tap(page, 'button', '获取验证码'); const challenge = await (await sent).json(); assert.ok(challenge.devCode);
+      await page.waitForSelector('#login-code'); await input(page, '#login-code', challenge.devCode); await tap(page, 'button', '验证');
+      await page.waitForSelector('#login-nickname'); await input(page, '#login-nickname', profile.nickname);
+      await tap(page, 'button', '开始使用'); await path('/onboarding'); await page.waitForSelector('main h1');
+      for (let step = 0; step < 4; step++) {
+        const heading = await page.$eval('main h1', el => el.textContent);
+        await tap(page, 'button', step < 3 ? '下一步' : '开始使用');
+        if (step < 3) await page.waitForFunction(old => document.querySelector('main h1')?.textContent !== old, { timeout: 7000 }, heading);
+      }
+      await path('/'); await page.waitForSelector('main');
+      if (profile.start === 'warm') {
+        // Same newly registered account and persisted account DB, new document.
+        // No diary has been opened or created before this declared document reload.
+        actions.push({ kind: 'declared-first-empty-warm-document-reload', surface: label });
+        await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('main');
+      }
+      await page.waitForSelector(profile.width === 360 ? 'nav[aria-label="主导航"] button[aria-label="全部功能"]' : 'aside nav button');
+      if (profile.width === 360) {
+        await tap(page, 'nav[aria-label="主导航"] button[aria-label="全部功能"]'); await path('/more');
+        await page.waitForSelector('nav[aria-label="全部功能"] a[href="/diary"]');
+        await tap(page, 'nav[aria-label="全部功能"] a[href="/diary"]');
+      } else await tap(page, 'aside nav button', '日记');
+      await path('/diary'); await page.waitForSelector('button[aria-label="写日记"]');
+      await page.evaluate(() => globalThis.__firstDiaryAudit.arm());
+      // No source read, apiFor, screenshot, settling, or artificial network delay
+      // precedes this first native opening on each independent empty account.
+      await tap(page, 'button[aria-label="写日记"]'); await ready(page);
+      assert.deepEqual(await editor(page), { date: TODAY, content: '', mood: null, moodScore: null });
+      await page.waitForFunction(ms => { const s = globalThis.__firstDiaryAudit.snapshot(); return s.violations.length || s.firstPaintAt !== null && s.lastSampleAt - s.firstPaintAt >= ms; }, { timeout: FIRST_OPEN_WINDOW_MS + 7000 }, FIRST_OPEN_WINDOW_MS);
+      const blankTrace = await page.evaluate(() => globalThis.__firstDiaryAudit.snapshot());
+      await writeFile(join(artifacts, `${label}-blank-window.json`), JSON.stringify(blankTrace, null, 2));
+      assert.ok(firstOpenContinuityPass(blankTrace), 'First empty dialog must stay mounted and painted through the real initialization deadline window');
+      assert.deepEqual(await editor(page), { date: TODAY, content: '', mood: null, moodScore: null });
+      // Corroborate only after observing the race window, without a settle wait.
+      api = await apiFor(page);
+      const empty = await facts(page, api, `${label}-empty-after-window`, { settle: false });
+      assert.deepEqual(empty.local.diary, []); assert.deepEqual(empty.local.outbox, []); assert.deepEqual(empty.server, []); assert.deepEqual(empty.events, []);
+      assert.equal(draftRow(empty, 'record-draft:diary:new'), undefined, 'Untouched first form must have no pre-existing persisted draft');
+      const values = { date: TODAY, content: SHORT, mood: 'good', moodScore: 7 };
+      await fill(page, values);
+      const prepared = await facts(page, api, `${label}-typed`, { settle: false }), form = assertDraft(prepared, 'record-draft:diary:new', values);
+      await requirePreserved(page, empty, prepared, `${label}-typing-writes-only-new-draft`, { writtenDraft: { key: 'record-draft:diary:new', value: form } });
+      const typedTrace = await page.evaluate(() => globalThis.__firstDiaryAudit.snapshot());
+      assert.ok(firstOpenContinuityPass(typedTrace), 'Typing must retain the original mounted first dialog');
+      await capture(page, `${label}-first-typed-dialog`);
+      await page.evaluate(() => globalThis.__firstDiaryAudit.stop()); await cancel(page);
+      const cancelled = await facts(page, api, `${label}-cancelled`, { settle: false });
+      await requirePreserved(page, prepared, cancelled, `${label}-cancel-preserves-original-draft`);
+      await tap(page, 'button[aria-label="写日记"]'); await ready(page); assert.deepEqual(await editor(page), values);
+      const reopened = await facts(page, api, `${label}-reopened`, { settle: false });
+      assert.deepEqual(assertDraft(reopened, 'record-draft:diary:new', values), form, 'Reopening must retain the exact original draft ID and all fields');
+      await requirePreserved(page, cancelled, reopened, `${label}-reopen-preserves-original-draft`);
+      await capture(page, `${label}-reopened-original-draft`); await cancel(page);
+      const evidence = { profile, windowMs: FIRST_OPEN_WINDOW_MS, blankTrace, typedTrace, draftId: form.id,
+        initializationAfterFirstPaint: typedTrace.initializations.filter(row => row.at >= typedTrace.firstPaintAt),
+        limits: 'App ready-gates the route. The 13s first-open observation does not imply overlap with initial readiness; only recorded post-open events prove actual overlap. Historical disappearance root cause remains unresolved. Native desktop viewports, not mobile OS or original CUA call-boundary acceptance.' };
+      await writeFile(join(artifacts, `${label}-first-open-evidence.json`), JSON.stringify(evidence, null, 2));
+      await observe(page, `${label}-empty-first-open-cancel-original-draft-reopen`, true, JSON.stringify({ profile, draftId: form.id, observedMs: blankTrace.lastSampleAt - blankTrace.firstPaintAt, samples: blankTrace.samples, initializationAfterFirstPaint: evidence.initializationAfterFirstPaint, evidence: `${label}-first-open-evidence.json`, limits: evidence.limits }));
+    } catch (error) {
+      const trace = await page.evaluate(() => globalThis.__firstDiaryAudit?.snapshot() ?? null).catch(() => null);
+      await writeFile(join(artifacts, `${label}-first-open-failure.json`), JSON.stringify({ error: error.message, profile, trace }, null, 2));
+      await capture(page, `${label}-first-open-failure`).catch(() => undefined); throw error;
+    }
+  }
   const media = [];
+  if (scenarioSet === 'records') await writeFile(join(artifacts, 'YD-first-empty-scope.json'), JSON.stringify({ profiles: FIRST_OPEN_PROFILES, windowMs: FIRST_OPEN_WINDOW_MS, syntheticOnly: true, beforeFirstOpen: 'Native registration/onboarding/navigation only; no source read, settle, capture or business creation', startup: 'Cold means first registered document; warm means same never-opened account after one declared reload. Each profile has an independent browser context and account.', limits: 'Ready-gated app: no assertion of overlapping initial readiness. Passive post-open initialization chronology only. Historical disappearance remains unresolved; a negative reproduction is not root-cause closure.' }, null, 2));
+  if (scenarioSet === 'records') for (const profile of FIRST_OPEN_PROFILES) {
+    const name = `YD-first-empty-${profile.start}-${profile.width}`; media.push(name);
+    await isolated(name, { width: profile.width, height: profile.width === 360 ? 800 : 900 }, page => firstEmptyDiary(page, profile));
+  }
   for (const width of [1280, 360]) { const name = `${prefix}-${width}`; media.push(name); await isolated(name, { width, height: width === 360 ? 800 : 900 }, run); }
   return { media };
 }
