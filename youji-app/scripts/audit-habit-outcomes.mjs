@@ -41,8 +41,14 @@ export async function runHabitOutcomes(h, { frequencyOnly = false } = {}) {
     const summary = '也可以直接安排任务、记账或查看其他功能';
     const collapsed = await page.$$eval('summary', (rows, text) => rows.some(el => el.textContent.trim() === text && !el.parentElement.open), summary);
     if (collapsed) await pointer(page, 'summary', summary);
+    // The link can intersect the viewport while still sitting behind the fixed
+    // mobile navigation. Reveal it with the existing native wheel reader; do
+    // not wait for an obscured center or bypass the foreground click check.
+    const entry = 'main a[aria-label="习惯"]';
+    await readControl(page, entry);
+    assert.ok((await readable(page, entry)).visible, 'The exact habit entry must be fully readable and foreground before clicking');
     if (firstUse) await capture(page, `${surfaceNames.get(page)}-first-use-discovery`);
-    await pointer(page, 'main a[aria-label="习惯"]'); await waitPath(page, '/habit');
+    await pointer(page, entry); await waitPath(page, '/habit');
   }
   function controlGeometry(selector, textOnly = false) {
     const rows = [...document.querySelectorAll(selector)];

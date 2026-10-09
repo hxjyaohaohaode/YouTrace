@@ -106,6 +106,8 @@ export async function runPlanningOutcomes(h) {
   }
   async function openPeer(page, name) {
     await home(page); const firstUseClosed = await page.$$eval('summary', rows => rows.some(el => el.textContent === '也可以直接安排任务、记账或查看其他功能' && !el.parentElement.open)); if (firstUseClosed) await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
+    await readControl(page, 'main a', '查看全部功能');
+    assert.equal((await readableControl(page, 'main a', '查看全部功能')).visible, true, 'The exact Home directory link must be fully exposed above fixed navigation before opening a peer');
     await pointer(page, 'main a', '查看全部功能'); await waitPath(page, '/more');
     const targetPromise = page.browserContext().waitForTarget(target => target.type() === 'page' && target !== page.target());
     await page.keyboard.down('Control'); try { await pointer(page, 'nav[aria-label="全部功能"] a[href="/schedule"]'); } finally { await page.keyboard.up('Control'); }

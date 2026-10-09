@@ -91,7 +91,7 @@ test('Mounted preference comparison freezes all displayed fields/account and rej
   } finally { await act(async () => tree.unmount()); }
 });
 
-test('Mounted historical preference ACK label is also the exact label read by both native audit consumers', async () => {
+test('Mounted historical preference ACK label is also the exact label read by native audits and all browser recovery checks', async () => {
   const Panel = component('../src/components/settings/PreferenceSyncPanel.tsx', {
     '../../stores/settingsStore': { useSettingsStore: (select: (state: unknown) => unknown) => select({ preferenceSync: { state: 'synced' } }) },
     '../../stores/authStore': { useAuthStore: authHook }, '../ui/Button': { Button }, '../ui/Modal': { Modal },
@@ -102,6 +102,23 @@ test('Mounted historical preference ACK label is also the exact label read by bo
     const label = text(tree.root.findByProps({ role: 'status' }));
     assert.equal(label, '上次核对时，账号偏好已同步', 'An old successful read must not be presented as an unqualified live claim');
     for (const script of ['audit-preference-outcomes.mjs', 'audit-reminder-entry.mjs']) assert.ok(source(`../scripts/${script}`).includes(`'${label}'`), `${script}: exact native status locator must match the actual mounted status`);
+    const recovery = ts.createSourceFile('e2e-recovery.mjs', source('../scripts/e2e-recovery.mjs'), ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+    const statusReads: ts.CallExpression[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'expectText') {
+        const selector = node.arguments[3];
+        if (selector && ts.isStringLiteral(selector) && selector.text === '[aria-label="账号偏好同步"] p') statusReads.push(node);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(recovery);
+    assert.equal(statusReads.length, 4, 'Keep every original-device, second-device and conflict-resolution status assertion');
+    for (const read of statusReads) {
+      const expected = read.arguments[1];
+      assert.ok(ts.isStringLiteral(expected));
+      assert.equal(expected.text, label, 'Every browser recovery status read must exactly match the mounted historical ACK label');
+      assert.equal(read.arguments[2].kind, ts.SyntaxKind.TrueKeyword, 'The browser must require the success status to be present');
+    }
   } finally { await act(async () => tree.unmount()); }
 });
 
