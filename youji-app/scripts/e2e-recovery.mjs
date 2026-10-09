@@ -6,6 +6,7 @@ import { resolve, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
+import { sampleStableWorkspace, workspaceLayoutFailures } from './workspace-layout-contract.mjs';
 import { installStorageProgress, projectStorageProgress, storageProgressSchema } from './audit-storage-progress.mjs';
 
 // BEGIN safe initialization capture (also exercised without a browser in unit tests).
@@ -187,7 +188,21 @@ async function login(page, phone, nickname) {
   await page.waitForFunction(() => location.pathname !== '/login', { timeout: 20000 });
   await page.waitForSelector('h1,h2', { timeout: 20000 });
   if (new URL(page.url()).pathname === '/onboarding') await clickText(page, '跳过');
-  await page.waitForFunction(() => location.pathname === '/' && Boolean(document.querySelector('main')), { timeout: 20000 });
+  let geometry;
+  try {
+    const sample = await page.waitForFunction(sampleStableWorkspace, { timeout: 20000, polling: 'raf' });
+    geometry = await sample.jsonValue();
+    await sample.dispose();
+  } catch (error) {
+    geometry = await page.evaluate(() => window.__youtraceWorkspaceLayoutSample?.snapshot ?? null);
+    report.push({ name: 'Workspace layout readiness', passed: false, detail: geometry });
+    console.log('WORKSPACE_LAYOUT', JSON.stringify(geometry));
+    throw error;
+  }
+  console.log('WORKSPACE_LAYOUT', JSON.stringify(geometry));
+  const failures = workspaceLayoutFailures(geometry);
+  report.push({ name: 'Workspace clears actual primary navigation', passed: failures.length === 0, detail: geometry, failures });
+  assert.deepEqual(failures, [], 'workspace layout contract');
   boundary(page, 'login-root-ready', '/');
 }
 async function route(page, path) { boundary(page, 'route-start', path); await page.bringToFront(); await page.goto(front + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); boundary(page, 'route-ready', path); }
@@ -673,8 +688,7 @@ try {
   await observeInitialization(page);
   await page.setViewport({ width: 1280, height: 900 });
   await login(page, '13900009901', 'Synthetic A'); step('Real OTP-cookie registration and onboarding');
-  assert.ok(await page.$eval('main', (el) => Number.parseFloat(getComputedStyle(el).marginLeft) >= 260), 'desktop content must clear fixed sidebar');
-  step('Tailwind spacing survives base reset and clears desktop navigation');
+  step('Paint-stable workspace geometry and computed margin clear actual fixed navigation');
   await addTodo(page, 'Synthetic A private todo');
   // A success notification must not steal the user's next create click.
   await page.waitForFunction(() => document.querySelector('[aria-label="通知"]')?.textContent.includes('待办已保存'));

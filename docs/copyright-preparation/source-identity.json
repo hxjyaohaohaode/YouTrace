@@ -1,5 +1,5 @@
 {
-  "identity_scope": "本文件将历史已验证提交与本轮生产文件字节身份分开。production_snapshot仅标识所列生产文件，不含本文件或其他文档，因此不自引用整库tree。整库同步提交、tree及该提交CI须由外部最终回执或GitHub精确提交记录绑定。",
+  "identity_scope": "本文件将历史已验证提交与本轮生产文件字节身份分开。production_snapshot仅标识所列生产文件，不含本文件或其他文档，因此不自引用整库tree。整库同步提交、tree及该提交CI须由外部最终回执或GitHub精确提交记录绑定。 recorded_at_utc与validation_at_authoring保留Timeline材料编制时点；后续测试层更新单列test_layer_update，不改写历史结果。 CI前置准备更新与旧运行终态另列ci_prerequisite_update，仍不改写原编制快照。",
   "recorded_at_utc": "2026-10-09T19:21:00Z",
   "historical_material_baseline": {
     "scope": "2026-10-09首次材料编制前的历史416文件候选，不能作为后续HEAD身份。",
@@ -283,5 +283,66 @@
     "diary_native_observed_pass_total": 66,
     "new_first_open_scenarios": 4,
     "new_first_open_observed_pass": 16
+  },
+  "test_layer_update": {
+    "recorded_at_utc": "2026-10-09T19:42:00Z",
+    "scope": "仅3个测试层文件：将普通verify的旧固定260px侧栏阈值改为真实workspace/aside边界及paint/stability契约；生产182文件、18655行及摘要集合逐字节不变，品牌与超时不变。",
+    "base_commit": "7b9ef42f05fd66626533e575afc0eb69153af950",
+    "base_tree": "363c574bb4430abea25ae43b384ef8b0071d22b0",
+    "test_code_tree_before_material_delta": "ab2dc6c58495818955f76f6c4bea51a230378825",
+    "test_code_files_before_material_delta": 431,
+    "test_files": 112,
+    "audit_tools": 46,
+    "frontend_tests_passed": 1066,
+    "backend_tests_passed": 73,
+    "typecheck": "passed",
+    "lint": "passed_frontend_and_backend",
+    "build": "passed_frontend_and_backend",
+    "workspace_contract_regression": {
+      "old_failed": 10,
+      "old_passed": 5,
+      "new_passed": 15
+    },
+    "preceding_ci_observations": {
+      "commit": "7b9ef42f05fd66626533e575afc0eb69153af950",
+      "ci_run": "https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37980241786",
+      "expense_native_observed_pass": 183,
+      "original_timeline_failures_reverified": "真实浏览器Tab聚焦后的记录行居中可见，原两项失败已通过。",
+      "verify": "failed_old_sidebar_threshold",
+      "full_run_terminal_status": "编制时仍待核；不将尚在前置步骤的作业记为通过。"
+    },
+    "new_exact_ci": "尚未运行，须按含本轮测试修订的新精确提交另核；本地门禁不替代托管浏览器复验。",
+    "historical_first_empty_account_root_cause": "仍未知，既有限定场景未观察到首开后的初始化重叠。",
+    "render_platform_skip_observed": false
+  },
+  "ci_prerequisite_update": {
+    "recorded_at_utc": "2026-10-09T19:57:00Z",
+    "scope": "仅CI前置准备：共享官方APT包工件及校验后离线安装，保留原22项测试作业、原生probe与20分钟作业/8分钟原生预算；新增独立prepare作业。生产182文件及摘录逐字节不变。",
+    "code_tree_before_material_delta": "96a45d923adea6f47b389f92001a84041dcc89e1",
+    "code_files_before_material_delta": 434,
+    "frontend_and_backend_test_files": 112,
+    "audit_tool_files": 48,
+    "audit_tool_scope": "youji-app/scripts下跟踪文件；包含新增CI Python helper和scripts/tests下的一份合同测试，不并入前端测试项数。",
+    "frontend_tests_passed": 1066,
+    "backend_tests_passed": 73,
+    "ci_prerequisite_contract_tests_passed": 22,
+    "local_apt_scope": "含真实APT对隔离合成包/状态的模拟；未在Ubuntu下载或安装软件包。",
+    "expected_workflow_jobs": {
+      "prepare": 1,
+      "verify": 1,
+      "native_task_sets": 21,
+      "total": 23
+    },
+    "preceding_ci_terminal": {
+      "commit": "7b9ef42f05fd66626533e575afc0eb69153af950",
+      "run_id": 37980241786,
+      "jobs_success": 20,
+      "jobs_failed": 1,
+      "jobs_cancelled": 1,
+      "failed_job": "verify",
+      "cancelled_job": "diary-records",
+      "cancelled_scope": "字体安装前置未完成，probe及原生任务未执行；不是原生日记失败或通过。"
+    },
+    "new_exact_ci": "Ubuntu官方APT真实准备、工件传输、离线安装和全部23项作业尚未托管执行，须以新精确提交另核；本地合同测试不代替实装。"
   }
 }

@@ -17,8 +17,33 @@ permissions:
   contents: read
 
 jobs:
+  prepare_prerequisites:
+    name: Prepare authenticated recording and font packages once
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      manifest_sha256: ${{ steps.prepare.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test prerequisite integrity and offline failure contracts
+        run: python3 -m unittest discover -s youji-app/scripts/tests -p 'test_ci_prerequisites.py' -v
+      - name: Download complete Ubuntu prerequisite closure
+        id: prepare
+        timeout-minutes: 17
+        run: python3 youji-app/scripts/ci-prerequisites.py prepare --bundle "$RUNNER_TEMP/youtrace-prerequisites"
+        env:
+          PREREQ_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: youtrace-prerequisites-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/youtrace-prerequisites/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
   verify:
-    runs-on: ubuntu-latest
+    needs: prepare_prerequisites
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -44,8 +69,19 @@ jobs:
         working-directory: youji-app/server
       - name: All dependency audit
         run: npm audit --audit-level=high && npm --prefix server audit --audit-level=high
-      - name: Install Chinese screenshot fonts
-        run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk
+      - name: Download this run's authenticated prerequisites
+        uses: actions/download-artifact@v4
+        with:
+          name: youtrace-prerequisites-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/youtrace-prerequisites
+      - name: Verify and install prerequisites offline
+        timeout-minutes: 3
+        run: python3 scripts/ci-prerequisites.py install --bundle "$RUNNER_TEMP/youtrace-prerequisites" --manifest-sha256 "$PREREQ_MANIFEST_SHA256"
+        env:
+          PREREQ_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          PREREQ_MANIFEST_SHA256: ${{ needs.prepare_prerequisites.outputs.manifest_sha256 }}
+      - name: Check recording, Chinese font and browser prerequisites
+        run: timeout --signal=TERM --kill-after=2s 45s bash scripts/recording-prereq-probe.sh
       - name: Real Chromium HTTP, IndexedDB and responsive recovery flows
         run: npm run test:browser
         env:
@@ -60,13 +96,14 @@ jobs:
           retention-days: 14
 
   user_outcomes:
+    needs: prepare_prerequisites
     name: Real user outcomes (${{ matrix.task_set }}, independent review required)
     strategy:
       fail-fast: false
       matrix:
         task_set: [records, coach, planning, habits, habits-frequency, goals, legacy-goals-enrollment, legacy-goals-source, initial-session, startup-recovery, preferences-normal, preferences-write, preferences-read, preferences-conflict, expense-records, expense-budget, diary-records, diary-recovery, todo-records, keyboard-records, capture-return]
     # Independent evidence must still run when another browser regression fails.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -88,8 +125,17 @@ jobs:
       - name: Verify original brand guard negative cases and real React entry lifecycle
         run: node --import tsx --test tests/brand-assets.test.ts tests/brand-integrity-guard.test.ts tests/splash-lifecycle.test.ts
       - run: npm run build && npm --prefix server run build
-      - name: Install recording and Chinese-font prerequisites
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
+      - name: Download this run's authenticated prerequisites
+        uses: actions/download-artifact@v4
+        with:
+          name: youtrace-prerequisites-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/youtrace-prerequisites
+      - name: Verify and install prerequisites offline
+        timeout-minutes: 3
+        run: python3 scripts/ci-prerequisites.py install --bundle "$RUNNER_TEMP/youtrace-prerequisites" --manifest-sha256 "$PREREQ_MANIFEST_SHA256"
+        env:
+          PREREQ_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          PREREQ_MANIFEST_SHA256: ${{ needs.prepare_prerequisites.outputs.manifest_sha256 }}
       - name: Check recording, Chinese font and browser prerequisites
         run: timeout --signal=TERM --kill-after=2s 45s bash scripts/recording-prereq-probe.sh
       - name: Operate bounded native user-task evidence (${{ matrix.task_set }})
