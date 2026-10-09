@@ -21,6 +21,6 @@ export default function Onboarding() {
       <p className="editorial-eyebrow">{String(step + 1).padStart(2, '0')} / 04</p>
       <h1>{onboardingSteps[step].title}</h1><p>{onboardingSteps[step].description}</p>
     </main>
-    <footer><Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>上一步</Button><Button onClick={() => step < onboardingSteps.length - 1 ? setStep(step + 1) : finish()}>{step < onboardingSteps.length - 1 ? '下一步' : '开始记录'}</Button></footer>
+    <footer><Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>上一步</Button><Button onClick={() => step < onboardingSteps.length - 1 ? setStep(step + 1) : finish()}>{step < onboardingSteps.length - 1 ? '下一步' : '开始使用'}</Button></footer>
   </div>;
 }

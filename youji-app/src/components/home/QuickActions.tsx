@@ -8,7 +8,7 @@ const shortcuts = ['/todo', '/habit', '/diary', '/goal'].map(path => destination
 export function QuickActions() {
   const ownerId = useAuthStore(state => state.user?.id), location = useLocation();
   return <nav aria-label="安排与记录快捷入口" className="home-shortcuts">
-    {shortcuts.map(item => { const Icon = item.icon; return <Link key={item.path} to={item.path} state={staticPageEntry(item.path, ownerId)}><Icon size={16} aria-hidden /><span>{item.label}</span></Link>; })}
-    <Link to="/more" state={directoryEntry(location.pathname + location.search, ownerId)}>全部功能<ArrowRight size={16} aria-hidden /></Link>
+    {shortcuts.map(item => { const Icon = item.icon; return <Link key={item.path} aria-label={item.label} to={item.path} state={staticPageEntry(item.path, ownerId)}><Icon size={16} aria-hidden /><span>{item.label}</span></Link>; })}
+    <Link to="/more" state={directoryEntry(location.pathname + location.search, ownerId)}>查看全部功能<ArrowRight size={16} aria-hidden /></Link>
   </nav>;
 }

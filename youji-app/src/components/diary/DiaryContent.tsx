@@ -116,7 +116,9 @@ export function DiaryContent() {
   const target = recordId ? items.find((item) => item.id === recordId) : undefined;
   const requestKey = `${location.key}:${recordId ?? ''}`;
   if (loaded && target && routeSnapshot?.key !== requestKey) setRouteSnapshot({ key: requestKey, item: target });
-  const requestedItem = loaded && dismissed !== requestKey && routeSnapshot?.key === requestKey ? routeSnapshot.item : undefined;
+  // Loading establishes the initial snapshot, but a later read failure must not
+  // unmount an already opened editor. Route changes and explicit close still win.
+  const requestedItem = dismissed !== requestKey && routeSnapshot?.key === requestKey ? routeSnapshot.item : undefined;
   const source = (location.state as { returnTo?: { path?: string; label?: string } } | null)?.returnTo;
   const returnPath = source?.path?.startsWith('/') && !source.path.startsWith('//') ? source.path : null;
 

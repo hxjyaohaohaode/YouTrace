@@ -4,6 +4,15 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { runScheduleKeyboardTail } from './audit-schedule-keyboard.mjs';
 
+// The rebuilt agenda stacks both visible times. An accessible range alone is
+// not evidence that either endpoint or the exact title can actually be read.
+export function planningDayReadingMatches(reading, row) {
+  return reading?.unique === true && reading.visible === true &&
+    reading.ariaLabel === `${row.startTime}-${row.endTime} ${row.title}` &&
+    reading.title === row.title && reading.startTime === row.startTime && reading.endTime === row.endTime &&
+    reading.titleReading?.visible === true && reading.startReading?.visible === true && reading.endReading?.visible === true;
+}
+
 export async function runPlanningOutcomes(h) {
   const { isolated, login, pointer, fill, dateInput, waitPath, state, capture, observe, segment, apiFor, localRows, settledRows, saveRecordEvidence, businessDate, sleep, actions, artifacts, writeFile, join, surfaceNames, infrastructure, traffic, checkpoint } = h;
   const media = [];
@@ -28,7 +37,7 @@ export async function runPlanningOutcomes(h) {
     await page.keyboard.press('Tab'); const actual = await read(); actions.push({ kind: 'native-segmented-time', surface: surfaceNames.get(page), selector, expected, actual }); assert.equal(actual, expected, 'Native time entry failure is harness-blocked, not a product result');
   }
   async function selectDate(page, date) {
-    await closeDialogs(page); await pointer(page, '[role=tab]', '月');
+    await closeDialogs(page); await pointer(page, '[role=group][aria-label="视图切换"] button', '月');
     const [year, month, day] = date.split('-').map(Number), target = year * 12 + month;
     for (let i = 0; i < 4; i++) {
       const current = await page.$eval('main', el => el.innerText.match(/(\d{4})年(\d{1,2})月/)?.slice(1).map(Number)); assert.ok(current);
@@ -36,11 +45,11 @@ export async function runPlanningOutcomes(h) {
     }
     await page.waitForFunction(text => document.querySelector('main')?.innerText.includes(text), {}, `${year}年${month}月`);
     const selector = `main button[aria-label^="${month}月${day}日，"]`; assert.equal(await page.$$eval(selector, rows => rows.length), 1); await pointer(page, selector);
-    await page.waitForFunction(() => document.querySelector('[role=tab][aria-selected=true]')?.textContent === '日');
+    await page.waitForFunction(() => [...document.querySelectorAll('[role=group][aria-label="视图切换"] button[aria-pressed=true]')].map(el => el.textContent.trim()).join('|') === '日');
     assert.ok((await state(page)).text.includes(`${month}月${day}日`));
   }
   async function checkMonthCount(page, date, expected, label) {
-    await pointer(page, '[role=tab]', '月');
+    await pointer(page, '[role=group][aria-label="视图切换"] button', '月');
     const [, month, day] = date.split('-').map(Number), selector = `main button[aria-label^="${month}月${day}日，"]`;
     await readControl(page, selector); const actual = await page.$eval(selector, el => el.getAttribute('aria-label'));
     await observe(page, label, actual === `${month}月${day}日，${expected}个日程`, JSON.stringify({ date, expected, actual }));
@@ -84,7 +93,7 @@ export async function runPlanningOutcomes(h) {
     }
   }
   async function readableControl(page, selector, text) { return page.evaluate(controlGeometry, selector, text); }
-  async function dayTarget(page, row) { const selector = `[role=button][aria-label="${row.startTime}-${row.endTime} ${row.title}"]`; return { selector, count: await page.$$eval(selector, rows => rows.length) }; }
+  async function dayTarget(page, row) { const selector = `:is(button:not([role]),[role=button])[aria-label="${row.startTime}-${row.endTime} ${row.title}"]`; return { selector, count: await page.$$eval(selector, rows => rows.length) }; }
   async function openDay(page, row) { const target = await dayTarget(page, row); assert.equal(target.count, 1, 'Exact date/time/title schedule must be discoverable in the selected day'); await readControl(page, target.selector); await pointer(page, target.selector); await page.waitForSelector('#schedule-title'); }
   async function facts(page, api, name, ids, extra = {}) { const local = await settledRows(page, api), server = (await api('/schedules')).schedules; await saveRecordEvidence(name, local, { schedules: server }, { schedules: ids }, extra); return { local, server }; }
   async function create(page, api, name, title, date, startTime, endTime, weekly = false) {
@@ -128,14 +137,22 @@ export async function runPlanningOutcomes(h) {
     for (const [start, end] of [['06:15','06:45'], ['23:15','23:45'], ['09:00','10:00']]) await segment(page, `${label}-native-create-${start.replace(':','')}`, async () => { const record = await create(page, api, `${label}-${start.replace(':','')}`, title, date, start, end); created.push(record); });
     await segment(page, `${label}-actual-day-week-month-retrieval`, async () => {
       await selectDate(page, date); const firstFacts = await facts(page, api, `${label}-three-times`, created.map(row => row.id)); await observe(page, `${label}-three-distinct-intended-records`, created.length === 3 && firstFacts.local.schedules.length === 3 && firstFacts.server.length === 3, 'Three same-title records have different intended times; one normal record cannot stand in for both edge-of-day rows');
-      for (const row of created) { const target = await dayTarget(page, row); if (target.count === 1) await readControl(page, target.selector); const reading = await readableControl(page, target.selector); await observe(page, `${label}-day-readable-${row.startTime.replace(':','')}`, target.count === 1 && reading.visible && reading.text.includes(row.title) && reading.text.includes(`${row.startTime}-${row.endTime}`), JSON.stringify({ selectedDate: date, intendedStart: row.startTime, intendedEnd: row.endTime, reading })); }
-      await pointer(page, '[role=tab]', '周');
+      for (const row of created) {
+        const target = await dayTarget(page, row); let reading = { unique: false, visible: false };
+        if (target.count === 1) {
+          await readControl(page, target.selector); reading = await readableControl(page, target.selector);
+          Object.assign(reading, await page.$eval(target.selector, el => ({ ariaLabel: el.getAttribute('aria-label'), title: el.querySelector('.agenda-detail > strong')?.textContent, startTime: el.querySelector('.agenda-time > strong')?.textContent, endTime: el.querySelector('.agenda-time > span')?.textContent })));
+          for (const [key, suffix] of [['titleReading', '.agenda-detail > strong'], ['startReading', '.agenda-time > strong'], ['endReading', '.agenda-time > span']]) reading[key] = await readableControl(page, `${target.selector} ${suffix}`);
+        }
+        await observe(page, `${label}-day-readable-${row.startTime.replace(':','')}`, target.count === 1 && planningDayReadingMatches(reading, row), JSON.stringify({ selectedDate: date, intendedStart: row.startTime, intendedEnd: row.endTime, reading }));
+      }
+      await pointer(page, '[role=group][aria-label="视图切换"] button', '周');
       for (const row of created) {
         const matches = await page.$$eval('main button', (rows, row) => rows.filter(el => el.innerText.includes(row.title) && el.innerText.includes(`${row.startTime}-${row.endTime}`)).map(el => el.textContent.trim()), row);
         if (matches.length === 1) await readControl(page, 'main button', matches[0]); const reading = matches.length === 1 ? await readableControl(page, 'main button', matches[0]) : null; await observe(page, `${label}-week-readable-${row.startTime.replace(':','')}`, matches.length === 1 && reading.visible, JSON.stringify({ selectedDate: date, intendedStart: row.startTime, intendedEnd: row.endTime, reading }));
         if (matches.length === 1) { await pointer(page, 'main button', matches[0]); await observe(page, `${label}-week-opens-exact-${row.startTime.replace(':','')}`, await page.$eval('#schedule-date', el => el.value) === date && await page.$eval('#schedule-start', el => el.value) === row.startTime && await page.$eval('#schedule-end', el => el.value) === row.endTime, 'Real row opens the intended date/time form'); await closeDialogs(page); }
       }
-      await pointer(page, '[role=tab]', '月'); const [,month,day] = date.split('-').map(Number); const text = await page.$eval(`button[aria-label^="${month}月${day}日，"]`, el => el.getAttribute('aria-label')); await observe(page, `${label}-month-matches-stored-rows`, text.endsWith('3个日程'), JSON.stringify({ intendedDate: date, accessibleDay: text })); await selectDate(page, date);
+      await pointer(page, '[role=group][aria-label="视图切换"] button', '月'); const [,month,day] = date.split('-').map(Number); const text = await page.$eval(`button[aria-label^="${month}月${day}日，"]`, el => el.getAttribute('aria-label')); await observe(page, `${label}-month-matches-stored-rows`, text.endsWith('3个日程'), JSON.stringify({ intendedDate: date, accessibleDay: text })); await selectDate(page, date);
     });
     await segment(page, `${label}-cancel-retains-edit-without-writing`, async () => {
       const record = created.find(row => row.startTime === '09:00'); assert.ok(record); await selectDate(page, date); const beforeCancel = await facts(page, api, `${label}-before-cancel`, [record.id]); await openDay(page, record); const draft = 'Synthetic 暂存的工作安排'; await fill(page, '#schedule-title', draft); const cancelCopy = await page.$eval('[role=dialog]', el => el.innerText); await capture(page, `${label}-actual-cancel-copy-before-action`); await pointer(page, '[role=dialog] button', '取消（保留草稿）'); await page.waitForSelector('[role=dialog]', { hidden: true });
@@ -155,12 +172,12 @@ export async function runPlanningOutcomes(h) {
         await selectDate(page, future); await observe(page, `${label}-moved-original-date-absent`, (await dayTarget(page, series)).count === 0, 'The original weekly date no longer shows the moved occurrence'); await checkMonthCount(page, future, 0, `${label}-moved-origin-month-empty`); const changed = { ...series, date: movedDate, startTime: '12:15', endTime: '13:15' }; await selectDate(page, movedDate); await openDay(page, changed); await observe(page, `${label}-single-occurrence-reopened`, await page.$eval('#schedule-date', el => el.value) === movedDate && await page.$eval('#schedule-location', el => el.value) === exception.location, 'The adjusted occurrence opens its own date/time/location after real calendar navigation'); await observe(page, `${label}-moved-origin-current-date-explained`, (await page.$eval('[role=dialog]', el => el.innerText)).includes(`这次原定 ${future}，现安排在 ${movedDate}`), 'The original recurrence identity and the current moved date are explained together'); await closeDialogs(page); await checkMonthCount(page, movedDate, 1, `${label}-moved-target-month-one`);
         await selectDate(page, date); await openDay(page, series); await observe(page, `${label}-series-origin-unchanged`, await page.$eval('#schedule-start', el => el.value) === series.startTime && await page.$eval('#schedule-location', el => el.value) === series.location, 'Original occurrence retains original time/location'); await closeDialogs(page);
         await selectDate(page, businessDate(15)); await openDay(page, series); await observe(page, `${label}-next-week-unchanged`, await page.$eval('#schedule-start', el => el.value) === series.startTime && await page.$eval('#schedule-location', el => el.value) === series.location, 'The following weekly occurrence remains unchanged'); await closeDialogs(page);
-        await home(page); const overview = await page.$$eval('main button', rows => rows.filter(el => el.innerText.includes('今日日程')).map(el => el.textContent.trim())); assert.equal(overview.length, 1); await readControl(page, 'main button', overview[0].trim());
+        await home(page); const overview = await page.$$eval('main [data-component="home-overview"] button', rows => rows.filter(el => el.querySelector('[data-overview-label]')?.textContent.trim() === '今日日程').map(el => el.textContent.trim())); assert.equal(overview.length, 1); await readControl(page, 'main [data-component="home-overview"] button', overview[0].trim());
         const homeTime = await page.evaluate(() => Date.now()), expectedHome = expectedHomeScheduleCopy(homeTime, series.title); await observe(page, `${label}-home-moved-time-status`, overview[0].includes(expectedHome), JSON.stringify({ observedAt: new Date(homeTime).toISOString(), timeZone: 'Asia/Shanghai', expected: expectedHome, actual: overview[0] })); const brief = await api('/coach/brief'); await observe(page, `${label}-home-and-online-brief-use-moved-occurrence`, /1 项/.test(overview[0]) && brief.brief?.todaySchedule?.some(row => row.id === series.id && row.time === '12:15-13:15' && row.location === exception.location), JSON.stringify({ overview: overview[0], briefSchedule: brief.brief?.todaySchedule }));
-        await enter(page); await selectDate(page, movedDate); await pointer(page, '[role=tab]', '周'); const weekText = await page.$eval('main', el => el.innerText); await observe(page, `${label}-moved-week-time-and-place`, weekText.includes('12:15-13:15') && weekText.includes(exception.location), 'Week selection projects the moved occurrence at its new date');
+        await enter(page); await selectDate(page, movedDate); await pointer(page, '[role=group][aria-label="视图切换"] button', '周'); const weekText = await page.$eval('main', el => el.innerText); await observe(page, `${label}-moved-week-time-and-place`, weekText.includes('12:15-13:15') && weekText.includes(exception.location), 'Week selection projects the moved occurrence at its new date');
         await selectDate(page, movedDate); await openDay(page, changed); await pointer(page, '[role=dialog] button', '仅这一次'); await pointer(page, '[role=dialog] button', '删除'); await capture(page, `${label}-cancel-one-occurrence-confirmation`); await pointer(page, `${await dialogSelector(page, '确认删除')} button`, '删除'); await page.waitForSelector('[role=dialog]', { hidden: true });
         const cancelled = await facts(page, api, `${label}-single-occurrence-cancelled`, [series.id]); const removedTarget = await dayTarget(page, changed); const exitStarted = Date.now(); if (removedTarget.count) await capture(page, `${label}-cancelled-occurrence-exit-transition`); await page.waitForFunction(selector => !document.querySelector(selector), { timeout: 2000 }, removedTarget.selector); actions.push({ kind: 'observed-occurrence-exit', surface: surfaceNames.get(page), waitedMs: Date.now() - exitStarted, maximumMs: 2000 }); await observe(page, `${label}-cancel-only-one-cloud-result`, cancelled.server.find(row => row.id === series.id)?.exceptions?.find(row => row.occurrenceDate === future)?.cancelled === true && (await dayTarget(page, changed)).count === 0, 'One cancelled exception is acknowledged; its canonical series survives'); await checkMonthCount(page, movedDate, 0, `${label}-cancelled-target-month-empty`);
-        await home(page); const afterHome = await page.$$eval('main button', rows => rows.filter(el => el.innerText.includes('今日日程')).map(el => el.textContent.trim())); await readControl(page, 'main button', afterHome[0].trim()); const afterBrief = await api('/coach/brief'); await observe(page, `${label}-cancelled-home-and-online-brief`, afterHome[0].includes('0 项') && afterHome[0].includes('今天没有日程') && !afterBrief.brief?.todaySchedule?.some(row => row.id === series.id), JSON.stringify({ overview: afterHome[0], briefSchedule: afterBrief.brief?.todaySchedule }));
+        await home(page); const afterHome = await page.$$eval('main [data-component="home-overview"] button', rows => rows.filter(el => el.querySelector('[data-overview-label]')?.textContent.trim() === '今日日程').map(el => el.textContent.trim())); assert.equal(afterHome.length, 1); await readControl(page, 'main [data-component="home-overview"] button', afterHome[0].trim()); const afterBrief = await api('/coach/brief'); await observe(page, `${label}-cancelled-home-and-online-brief`, afterHome[0].includes('0 项') && afterHome[0].includes('今天没有日程') && !afterBrief.brief?.todaySchedule?.some(row => row.id === series.id), JSON.stringify({ overview: afterHome[0], briefSchedule: afterBrief.brief?.todaySchedule }));
         await enter(page); await selectDate(page, businessDate(15)); await openDay(page, series); await observe(page, `${label}-cancel-preserves-following-week`, await page.$eval('#schedule-start', el => el.value) === series.startTime && await page.$eval('#schedule-location', el => el.value) === series.location, 'Following original weekly occurrence is still present after single cancellation'); await closeDialogs(page);
 
       }
@@ -172,7 +189,7 @@ export async function runPlanningOutcomes(h) {
         await selectDate(page, date); await openDay(page, record); await fill(page, '#schedule-title', 'Synthetic 第一页旧稿修改'); await page.setOfflineMode(true); actions.push({ kind: 'target-network-offline', surface: surfaceNames.get(page), reason: 'Hold an unsaved form while another actual page corrects the same row' });
         await peer.bringToFront(); await selectDate(peer, date); await openDay(peer, record); await fill(peer, '#schedule-title', 'Synthetic 第二页已核对'); await fill(peer, '#schedule-location', 'Synthetic 第二页的新地点'); await pointer(peer, '[role=dialog] button', '保存'); await peer.waitForSelector('[role=dialog]', { hidden: true }); const peerState = await facts(peer, api, `${label}-peer-actual-save`, [record.id]); const updated = peerState.server.find(row => row.id === record.id); assert.equal(updated.location, 'Synthetic 第二页的新地点');
         await page.bringToFront(); const responseStart = traffic.length; await page.setOfflineMode(false); actions.push({ kind: 'target-network-online', surface: surfaceNames.get(page) });
-        await page.waitForSelector('[role=button][aria-label="09:00-10:00 Synthetic 第二页已核对"]');
+        await page.waitForSelector(':is(button:not([role]),[role=button])[aria-label="09:00-10:00 Synthetic 第二页已核对"]');
         const firstState = await facts(page, api, `${label}-first-page-new-record-old-form`, [record.id], { syncResponsesSinceOnline: traffic.slice(responseStart).filter(row => row.scenario === surfaceNames.get(page) && row.path === '/api/sync/pull'), oldForm: { title: await page.$eval('#schedule-title', el => el.value), location: await page.$eval('#schedule-location', el => el.value) }, sharedIndexedDB: true }); assert.equal(firstState.local.schedules.find(row => row.id === record.id)?.location, updated.location);
         await observe(page, `${label}-peer-refresh-while-old-form-open`, await page.$eval('#schedule-title', el => el.value) === 'Synthetic 第一页旧稿修改' && await page.$eval('#schedule-location', el => el.value) === record.location, 'Two pages share IndexedDB: the new underlying record and the old opened fields coexist. Network restoration and actual response receipts are recorded separately; offline does not prevent peer local writes');
         const disabledSave = await page.$$eval('[role=dialog] button', rows => rows.some(el => el.textContent.trim() === '保存' && el.disabled)); if (!disabledSave) await pointer(page, '[role=dialog] button', '保存'); else actions.push({ kind: 'observed-disabled-stale-save', surface: surfaceNames.get(page) }); const after = await facts(page, api, `${label}-old-form-save-result`, [record.id]); const actual = after.server.find(row => row.id === record.id);

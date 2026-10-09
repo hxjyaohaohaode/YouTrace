@@ -51,7 +51,11 @@
 .habit-recap small { font-size: 14px; font-weight: 400; color: var(--text-2); }
 .habit-records { display: grid; gap: 16px; }
 .habit-record { border-radius: 12px; }
-.habit-seven-days button { min-height: 56px; }
+.habit-seven-days button { min-width: 44px; min-height: 56px; }
+/* Keep all seven actual dates in chronological order without squeezing taps. */
+@media (max-width: 420px) {
+  .habit-seven-days { grid-template-columns: repeat(4, minmax(44px, 1fr)); gap: 8px; }
+}
 .habit-today-button[aria-pressed="true"] { background: var(--primary-soft); color: var(--link); }
 .goal-introduction { margin-bottom: 24px; padding: 20px 0; border-block: 1px solid var(--border); }
 .goal-horizons { display: grid; gap: 32px; }

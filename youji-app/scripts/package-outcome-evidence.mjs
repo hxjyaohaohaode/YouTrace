@@ -1,15 +1,38 @@
 // Preserve exact successful/failed evidence bytes in connector-downloadable parts.
 import { createHash } from 'node:crypto';
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { readdir, readFile, writeFile, mkdir, lstat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 const root = resolve(import.meta.dirname, '..'), evidence = join(root, 'test-artifacts/user-outcomes'), destination = join(root, 'test-artifacts/outcome-package');
+async function ensureEvidenceDirectory(directory) {
+  try { await mkdir(directory); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+  if (!(await lstat(directory)).isDirectory()) throw new Error('Evidence directory must be a real directory; refusing to follow external links');
+}
+// Prerequisite failure can precede the harness creating either directory.
+// Missing evidence must produce an incomplete marker, never a success report.
+await ensureEvidenceDirectory(join(root, 'test-artifacts'));
 // An exclusive directory prevents stale parts from a prior attempt joining this run.
 await mkdir(destination);
+await ensureEvidenceDirectory(evidence);
+async function regularEvidenceFile(file) {
+  let stat;
+  try { stat = await lstat(file); } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  if (!stat.isFile()) throw new Error('Expected a regular evidence file; refusing to follow external links or replace non-files');
+  return true;
+}
 let terminalReportPresent = false;
-try { const report = JSON.parse(await readFile(join(evidence, 'outcome-report.json'), 'utf8')); terminalReportPresent = typeof report.metadata?.endedAt === 'string'; } catch { /* Missing/partial report is evidence of incomplete execution, never success. */ }
+const reportPath = join(evidence, 'outcome-report.json');
+if (await regularEvidenceFile(reportPath)) {
+  const bytes = await readFile(reportPath, { encoding: 'utf8', flag: constants.O_RDONLY | constants.O_NOFOLLOW });
+  try { const report = JSON.parse(bytes); terminalReportPresent = typeof report.metadata?.endedAt === 'string'; } catch { /* A partial report is incomplete evidence, never success. */ }
+}
 const executionEvidence = { terminalReportPresent, incomplete: !terminalReportPresent, mediaVerification: 'Packaging preserves bytes only; playable video and complete trace require independent review.' };
-if (!terminalReportPresent) await writeFile(join(evidence, 'INCOMPLETE.txt'), 'INCOMPLETE HARNESS RUN: no terminal result report was produced. The last partial checkpoint and any completed PNG/DOM, trace or media bytes are preserved unchanged. Missing or unfinished media are evidence gaps. No successful outcome, sourceEnd verification, or playable-video conclusion is inferred. Inspect the exact CI step status and partial checkpoint.\n');
+if (!terminalReportPresent) {
+  const marker = join(evidence, 'INCOMPLETE.txt');
+  try { await writeFile(marker, 'INCOMPLETE HARNESS RUN: no terminal result report was produced. The last partial checkpoint and any completed PNG/DOM, trace or media bytes are preserved unchanged. Missing or unfinished media are evidence gaps. No successful outcome, sourceEnd verification, or playable-video conclusion is inferred. Inspect the exact CI step status and partial checkpoint.\n', { flag: 'wx' }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; await regularEvidenceFile(marker); }
+}
 const files = [];
 async function collect(directory, prefix = '') {
   for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {

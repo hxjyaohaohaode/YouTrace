@@ -130,7 +130,7 @@ test('Ordinary sync timestamps are bounded; natural cursor advancement derives e
 const reading = () => {
   const source = sources().local.schedules[0], identity = checks.identity(source);
   return { schedule: { url: '/schedule', present: true, loading: false, selectedTabs: ['日'], heading: '10月7日' }, modalCount: 0, modalAnimations: 0,
-    anchor: { ...identity, matches: 1, node: 9, geometry: { visible: true }, titleGeometry: { visible: true }, timeGeometry: { visible: true } },
+    anchor: { ...identity, matches: 1, node: 9, geometry: { visible: true }, titleGeometry: { visible: true }, timeGeometry: { visible: true }, startGeometry: { visible: true }, endGeometry: { visible: true } },
     active: { node: 9, tag: 'DIV', role: 'button', tabIndex: 0, disabled: false, id: '', text: `${source.title}09:00-10:00`, ariaLabel: identity.ariaLabel, logicalCard: identity }, geometry: { visible: true } };
 };
 const samples = () => [0, 100, 250, 500, 650, 700, 750, 800, 850, 900, 950].map(elapsedMs => ({ elapsedMs, ...reading() }));
@@ -144,8 +144,20 @@ test('Calendar identity requires actual year/month membership and one exact four
 test('Native DIV card activation binds visible full title/time and actual selected day, with fresh node/geometry revalidation', () => {
   const before = reading(), source = sources().local.schedules[0]; assert.equal(checks.activationResult(before, structuredClone(before), source).pass, true);
   for (const patch of [{ node: 10 }, { role: null }, { disabled: true }, { tabIndex: -1 }, { text: 'wrong title' }, { tag: 'BODY' }]) assert.equal(checks.activationResult(before, { ...structuredClone(before), active: { ...before.active, ...patch } }, source).pass, false);
-  for (const patch of [{ title: 'wrong title' }, { time: '23:15-23:45' }, { matches: 2 }, { titleGeometry: { visible: false } }, { timeGeometry: { visible: false } }]) assert.equal(checks.activationResult(before, { ...structuredClone(before), anchor: { ...before.anchor, ...patch } }, source).pass, false);
+  for (const patch of [{ title: 'wrong title' }, { time: '23:15-23:45' }, { matches: 2 }, { titleGeometry: { visible: false } }, { timeGeometry: { visible: false } }, { startGeometry: { visible: false } }, { endGeometry: { visible: false } }, { startTime: '09:15' }, { endTime: '10:15' }]) assert.equal(checks.activationResult(before, { ...structuredClone(before), anchor: { ...before.anchor, ...patch } }, source).pass, false);
   const wrongDate = reading(); wrongDate.schedule.heading = '10月8日'; assert.equal(checks.activationResult(wrongDate, structuredClone(wrongDate), source).pass, false);
+});
+
+
+test('Native agenda buttons retain independently visible exact endpoints; wrong-end and same-title wrong-record cannot pass', () => {
+  const source = sources().local.schedules[0], before = reading();
+  Object.assign(before.active, { tag: 'BUTTON', role: undefined });
+  assert.equal(checks.activationResult(before, structuredClone(before), source).pass, true);
+  const wrongEnd = structuredClone(before); wrongEnd.anchor.endTime = '10:30';
+  assert.equal(checks.activationResult(before, wrongEnd, source).pass, false, 'Correct aria text never substitutes for the visible end time');
+  const wrongRecord = structuredClone(before); Object.assign(wrongRecord.anchor, checks.identity(sources().local.schedules[1]));
+  assert.equal(checks.activationResult(before, wrongRecord, source).pass, false, 'Same title at another time is not this source');
+  for (const key of ['startGeometry', 'endGeometry'] as const) { const hidden = structuredClone(before); hidden.anchor[key].visible = false; assert.equal(checks.activationResult(before, hidden, source).pass, false); }
 });
 
 test('Escape retains exact original node; Save may remount the same logical card, but partial-ready, late focus and hidden title/time stay red', () => {
@@ -157,7 +169,7 @@ test('Escape retains exact original node; Save may remount the same logical card
   const invalid = (mutate: (copy: typeof original[number]) => void) => { const copy = structuredClone(original); mutate(copy.at(-1)!); assert.equal(checks.returnResult(copy, origin, source).pass, false); };
   invalid(row => { row.active.tag = 'BODY'; }); invalid(row => { row.active.node = 20; }); invalid(row => { row.schedule.heading = '10月8日'; });
   invalid(row => { row.anchor.title = 'wrong title'; }); invalid(row => { row.anchor.time = '09:15-10:15'; });
-  invalid(row => { row.anchor.geometry.visible = false; }); invalid(row => { row.anchor.titleGeometry.visible = false; }); invalid(row => { row.anchor.timeGeometry.visible = false; });
+  invalid(row => { row.anchor.geometry.visible = false; }); invalid(row => { row.anchor.titleGeometry.visible = false; }); invalid(row => { row.anchor.timeGeometry.visible = false; }); invalid(row => { row.anchor.startGeometry.visible = false; }); invalid(row => { row.anchor.endGeometry.visible = false; });
   invalid(row => { row.modalCount = 1; }); invalid(row => { row.modalAnimations = 1; });
   const late = [0, 3500, 3650, 3700, 3750, 3800, 3850, 3900, 3950, 4000].map(elapsedMs => ({ ...reading(), elapsedMs, modalAnimations: elapsedMs < 3750 ? 1 : 0 }));
   assert.equal(checks.readinessResult(late).readyMs, 250); assert.equal(checks.returnResult(late, origin, source).pass, false);

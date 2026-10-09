@@ -255,13 +255,13 @@ export async function runTodoOutcomes(h, options = {}) {
       const row = button.parentElement, title = button.querySelector('p:first-child')?.textContent, date = button.querySelector('p:nth-child(2)')?.textContent, priority = row.querySelector('span')?.textContent;
       const parts = []; for (let el = row; el && el !== document.body; el = el.parentElement) { const siblings = [...el.parentElement.children].filter(node => node.tagName === el.tagName); parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(el) + 1})`); }
       const group = row.parentElement.parentElement.parentElement.firstElementChild.querySelector('span')?.textContent;
-      return { selector: 'body > ' + parts.join(' > '), title, date, priority, group, matches: title === wanted.text && (wanted.dueDate ? date?.includes(` · ${wanted.dueDate} · 编辑`) : date === '无截止日期 · 编辑') && priority === ({ high: '高', medium: '中', low: '低' })[wanted.priority] };
+      return { selector: 'body > ' + parts.join(' > '), title, date, priority, group, matches: title === wanted.text && (wanted.dueDate ? date?.includes(` · ${wanted.dueDate} · 编辑`) : date === '无截止日期 · 编辑') && priority === ({ high: '高优先级', medium: '中优先级', low: '低优先级' })[wanted.priority] };
     }), wanted);
     const matches = candidates.filter(row => row.matches); assert.equal(matches.length, 1, `One title/date/priority row required: ${JSON.stringify({ wanted, candidates })}`);
     const row = matches[0], title = await read(page, `${row.selector} button p:first-child`), date = await read(page, `${row.selector} button p:nth-child(2)`), priority = await read(page, `${row.selector} > span`);
     assert.ok(title.visible && date.visible && priority.visible, 'Visible identity must actually be readable before ID corroboration');
     const actual = await page.$eval(row.selector, el => ({ id: el.parentElement.id, done: el.querySelector('input[type=checkbox]').checked }));
-    const expectedGroup = wanted.done ? '已完成' : ({ '2026-10-06': '逾期', '2026-10-07': '今天', '2026-10-11': '本周', '2026-10-12': '更晚', '': '更晚' })[wanted.dueDate];
+    const expectedGroup = wanted.done ? '已完成' : ({ '2026-10-06': '逾期', '2026-10-07': '今天', '2026-10-11': '本周', '2026-10-12': '稍后与未定日期', '': '稍后与未定日期' })[wanted.dueDate];
     assert.ok(expectedGroup, 'Declared fixture needs an explicit expected group'); assert.equal(row.group, expectedGroup);
     assert.equal(actual.id, `todo-record-${wanted.id}`); assert.equal(actual.done, wanted.done);
     await capture(page, `${surfaceNames.get(page)}-visible-${wanted.id}-${wanted.done ? 'done' : 'active'}`);
@@ -273,7 +273,7 @@ export async function runTodoOutcomes(h, options = {}) {
   }
   async function groups(page, expected, label, records) {
     for (const record of records) await visibleRow(page, record);
-    const actual = await page.evaluate(() => [...document.querySelectorAll('main div')].filter(el => el.children.length === 3 && el.children[0].tagName.toLowerCase() === 'svg' && ['逾期', '今天', '本周', '更晚', '已完成'].includes(el.children[1].textContent)).map(el => ({ label: el.children[1].textContent, count: el.children[2].textContent })));
+    const actual = await page.evaluate(() => [...document.querySelectorAll('main div')].filter(el => el.children.length === 3 && el.children[0].tagName.toLowerCase() === 'svg' && ['逾期', '今天', '本周', '稍后与未定日期', '已完成'].includes(el.children[1].textContent)).map(el => ({ label: el.children[1].textContent, count: el.children[2].textContent })));
     assert.deepEqual(actual, Object.entries(expected).filter(([, count]) => count > 0).map(([label, count]) => ({ label, count: `(${count})` })), 'Read actual group labels and exact counts, not guessed filter state');
     for (const [name, count] of Object.entries(expected).filter(([, value]) => value > 0)) {
       const selector = await exact(page, 'main span', name), reading = await read(page, selector), countReading = await read(page, `${selector} + span`);
@@ -301,7 +301,7 @@ export async function runTodoOutcomes(h, options = {}) {
     await page.waitForFunction(id => { const checkbox = document.getElementById(`todo-record-${id}`)?.querySelector('input[type=checkbox]'); return checkbox?.checked === true && !checkbox.disabled; }, { timeout: 7000 }, target.id);
     const completed = await facts(page, api, `${label}-completed`), latest = await page.evaluate(() => Date.now()), pass = completionOnly(original, completed, target.id, { before: earliest, after: latest });
     await observe(page, `${label}-same-id-actual-completion-time-and-ack`, pass, JSON.stringify({ id: target.id, window: { before: earliest, after: latest }, local: completed.local.todos.find(value => value.id === target.id), remote: completed.server.find(value => value.id === target.id), source: `${label}-completed-full-source.json` })); assert.ok(pass);
-    const done = { ...target, done: true }; await groups(page, { 逾期: 0, 今天: 1, 本周: 1, 更晚: 2, 已完成: 1 }, `${label}-completed-groups`, records.map(row => row.id === target.id ? done : row));
+    const done = { ...target, done: true }; await groups(page, { 逾期: 0, 今天: 1, 本周: 1, 稍后与未定日期: 2, 已完成: 1 }, `${label}-completed-groups`, records.map(row => row.id === target.id ? done : row));
     await navigate(page, '/timeline', '时间线'); await chooseRange(page, 'all', '全部记录'); await timelineRow(page, done, `${label}-all-completion-date`);
     const origin = await chooseRange(page, '7', '近7天'), selector = await timelineRow(page, done, `${label}-seven-completion-date`);
     await tap(page, selector); await waitPath(page, '/todo'); await ready(page); assert.equal(new URL(page.url()).searchParams.get('record'), target.id);
@@ -316,7 +316,7 @@ export async function runTodoOutcomes(h, options = {}) {
     await page.waitForFunction(id => { const checkbox = document.getElementById(`todo-record-${id}`)?.querySelector('input[type=checkbox]'); return checkbox?.checked === false && !checkbox.disabled && ![...document.querySelectorAll('main button')].some(el => el.textContent.trim() === '撤销中…'); }, { timeout: 7000 }, target.id);
     const undone = await facts(page, api, `${label}-undone`), restored = undoOnly(original, completed, undone, target.id);
     await observe(page, `${label}-actual-completion-undo-restores-full-original`, restored, JSON.stringify({ id: target.id, beforeVersion: version(completed, target.id), afterVersion: version(undone, target.id), source: `${label}-undone-full-source.json`, claim: 'Same-session actual completion-state undo; no reload or deleted-record undo claim.' })); assert.ok(restored);
-    await groups(page, { 逾期: 1, 今天: 1, 本周: 1, 更晚: 2, 已完成: 0 }, `${label}-undone-groups`, records);
+    await groups(page, { 逾期: 1, 今天: 1, 本周: 1, 稍后与未定日期: 2, 已完成: 0 }, `${label}-undone-groups`, records);
     await navigate(page, '/timeline', '时间线'); await chooseRange(page, 'all', '全部记录');
     await page.waitForFunction(() => !document.querySelector('main [role=status]') && !document.querySelector('main [role=alert]') && [...document.querySelectorAll('main p')].some(el => el.textContent === '这个时间范围还没有记录。'), { timeout: 7000 });
     const empty = await read(page, await exact(page, 'main p', '这个时间范围还没有记录。')), remaining = await page.$$eval('section[aria-label] button[aria-label^="完成待办:"]', nodes => nodes.length);
@@ -362,7 +362,7 @@ export async function runTodoOutcomes(h, options = {}) {
     assert.deepEqual(await editor(page), typed); await readEditor(page, typed, `${label}-released-retained-input`); await save(page);
     const after = await facts(page, api, `${label}-retried-current-save`), pass = editedOnlyDeclared(before, after, target.id, typed);
     await observe(page, `${label}-one-current-save-same-id-full-source-and-neighbor`, pass, JSON.stringify({ id: target.id, typed, beforeVersion: version(before, target.id), afterVersion: version(after, target.id), source: `${label}-retried-current-save-full-source.json` })); assert.ok(pass);
-    const changed = { ...target, ...typed }; await groups(page, { 逾期: 1, 今天: 0, 本周: 1, 更晚: 3, 已完成: 0 }, `${label}-final-groups`, records.map(row => row.id === target.id ? changed : row));
+    const changed = { ...target, ...typed }; await groups(page, { 逾期: 1, 今天: 0, 本周: 1, 稍后与未定日期: 3, 已完成: 0 }, `${label}-final-groups`, records.map(row => row.id === target.id ? changed : row));
     await requirePreserved(page, after, await facts(page, api, `${label}-after-current-row-reading`), `${label}-final-reading-preserves-source`); return changed;
   }
   async function run(page) {
@@ -375,7 +375,7 @@ export async function runTodoOutcomes(h, options = {}) {
       await navigate(page, '/todo', '待办'); await page.waitForSelector('button[aria-label="新建待办"]'); await capture(page, `${label}-first-natural-entry`);
       const records = []; for (const [index, declared] of DECLARED.entries()) records.push(await create(page, api, `${label}-create-${index + 1}`, declared));
       const frozen = await facts(page, api, `${label}-all-original-declarations`, { extra: { records } }); assert.ok(declaredRecordsMatch(frozen, records));
-      await groups(page, { 逾期: 1, 今天: 1, 本周: 1, 更晚: 2, 已完成: 0 }, `${label}-original-groups`, records);
+      await groups(page, { 逾期: 1, 今天: 1, 本周: 1, 稍后与未定日期: 2, 已完成: 0 }, `${label}-original-groups`, records);
       await requirePreserved(page, frozen, await facts(page, api, `${label}-after-original-reading`), `${label}-all-original-reading-preserves-source`);
       await completionJourney(page, api, records, `${label}-completion-undo`);
       const changed = await editJourney(page, api, records, `${label}-cancel-clear-refusal-retry`);

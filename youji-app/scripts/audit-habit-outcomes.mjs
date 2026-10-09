@@ -172,16 +172,18 @@ export async function runHabitOutcomes(h, { frequencyOnly = false } = {}) {
   }
   async function homeAgreement(page, row, label, habitResult) {
     await home(page);
-    const candidates = await page.$$eval('main button', rows => rows.filter(el => /本周习惯|习惯打卡|今日习惯/.test(el.innerText)).map(el => el.textContent.trim())); assert.equal(candidates.length, 1, 'One real Home habit overview must be identifiable');
+    const candidates = await page.$$eval('main [data-component="home-overview"] button', rows => rows.filter(el => ['本周习惯', '习惯打卡', '今日习惯'].includes(el.querySelector('[data-overview-label]')?.textContent.trim())).map(el => el.textContent.trim())); assert.equal(candidates.length, 1, 'One real Home habit overview must be identifiable');
     const selector = await page.evaluate(text => {
-      const el = [...document.querySelectorAll('main button')].find(el => el.textContent.trim() === text), parts = [];
+      const el = [...document.querySelectorAll('main [data-component="home-overview"] button')].find(el => el.textContent.trim() === text), parts = [];
       for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(sibling => sibling.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); }
       return 'body > ' + parts.join(' > ');
     }, candidates[0]);
     await readControl(page, selector); const reading = await readable(page, selector); await capture(page, `${label}-home-weekly-overview`);
-    const text = candidates[0], satisfied = /本周习惯/.test(text) && /1\s*\/\s*1/.test(text) && /本周已全部打卡/.test(text);
-    await observe(page, `${label}-home-agrees-with-weekly-evidence`, reading.visible && satisfied && habitResult.weeklySatisfied, JSON.stringify({ exactHabitId: row.id, homeText: text, homeReading: reading, habitText: habitResult.reading.text, expected: 'One accepted Tuesday completion satisfies this week on both surfaces while Wednesday remains unmarked' }));
-    await pointer(page, 'main button', text); await waitPath(page, '/habit');
+    const fields = {};
+    for (const key of ['label', 'value', 'detail']) { const target = `${selector} [data-overview-${key}]`; await readControl(page, target); fields[key] = await readable(page, target); }
+    const text = candidates[0], satisfied = fields.label.text.trim() === '本周习惯' && /^1\s*\/\s*1$/.test(fields.value.text.trim()) && fields.detail.text.includes('本周已全部打卡');
+    await observe(page, `${label}-home-agrees-with-weekly-evidence`, reading.visible && Object.values(fields).every(field => field.visible) && satisfied && habitResult.weeklySatisfied, JSON.stringify({ exactHabitId: row.id, homeText: text, homeReading: reading, fields, habitText: habitResult.reading.text, expected: 'One accepted Tuesday completion satisfies this week on both surfaces while Wednesday remains unmarked' }));
+    await pointer(page, selector); await waitPath(page, '/habit');
   }
   async function inspectFutureHistoryDiagnostic(page, api, target, label) {
     // Keep the original assertions below intact. A declared immediate-only

@@ -172,7 +172,7 @@ export default function Expense() {
       {loaded && <><StatsRow />
       <div className="expense-workspace">
         <div className="expense-ledger"><ExpenseDetail onEdit={(item) => { setDismissed(requestKey); setEditing(item); }} /></div>
-        <aside className="expense-budget-rail" aria-label="预算与收支参考"><BudgetCard /><details className="record-disclosure"><summary>消费模式与历史提示</summary><div className="mt-4 space-y-4"><CoachInsightBanner /><SpendingPatternCard /><p className="text-xs leading-6 text-[var(--text-3)]">仅在已有历史提示或足够的支出记录时显示分析。</p></div></details></aside>
+        <aside className="expense-budget-rail" aria-label="预算与收支参考"><BudgetCard /><details className="record-disclosure"><summary>查看收支统计与历史提示</summary><div className="mt-4 space-y-4"><CoachInsightBanner /><SpendingPatternCard /><p className="text-xs leading-6 text-[var(--text-3)]">仅在已有历史提示或足够的支出记录时显示分析。</p></div></details></aside>
       </div></>}
 
       <AddExpenseModal key={editing?.id ?? requestedItem?.id ?? recoveryId ?? 'new'} open={showModal || Boolean(editing || requestedItem || recoveryId)} item={editing ?? requestedItem} draftId={recoveryId} onClose={closeEditor} />

@@ -12,7 +12,7 @@ const BODY = '一天快结束了，回顾一下今天发生的事，用一句话
 const ACTIONS = [{ label: '去记录', type: 'chat' }, { label: '今天够了', type: 'dismiss' }];
 const BUSINESS = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCheckins', 'schedules', 'goalRecords'];
 const DELIVERY = `pushDelivery:evening_review:${TITLE}`;
-const BELL = 'main button[aria-label^="教练洞察"]';
+const BELL = 'main :is(button,a[href="/insights"])[aria-label^="教练洞察"]';
 const TIME = '[data-component="time-preference"]:has(#evening-review-time)';
 const PROFILES = [{ width: 1280, height: 900, phone: '13900008971', action: '去记录' }, { width: 360, height: 800, phone: '13900008972', action: '今天够了' }];
 const settings = facts => facts.local.settings;
@@ -244,7 +244,7 @@ export async function runReminderEntry(h) {
       if (insideQuiet(clock.time, prepared.cloud.preferences.settings)) prepared = await change(prepared, 'quietHours', { ...setting(prepared, 'quietHours').value, enabled: false }, '[role=switch][aria-label="免打扰时段"]');
       prepared = await setCurrentTime(prepared, clock);
       await read('#evening-review-time', 'saved-time'); assert.equal(await page.$eval('#evening-review-time', el => el.value), clock.time);
-      await read('[data-component="preference-sync"] [role=status]', 'complete-settings-ack', '账号偏好已同步');
+      await read('[data-component="preference-sync"] [role=status]', 'complete-settings-ack', '上次核对时，账号偏好已同步');
       for (const [key, value] of Object.entries({ coachPushEnabled: true, eveningReviewEnabled: true, coachPushFrequency: 1, eveningReviewTime: clock.time })) assert.ok(equal(setting(prepared, key)?.value, value), `Persisted local reminder setting differs: ${key}`);
       for (const [key, value] of Object.entries({ coachPushEnabled: true, eveningReviewEnabled: true, pushLimit: 1, eveningReviewTime: clock.time })) assert.ok(equal(prepared.cloud.preferences.settings[key], value), `Acknowledged cloud reminder setting differs: ${key}`);
       assert.equal(insideQuiet(clock.time, prepared.cloud.preferences.settings), false, 'Declared real minute remains outside the configured quiet interval');
@@ -253,10 +253,11 @@ export async function runReminderEntry(h) {
       stage = 'home-local-delivery'; const window = { before: Date.now(), after: null }; await home();
       await page.waitForSelector(`${BELL}[aria-label="教练洞察，1条未读"]`, { timeout: 5000 });
       const frozen = await facts('delivered-full-source'); window.after = Date.now(); assert.ok(delivered(prepared, frozen, clock, window));
-      const target = frozen.local.coachPushes[0]; await read('section[aria-label="第一次记录"] h2', 'empty-home');
+      const target = frozen.local.coachPushes[0]; await read('section[aria-labelledby="home-capture-title"] h2', 'empty-home', '记一句');
+      await read('section[aria-labelledby="home-capture-title"] a[href="/quick-note"]', 'empty-home-action', '写下第一条速记');
       await read(BELL, 'home-unread-one'); assert.equal(await page.$eval(BELL, el => el.getAttribute('aria-label')), '教练洞察，1条未读');
       await observe(page, `${label}-app-open-local-delivery`, true, JSON.stringify({ id: target.id, clock, window, sameDeviceCount: 1, cloudPushes: 0, boundary: 'Not background delivery or a real evening schedule; no zero-limit/quiet-delivery coverage' }));
-      stage = 'original-bell-entry'; await tap(BELL);
+      stage = 'original-bell-entry'; await tap(BELL); await waitPath(page, '/insights');
       await page.waitForFunction(title => [...document.querySelectorAll('main h1, main h2, main h3, main p')].some(el => el.textContent === title) || Boolean(document.querySelector('[data-component="current-record-observations"]')), { timeout: 4000 }, TITLE);
       const surface = await reminderSurface(), arrived = await facts('bell-arrival-full-source');
       await save('bell-arrival', { targetId: target.id, surface, path: new URL(page.url()).pathname, differences: differences(frozen, arrived), sourcePreserved: opened(frozen, arrived) });

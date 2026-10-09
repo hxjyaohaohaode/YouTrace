@@ -244,7 +244,7 @@ export async function runKeyboardOutcomes(h, options = {}) {
     await controlKey(page, key, label);
   }
   async function visibleIdentity(page, wanted, { requireVisible = true } = {}) {
-    const matches = await page.evaluate(wanted => [...document.querySelectorAll('main button[aria-label^="编辑待办 "]')].filter(button => button.querySelector('p:first-child')?.textContent === wanted.text && button.querySelector('p:nth-child(2)')?.textContent.includes(` · ${wanted.dueDate} · 编辑`) && button.parentElement.querySelector('span')?.textContent === ({ low: '低', medium: '中', high: '高' })[wanted.priority]).map(button => ({ name: button.getAttribute('aria-label'), id: button.parentElement.parentElement.id })), wanted);
+    const matches = await page.evaluate(wanted => [...document.querySelectorAll('main button[aria-label^="编辑待办 "]')].filter(button => button.querySelector('p:first-child')?.textContent === wanted.text && button.querySelector('p:nth-child(2)')?.textContent.includes(` · ${wanted.dueDate} · 编辑`) && button.parentElement.querySelector('span')?.textContent === ({ low: '低优先级', medium: '中优先级', high: '高优先级' })[wanted.priority]).map(button => ({ name: button.getAttribute('aria-label'), id: button.parentElement.parentElement.id })), wanted);
     assert.equal(matches.length, 1, 'Find target by title/date/priority before ID corroboration');
     const current = await snapshot(page), control = current.controls.filter(row => row.ariaLabel === matches[0].name && row.recordId === matches[0].id); assert.equal(control.length, 1); const target = control[0];
     if (requireVisible) {

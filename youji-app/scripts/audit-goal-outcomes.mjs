@@ -9,7 +9,7 @@ const NAME = 'Synthetic 自主方向';
 const WORKSPACE = '[data-component="goal-workspace"]';
 const EDITOR = '[role=dialog] [data-component="goal-editor"]';
 const TITLE = `${EDITOR} input[placeholder="想完成什么？"]`;
-const DESCRIPTION = `${EDITOR} input[placeholder="补充说明..."]`;
+const DESCRIPTION = `${EDITOR} #goal-description`;
 const DATE = `${EDITOR} input[type=date]`;
 const validVersion = value => typeof value === 'string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 const version = (facts, id) => facts.local.settings.find(row => row.key === `sync-version:goals:${id}`)?.value;
@@ -209,7 +209,7 @@ export async function runGoalOutcomes(h) {
     return result;
   }
   async function editorValues(page) {
-    return page.$eval(EDITOR, el => ({ title: el.querySelector('input[placeholder="想完成什么？"]').value, description: el.querySelector('input[placeholder="补充说明..."]').value, targetDate: el.querySelector('input[type=date]').value, choices: [...el.querySelectorAll('select')].map(node => ({ label: node.closest('label')?.childNodes[0]?.textContent.trim(), value: node.value })), text: el.innerText }));
+    return page.$eval(EDITOR, el => ({ title: el.querySelector('input[placeholder="想完成什么？"]').value, description: el.querySelector('#goal-description').value, targetDate: el.querySelector('input[type=date]').value, choices: [...el.querySelectorAll('select')].map(node => ({ label: node.closest('label')?.childNodes[0]?.textContent.trim(), value: node.value })), text: el.innerText }));
   }
   async function edit(page, identity) {
     await closeDialogs(page); await filter(page, '全部'); const root = await card(page, identity);
@@ -243,7 +243,7 @@ export async function runGoalOutcomes(h) {
     return row;
   }
   async function manualMeaning(page, label) {
-    const selector = `${WORKSPACE} > p:first-of-type`; const reading = await read(page, selector);
+    const selector = `${WORKSPACE} [data-component="goal-progress-explanation"]`; const reading = await read(page, selector);
     await observe(page, `${label}-manual-reversible-progress-and-cloud-meaning-readable`, reading.visible && /手动/.test(reading.text) && /调回|调整|撤销/.test(reading.text) && /云端确认/.test(reading.text) && /本机/.test(reading.text), JSON.stringify({ reading, note: 'Read actual visible explanatory text; neither 100% nor a future plan date proves work automatically happened' }));
   }
   async function syncMeaning(page, api, identity, label) {

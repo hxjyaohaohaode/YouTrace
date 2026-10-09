@@ -93,9 +93,9 @@ export function OverviewCard() {
     },
   ];
 
-  return <div className="divide-y divide-[var(--border)] border-y border-[var(--border)]">
+  return <div data-component="home-overview" className="divide-y divide-[var(--border)] border-y border-[var(--border)]">
     {items.map(ov => { const Icon = ov.icon; return <button key={ov.label} type="button" onClick={() => navigate(ov.path)} className="flex w-full items-center gap-4 py-4 text-left">
-      <Icon size={20} className="shrink-0 text-[var(--text-2)]" aria-hidden /><span className="min-w-0 flex-1"><span className="block text-base font-medium">{ov.label}</span><span className="block text-sm text-[var(--text-2)]">{ov.sub}</span></span><span className="text-lg font-semibold tabular-nums">{ov.value}</span>
+      <Icon size={20} className="shrink-0 text-[var(--text-2)]" aria-hidden /><span className="min-w-0 flex-1"><span data-overview-label className="block text-base font-medium">{ov.label}</span><span data-overview-detail className="block text-sm text-[var(--text-2)]">{ov.sub}</span></span><span data-overview-value className="text-lg font-semibold tabular-nums">{ov.value}</span>
     </button>; })}
   </div>;
 }

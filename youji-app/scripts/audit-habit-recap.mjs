@@ -187,9 +187,10 @@ export async function readHabitRecap(h, { page, api, target, neighbor, label, ph
     const selectors = await page.evaluate(() => {
       const path = el => { if (!el) return null; const parts = []; for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(row => row.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); } return 'body > ' + parts.join(' > '); };
       const detail = [...document.querySelectorAll('main details')].find(el => el.querySelector(':scope > summary')?.textContent.trim() === '查看今日回顾与建议'), paragraphs = [...(detail?.querySelectorAll('p') ?? [])];
-      const weekly = [...document.querySelectorAll('main button')].filter(el => /本周习惯|习惯打卡|今日习惯/.test(el.innerText)), week = weekly.length === 1 ? [...weekly[0].querySelectorAll('p')] : [];
+      const weekly = [...document.querySelectorAll('main [data-component="home-overview"] button')].filter(el => ['本周习惯', '习惯打卡', '今日习惯'].includes(el.querySelector('[data-overview-label]')?.textContent.trim()));
       const one = rows => rows.length === 1 ? path(rows[0]) : null;
-      return { date: one(paragraphs.filter(el => /记录回顾|昨日复盘/.test(el.innerText))), provenance: one(paragraphs.filter(el => /^(云端已同步记录|本机记录|正在读取记录)/.test(el.innerText))), habits: one(paragraphs.filter(el => /^已记录支出/.test(el.innerText) && /习惯/.test(el.innerText))), weekLabel: path(week[0]), weekValue: path(week[1]), weekExplanation: path(week[2]) };
+      const weekField = name => weekly.length === 1 ? one([...weekly[0].querySelectorAll(`[data-overview-${name}]`)]) : null;
+      return { date: one(paragraphs.filter(el => /记录回顾|昨日复盘/.test(el.innerText))), provenance: one(paragraphs.filter(el => /^(云端已同步记录|本机记录|正在读取记录)/.test(el.innerText))), habits: one(paragraphs.filter(el => /^已记录支出/.test(el.innerText) && /习惯/.test(el.innerText))), weekLabel: weekField('label'), weekValue: weekField('value'), weekExplanation: weekField('detail') };
     });
     const fields = {};
     for (const [name, selector] of Object.entries(selectors)) {

@@ -14,7 +14,7 @@ const draftKey = row => `record-draft:schedule:${row.id}@${row.date}`;
 const version = (facts, id) => facts.local.settings.find(row => row.key === `sync-version:schedules:${id}`)?.value;
 const iso = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 const dateLabel = date => { const [, month, day] = date.split('-').map(Number); return `${month}月${day}日`; };
-const identity = row => ({ title: row.title, time: `${row.startTime}-${row.endTime}`, ariaLabel: `${row.startTime}-${row.endTime} ${row.title}` });
+const identity = row => ({ title: row.title, startTime: row.startTime, endTime: row.endTime, time: `${row.startTime}-${row.endTime}`, ariaLabel: `${row.startTime}-${row.endTime} ${row.title}` });
 const sameIdentity = (row, wanted) => row && Object.entries(identity(wanted)).every(([key, value]) => row[key] === value);
 const expectedForm = (source, changed = false) => ({ ...Object.fromEntries(FIELDS.map(key => [key, source[key]])), ...(changed ? { startTime: '09:15', endTime: '10:15' } : {}), scope: 'series', occurrenceDate: source.date, base: source });
 const uniqueRows = (rows, key) => Array.isArray(rows) && rows.every(row => typeof row[key] === 'string') && new Set(rows.map(row => row[key])).size === rows.length;
@@ -136,7 +136,7 @@ function readinessResult(samples) {
     note: 'Contiguous route/loading/modal-exit readiness suffix; desired focus never controls the observation deadline' };
 }
 const dayScope = (surface, source) => surface.schedule?.url === '/schedule' && isDeepStrictEqual(surface.schedule.selectedTabs, ['日']) && surface.schedule.heading === dateLabel(source.date);
-const readableAnchor = (surface, source) => dayScope(surface, source) && surface.anchor?.matches === 1 && sameIdentity(surface.anchor, source) && surface.anchor.geometry?.visible && surface.anchor.titleGeometry?.visible && surface.anchor.timeGeometry?.visible;
+const readableAnchor = (surface, source) => dayScope(surface, source) && surface.anchor?.matches === 1 && sameIdentity(surface.anchor, source) && surface.anchor.geometry?.visible && surface.anchor.titleGeometry?.visible && surface.anchor.timeGeometry?.visible && surface.anchor.startGeometry?.visible && surface.anchor.endGeometry?.visible;
 const actionable = row => row && !row.disabled && row.tabIndex >= 0 && (row.tag === 'BUTTON' || row.tag === 'DIV' && row.role === 'button');
 function activationResult(before, now, source) {
   return { pass: actionable(now.active) && now.active.node === before.active?.node && now.geometry?.visible === true && ['tag', 'role', 'id', 'text', 'ariaLabel'].every(key => now.active[key] === before.active[key]) &&
@@ -157,20 +157,23 @@ export const scheduleKeyboardChecks = { identity, expectedForm, acknowledged, so
 
 // Read-only DOM descriptors share the established WeakMap identity. They never
 // set attributes, scroll, focus, dispatch events or assign form values.
-function readScheduleDescriptor() {
+export function readScheduleDescriptor() {
   const state = globalThis.__ykReadNodes, node = el => { if (!state.nodes.has(el)) state.nodes.set(el, state.next++); return state.nodes.get(el); };
   const selector = el => {
     const parts = []; for (let current = el; current && current !== document.body; current = current.parentElement) { const peers = [...current.parentElement.children].filter(other => other.tagName === current.tagName); parts.unshift(`${current.tagName.toLowerCase()}:nth-of-type(${peers.indexOf(current) + 1})`); }
     return el ? 'body > ' + parts.join(' > ') : null;
   };
-  const arrows = [...document.querySelectorAll('main button[aria-label="下一页"]')], heading = arrows.length === 1 ? [...arrows[0].parentElement.children].find(el => el.tagName === 'SPAN') : null;
-  const cards = [...document.querySelectorAll('main [role=button]')].map(el => {
-    const title = el.querySelector('p'), time = [...el.querySelectorAll('span')].find(span => /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(span.textContent));
-    return { node: node(el), selector: selector(el), titleSelector: selector(title), timeSelector: selector(time), title: title?.textContent.trim(), time: time?.textContent.trim(), ariaLabel: el.getAttribute('aria-label') };
+  const arrows = [...document.querySelectorAll('main button[aria-label="下一页"]')], headings = arrows.length === 1 ? [...arrows[0].parentElement.querySelectorAll('.schedule-date-title > strong')] : [], heading = headings.length === 1 ? headings[0] : null;
+  const cards = [...document.querySelectorAll('main :is(button:not([role]),[role=button])[aria-label]')].filter(el => /^\d{2}:\d{2}-\d{2}:\d{2} /.test(el.getAttribute('aria-label'))).map(el => {
+    const one = selector => { const nodes = el.querySelectorAll(selector); return nodes.length === 1 ? nodes[0] : null; };
+    const title = one('.agenda-detail > strong'), start = one('.agenda-time > strong'), end = one('.agenda-time > span');
+    const startTime = start?.textContent.trim(), endTime = end?.textContent.trim();
+    return { node: node(el), selector: selector(el), titleSelector: selector(title), startSelector: selector(start), endSelector: selector(end), title: title?.textContent.trim(), startTime, endTime, time: start && end ? `${startTime}-${endTime}` : null, ariaLabel: el.getAttribute('aria-label') };
   });
+  const views = [...document.querySelectorAll('[role=group][aria-label="视图切换"] button')].map(el => ({ node: node(el), text: el.textContent.trim(), pressed: el.getAttribute('aria-pressed') }));
   const cells = [...document.querySelectorAll('main button[aria-label]')].filter(el => /^\d{1,2}月\d{1,2}日，\d+个日程$/.test(el.getAttribute('aria-label'))).map(el => ({ node: node(el), ariaLabel: el.getAttribute('aria-label'), text: el.textContent.trim(), pressed: el.getAttribute('aria-pressed') }));
   return { url: location.pathname + location.search, present: arrows.length === 1 && Boolean(heading), loading: /正在寻找这条日程/.test(document.querySelector('main')?.innerText ?? ''), heading: heading?.textContent.trim(), headingSelector: selector(heading),
-    selectedTabs: [...document.querySelectorAll('[role=tablist][aria-label="视图切换"] [role=tab][aria-selected=true]')].map(el => el.textContent.trim()), cards, cells,
+    selectedTabs: views.filter(row => row.pressed === 'true').map(row => row.text), views, cards, cells,
     feedback: [...document.querySelectorAll('[role=status],[role=alert],[role=region][aria-label="通知"] span')].map(el => {
       const rect = el.getBoundingClientRect(), clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight }; let painted = true;
       for (let current = el; current; current = current.parentElement) {
@@ -231,7 +234,10 @@ export async function runScheduleKeyboardTail(h, { page, label, api, id, origina
     current.active.logicalCard = current.schedule.cards.find(row => row.node === current.active.node) ?? null;
     current.geometry = await page.evaluate(initialSessionGeometry, current.active.selector);
     current.schedule.headingGeometry = current.schedule.headingSelector ? await page.evaluate(initialSessionGeometry, current.schedule.headingSelector) : { visible: false };
-    if (current.anchor.matches === 1) for (const [key, selector] of [['geometry', current.anchor.selector], ['titleGeometry', current.anchor.titleSelector], ['timeGeometry', current.anchor.timeSelector]]) current.anchor[key] = selector ? await page.evaluate(initialSessionGeometry, selector) : { visible: false };
+    if (current.anchor.matches === 1) {
+      for (const [key, selector] of [['geometry', current.anchor.selector], ['titleGeometry', current.anchor.titleSelector], ['startGeometry', current.anchor.startSelector], ['endGeometry', current.anchor.endSelector]]) current.anchor[key] = selector ? await page.evaluate(initialSessionGeometry, selector) : { visible: false };
+      current.anchor.timeGeometry = { visible: current.anchor.startGeometry.visible && current.anchor.endGeometry.visible, start: current.anchor.startGeometry, end: current.anchor.endGeometry };
+    }
     for (const row of current.controls) if (!row.focused) unfocused.set(row.node, row);
     return current;
   }
@@ -333,7 +339,7 @@ export async function runScheduleKeyboardTail(h, { page, label, api, id, origina
     await saveJSON(`${stage}-natural-trace`, { samples, readiness: readinessResult(samples), maximumMs: 4000 }); await evidence(`${stage}-natural-final`, samples.at(-1)); return samples;
   }
   function dayMembership(surface, rows) {
-    return dayScope(surface, wanted) && isDeepStrictEqual(surface.schedule.cards.map(({ title, time, ariaLabel }) => ({ title, time, ariaLabel })).sort((a, b) => a.ariaLabel.localeCompare(b.ariaLabel)), rows.map(identity).sort((a, b) => a.ariaLabel.localeCompare(b.ariaLabel)));
+    return dayScope(surface, wanted) && isDeepStrictEqual(surface.schedule.cards.map(({ title, startTime, endTime, time, ariaLabel }) => ({ title, startTime, endTime, time, ariaLabel })).sort((a, b) => a.ariaLabel.localeCompare(b.ariaLabel)), rows.map(identity).sort((a, b) => a.ariaLabel.localeCompare(b.ariaLabel)));
   }
   async function naturalResult(stage, samples, origin, source, options) {
     const result = returnResult(samples, origin, source, options); await report(`${stage}-natural-return-before-recovery`, result.pass, result);
@@ -358,7 +364,7 @@ export async function runScheduleKeyboardTail(h, { page, label, api, id, origina
     // An actual first Tab is required even if pointer setup left an unexpected
     // current control. Subsequent target discovery remains bounded and adaptive.
     await tab();
-    const month = await reach(row => row.active.role === 'tab' && row.active.text === '月', 'month-tab', { limit: 12 }); await evidence('month-tab', month); await activate(month, 'Enter', 'select-month');
+    const month = await reach(row => row.active.tag === 'BUTTON' && row.schedule.views.some(view => view.node === row.active.node && view.text === '月'), 'month-tab', { limit: 12 }); await evidence('month-tab', month); await activate(month, 'Enter', 'select-month');
     const [year, monthNumber] = source.date.split('-').map(Number), targetMonth = year * 12 + monthNumber;
     for (let attempt = 0; attempt < 2; attempt++) {
       const current = await stable(), match = current.schedule.heading?.match(/^(\d{4})年(\d{1,2})月$/); assert.ok(match && isDeepStrictEqual(current.schedule.selectedTabs, ['月']), 'Known actual month heading required');

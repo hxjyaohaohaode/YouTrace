@@ -329,13 +329,14 @@ async function checked(page, selector, value) { if (await page.$eval(selector, e
 async function settledRows(page, api) { let local; for (let i = 0; i < 60; i++) { local = await localRows(page, api.ownerId); if (!local.outbox.length) return local; await sleep(250); } return local; }
 async function back(page, from) { await page.bringToFront(); await page.goBack({ waitUntil: 'domcontentloaded' }); actions.push({ kind: 'browser-history-back', surface: surfaceNames.get(page), from }); await sleep(400); }
 async function discoverMobileTasks(page) {
-  await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
-  await capture(page, 'YN-empty-home-expanded-functions');
+  // The rebuilt Home exposes these shortcuts directly; do not toggle a
+  // removed disclosure or manufacture an alternative navigation route.
+  await page.waitForSelector('main nav[aria-label="安排与记录快捷入口"]', { timeout: 7000 });
+  await capture(page, 'YN-empty-home-visible-functions');
   for (const [name, path] of [['待办', '/todo'], ['习惯', '/habit']]) {
     const entry = await page.evaluate(({ name, path }) => [...document.querySelectorAll('main button,main a,nav button,nav a')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (el.getAttribute('aria-label') === name || el.textContent.trim() === name || el.getAttribute('href') === path); }).map(el => ({ tag: el.tagName, text: el.textContent.trim(), label: el.getAttribute('aria-label'), href: el.getAttribute('href'), box: el.getBoundingClientRect().toJSON() })), { name, path });
-    await observe(page, `YN-discover-${name === '待办' ? 'todo' : 'habit'}-entry`, entry.length ? null : false, entry.length ? `A rendered ${name} entry exists; opening/creation still require their own task, not granted by presence` : `After opening the actual first-use function list, no rendered ${name} entry is available in Home or mobile navigation`);
+    await observe(page, `YN-discover-${name === '待办' ? 'todo' : 'habit'}-entry`, entry.length ? null : false, entry.length ? `A rendered ${name} entry exists; opening/creation still require their own task, not granted by presence` : `No rendered ${name} entry is available in the actual Home shortcuts or mobile navigation`);
   }
-  await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
 }
 async function staticArrival(page, name, path) {
   await page.waitForFunction(path => { const root = document.querySelector(`[data-page-route="${path}"]`), heading = root?.querySelector('h1'); if (!heading) return false; const r = heading.getBoundingClientRect(); return location.pathname === path && Math.abs(scrollY) <= 1 && document.activeElement === heading && r.top >= 0 && r.bottom <= innerHeight; }, { timeout: 7000 }, path);
@@ -343,8 +344,8 @@ async function staticArrival(page, name, path) {
 }
 async function mobileDiscoveryAndCreation(page) {
   await login(page, '13900008806', 'Synthetic YN'); const api = await apiFor(page);
-  await pointer(page, 'summary', '也可以直接安排任务、记账或查看其他功能');
-  await observe(page, 'YN-first-use-tasks-visible', Boolean(await page.$('main a[aria-label="待办"]')) && Boolean(await page.$('main a[aria-label="习惯"]')), 'Formerly absent manual-task shortcuts are visibly discoverable in the first-use optional section');
+  const shortcutsVisible = await page.$$eval('main nav[aria-label="安排与记录快捷入口"] a', rows => ['待办', '习惯'].every(label => rows.some(el => { const r = el.getBoundingClientRect(); return el.getAttribute('aria-label') === label && el.getAttribute('href') === (label === '待办' ? '/todo' : '/habit') && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility === 'visible'; })));
+  await observe(page, 'YN-first-use-tasks-visible', shortcutsVisible, 'The actual Home exposes dated-task and habit shortcuts directly with their exact destinations; creation and return still follow the unchanged native journey');
   await pointer(page, 'main a[aria-label="待办"]'); await waitPath(page, '/todo');
   await pointer(page, 'button[aria-label="新建待办"]'); await fill(page, '#todo-text', 'Synthetic 从首页安排待办'); await pointer(page, '[role=dialog] button', '明天');
   await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
@@ -400,13 +401,16 @@ async function mobileDiscoveryAndCreation(page) {
     const navs = [...document.querySelectorAll('aside nav[aria-label="主导航"]')].filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0);
     if (!matchMedia('(min-width: 1025px)').matches || navs.length !== 1) return false;
     const nav = navs[0], aside = nav.closest('aside'), goal = [...nav.querySelectorAll('button')].find(el => el.textContent.trim() === '目标');
-    return Boolean(aside && aside.getBoundingClientRect().width > 200 && nav.innerText.includes('安排与坚持') && goal?.isConnected && goal.getBoundingClientRect().width > 0);
+    const capture = aside?.querySelector('button[aria-label="速记"]');
+    return Boolean(aside && aside.getBoundingClientRect().width > 200 && capture?.isConnected && capture.getBoundingClientRect().width > 0 && goal?.isConnected && goal.getBoundingClientRect().width > 0);
   }, { polling: 100, timeout: 10000 });
   const stability = await page.evaluate(waitForStableModalTarget, 'aside nav[aria-label="主导航"]', 2500);
   actions.push({ kind: 'actual-desktop-sidebar-ready-after-resize', surface: surfaceNames.get(page), stability });
   await capture(page, 'YN-desktop-sidebar-after-resize-before-goal');
   await nav(page, '目标'); await waitPath(page, '/goal'); await staticArrival(page, 'YN-desktop-natural-goal-arrival', '/goal');
-  await observe(page, 'YN-desktop-purpose-groups-and-goal-entry', (await state(page)).text.includes('安排与坚持') && !(await page.$eval('aside nav', el => el.innerText)).includes('系统'), 'Desktop grouping no longer calls life tasks system settings; actual goal navigation is operated');
+  const desktopChoices = await page.$$eval('aside nav[aria-label="主导航"] button', nodes => nodes.map(el => el.textContent.trim()));
+  assert.deepEqual(desktopChoices, ['首页', '花销', '日记', '时间线', '日程', '待办', '习惯', '目标', 'AI 教练', '教练洞察', '设置']);
+  await observe(page, 'YN-desktop-purpose-groups-and-goal-entry', Boolean(await page.$('aside button[aria-label="速记"]')) && !(await page.$eval('aside nav', el => el.innerText)).includes('系统'), 'The rebuilt desktop keeps all exact task destinations and a separate named primary Capture action, without mislabeling life tasks as system settings; actual Goal navigation is operated');
 }
 async function retrieveOlderThanMonth(page, api, existingHistoryCount) {
   const oldDate = businessDate(-45), name = 'Synthetic 同名跨月午饭';
@@ -545,7 +549,8 @@ async function receiptReadFailureAfterUpdate(page) {
 async function firstValue(page, narrow = false) {
   if (narrow) { await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); actions.push({ kind: 'browser-prefers-reduced-motion', value: 'reduce' }); }
   const label = narrow ? 'Y1N' : 'Y1'; await login(page, narrow ? '13900008803' : '13900008801', `Synthetic ${label}`);
-  await observe(page, `${label}-first-use-one-record-task`, (await state(page)).text.includes('先记一件刚发生的事') && !(await state(page)).text.includes('¥2,500'), 'New account sees a clear first action and no invented budget');
+  const firstRecord = await page.$eval('section[aria-labelledby="home-capture-title"]', el => ({ title: el.querySelector('h2')?.textContent, text: el.innerText, links: [...el.querySelectorAll('a')].map(link => ({ text: link.textContent.trim(), href: link.getAttribute('href') })) }));
+  await observe(page, `${label}-first-use-one-record-task`, firstRecord.title === '记一句' && firstRecord.text.includes('先记下来，再由你决定怎么整理') && firstRecord.links.length === 1 && firstRecord.links[0].text === '写下第一条速记' && firstRecord.links[0].href === '/quick-note' && !(await state(page)).text.includes('¥2,500'), 'New account sees one exact first-record action, explicit user-controlled organizing and no invented budget');
   if (narrow) await discoverMobileTasks(page);
   await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
   await fill(page, 'textarea[aria-label="速记内容"]', '明天要交报销单；午饭15');

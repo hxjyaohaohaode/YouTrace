@@ -40,7 +40,7 @@ export function DesktopSidebar() {
       style={{ zIndex: 'var(--z-nav)' }}
     >
       <div className="sidebar-brand"><Brand /><p>记录 · 安排 · 回看</p></div>
-      <button className="sidebar-capture" onClick={() => navigate('/quick-note', { state: staticPageEntry('/quick-note', user?.id) })}><Mic size={19} />记下一刻<span>＋</span></button>
+      <button aria-label="速记" className="sidebar-capture" onClick={() => navigate('/quick-note', { state: staticPageEntry('/quick-note', user?.id) })}><Mic size={19} />记下一刻<span>＋</span></button>
 
       <nav className="sidebar-navigation flex-1 overflow-y-auto px-3 py-1" aria-label="主导航">
         {mainItems.map((item) => {

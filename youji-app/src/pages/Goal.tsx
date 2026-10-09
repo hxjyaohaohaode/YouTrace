@@ -114,7 +114,7 @@ export default function Goal() {
 
   return <div className="planning-page w-full" data-component="goal-workspace">
     <PageHeader icon={Target} gradient="from-[var(--primary)] to-[var(--primary-light)]" title="目标" subtitle={goalSummaryLabel(loaded, loading, readError, doneCount, items.length, avgProgress)} wrapSubtitle actions={<Button onClick={() => openEditor()} disabled={busy} aria-label="新建目标"><Plus size={18} aria-hidden />新建目标</Button>} />
-    <div className="goal-introduction"><h2>把方向写清楚，再走下一步</h2><p>进度由你手动确认，可随时调回。描述里可以写下下一步行动；新目标同步到当前账号，断网时先保留本机修改。</p></div>
+    <div className="goal-introduction" data-component="goal-progress-explanation"><h2>把方向写清楚，再走下一步</h2><p>进度由你手动确认，可随时调回。描述里可以写下下一步行动；修改先保存在本机，仍需等待云端确认，实际同步状态见每个目标。</p></div>
     <p className="mb-4 text-sm leading-6 text-[var(--text-3)]">{loaded ? <>上方完成数与平均进度统计{readError ? '上次读取的' : ''}全部目标（共 {items.length} 个），筛选只改变下方列表{filter !== 'all' ? `；当前显示${goalLevelLabels[filter]} ${filtered.length} 个目标` : ''}。</> : '读取成功后显示全部目标的统计，暂不把未读到的资料算作空列表。'}</p>
     {invalidProgressCount > 0 && <p role="status" className="mb-4 text-sm text-[var(--warning)]">{invalidProgressCount} 份旧目标的进度需要校正，原值已保留且未计入平均进度。请手动选择实际进度后再同步。</p>}
     <LegacyGoalRecovery />
@@ -127,7 +127,7 @@ export default function Goal() {
     <Modal className="max-h-[85vh] overflow-y-auto" open={showModal} onClose={() => { if (!busy) setShowModal(false); }} title={editing ? '编辑目标' : '新建目标'} footer={<><Button variant="ghost" size="sm" disabled={busy} onClick={() => setShowModal(false)}>取消</Button><Button size="sm" onClick={() => void save()} disabled={!title.trim() || busy}>{busy ? '保存中…' : editing ? '保存修改' : '创建'}</Button></>}>
       <div className="space-y-4" data-component="goal-editor">
         <Input label="标题 *" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="想完成什么？" maxLength={100} autoFocus disabled={busy} />
-        <Input label="描述（可选）" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这个目标为什么重要？下一步准备做什么？" maxLength={2000} disabled={busy} />
+        <Input label="描述（可选）" value={description} onChange={(event) => setDescription(event.target.value)} id="goal-description" aria-label="目标说明" placeholder="这个目标为什么重要？下一步准备做什么？" maxLength={2000} disabled={busy} />
         <Input label="计划日期（可选）" type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} disabled={busy} />
         <label className="block text-sm">类型<select className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2" value={level} onChange={(event) => setLevel(event.target.value as GoalLevel)} disabled={busy}>{levelFilters.filter((option) => option.key !== 'all').map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
         <label className="block text-sm">领域<select className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2" aria-label="领域" value={domain} onChange={(event) => setDomain(event.target.value)} disabled={busy}>{[...new Set([...domains, domain])].map((value) => <option key={value}>{value}</option>)}</select></label>

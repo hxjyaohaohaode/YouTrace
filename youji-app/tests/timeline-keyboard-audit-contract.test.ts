@@ -13,19 +13,36 @@ const values = [
 const wanted = values[1];
 const layout = () => ({ rect: { width: 150, height: 24, top: 100, bottom: 124, left: 10, right: 160 }, styles: [{ visibility: 'visible', opacity: '1', display: 'block', contentVisibility: 'visible' }, { visibility: 'visible', opacity: '1', display: 'block', contentVisibility: 'visible' }] });
 const member = (row: typeof wanted) => ({ ...checks.identity(row), rect: layout().rect, paint: { button: layout(), title: layout(), heading: layout() } });
-const timeline = () => ({ url: '/timeline?range=30', present: true, loading: false, range: '30', pressed: ['近30天'], businessDay: '2026-10-07', from: '2026-09-08', through: '2026-10-07', rows: values.filter(row => row.date >= '2026-09-08' && row.date <= '2026-10-07').map(member) });
+const timeline = () => ({ url: '/timeline?range=30&from=2026-09-08&through=2026-10-07', periodLabels: ['固定期间：2026-09-08 至 2026-10-07（含首尾）。跨日与返回时保持此期间。'], present: true, loading: false, range: '30', pressed: ['近30天'], businessDay: '2026-10-07', from: '2026-09-08', through: '2026-10-07', rows: values.filter(row => row.date >= '2026-09-08' && row.date <= '2026-10-07').map(member) });
 const reading = () => ({ timeline: timeline(), anchor: { ...checks.identity(wanted), matches: 1, node: 9, rect: { top: 200 }, geometry: { visible: true }, titleGeometry: { visible: true }, dateGeometry: { visible: true, text: wanted.date } }, active: { node: 9, tag: 'BUTTON', disabled: false, tabIndex: 0 }, viewport: { scrollY: 300 }, geometry: { visible: true }, modalCount: 0, modalAnimations: 0 });
 
 test('Timeline scope needs the unique selected range, exact seven visible identities and actual business interval', () => {
   const correct = timeline(); assert.equal(checks.scopeResult(correct, values).pass, true);
   for (const change of [
-    { url: '/timeline?range=7' }, { range: '7' }, { pressed: ['近7天', '近30天'] }, { pressed: [] },
+    { url: '/timeline?range=7' },
+    { url: '/timeline?range=30' },
+    { url: '/timeline?range=30&from=2026-09-08' },
+    { url: '/timeline?range=30&through=2026-10-07' },
+    { url: '/timeline?range=30&from=2026-09-07&through=2026-10-06' },
+    { url: '/timeline?range=30&from=2026-09-09&through=2026-10-07' },
+    { url: '/timeline?range=30&from=2026-09-08&through=2026-10-08' },
+    { url: '/timeline?range=30&from=invalid&through=2026-10-07' },
+    { url: '/timeline?range=30&from=2026-09-08&through=2026-10-07&from=2026-09-08' },
+    { url: '/timeline?range=30&from=2026-09-08&through=2026-10-07&record=neighbor' },
+    { periodLabels: [] },
+    { periodLabels: ['固定期间：2026-09-09 至 2026-10-08（含首尾）。跨日与返回时保持此期间。'] }, { range: '7' }, { pressed: ['近7天', '近30天'] }, { pressed: [] },
     { from: '2026-09-09' }, { through: '2026-10-08' }, { rows: correct.rows.slice(1) },
     { rows: [...correct.rows, checks.identity(values[4])] }, { rows: [...correct.rows.slice(1), checks.identity(values[8])] },
     { rows: correct.rows.map(row => row.date === wanted.date ? { ...row, date: '2026-10-07' } : row) },
     { rows: correct.rows.map(row => row.date === wanted.date ? { ...row, heading: '2026-10-07' } : row) },
     { rows: correct.rows.map(row => row.ariaLabel === checks.identity(wanted).ariaLabel ? { ...row, title: '-¥9.87 Synthetic 同名记账' } : row) },
-  ]) assert.equal(checks.scopeResult({ ...correct, ...change }, values, correct).pass, false);
+  ]) {
+    assert.equal(checks.scopeResult({ ...correct, ...change }, values).pass, false, 'Initial URL/period/membership validation must reject this independently of return-URL equality');
+    assert.equal(checks.scopeResult({ ...correct, ...change }, values, correct).pass, false);
+  }
+  const reordered = { ...correct, url: '/timeline?from=2026-09-08&through=2026-10-07&range=30' };
+  assert.equal(checks.scopeResult(reordered, values).pass, true, 'Initial parsing accepts equivalent key order while binding all exact fixed boundaries');
+  assert.equal(checks.scopeResult(reordered, values, correct).pass, false, 'Return must retain the actual frozen origin URL, even for equivalent parameter order');
   const midnight = checks.scopeResult({ ...correct, businessDay: '2026-10-08', from: '2026-09-09', through: '2026-10-08' }, values, correct);
   assert.equal(midnight.pass, false); assert.equal(midnight.dayChanged, true);
   assert.match(midnight.note, /not a data-loss claim/);

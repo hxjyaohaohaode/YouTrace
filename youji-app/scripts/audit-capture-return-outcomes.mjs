@@ -309,7 +309,8 @@ export async function runCaptureReturnOutcomes(h) {
       const navigate = async (path, title) => {
         if (profile.width === 360) {
           await tap('nav[aria-label="主导航"] button[aria-label="全部功能"]'); await waitPath(page, '/more'); await tap(`nav[aria-label="全部功能"] a[href="${path}"]`);
-        } else await tap('aside nav button', title);
+        } else if (path === '/quick-note') await tap('aside button[aria-label="速记"]');
+        else await tap('aside nav button', title);
         await waitPath(page, path);
       };
       const inputsAdded = (before, after, raw, context) => {
@@ -542,7 +543,10 @@ export async function runCaptureReturnOutcomes(h) {
           }
           let context = source.context;
           if (branch === 'date') {
-            await tap(`${COMPOSER} summary`, '记录基准：2026-10-07（Asia/Shanghai）');
+            const basis = `${COMPOSER} details:has(input[aria-label="记录基准日期"])`;
+            await read(`${basis} summary`, '记录基准：2026-10-07（Asia/Shanghai）');
+            if (!await page.$eval(basis, el => el.open)) await tap(`${basis} summary`, '记录基准：2026-10-07（Asia/Shanghai）');
+            assert.equal(await page.$eval(basis, el => el.open), true, 'The actual basis disclosure must be open before native date editing');
             await readValue(`${COMPOSER} input[aria-label="记录基准日期"]`, '2026-10-07', `${name}-prior-basis`);
             await date(`${COMPOSER} input[aria-label="记录基准日期"]`, '2026-10-06'); context = { ...source.context, date: '2026-10-06' };
           } else await input(`${COMPOSER} textarea[aria-label="速记内容"]`, branch === 'original' ? RAW : RAW_CHANGED);

@@ -43,8 +43,16 @@ const reentryReverse = (frozen, wanted) => frozen?.anchor?.matches === 1 && same
 function scopeResult(surface, values, origin) {
   const expected = membership(values.filter(row => row.date >= '2026-09-08' && row.date <= '2026-10-07').map(identity));
   const dayChanged = Boolean(origin && surface.businessDay !== origin.businessDay);
-  const valid = surface.url === (origin?.url ?? '/timeline?range=30') && surface.range === '30' &&
+  let fixedURL = false;
+  try {
+    const url = new URL(surface.url, 'https://audit.invalid'), params = url.searchParams;
+    fixedURL = url.origin === 'https://audit.invalid' && url.pathname === '/timeline' && url.hash === '' &&
+      [...params.keys()].sort().join(',') === 'from,range,through' &&
+      params.get('range') === '30' && params.get('from') === '2026-09-08' && params.get('through') === '2026-10-07';
+  } catch { /* A malformed route is an observed failure, never normalized by the audit. */ }
+  const valid = fixedURL && (!origin || surface.url === origin.url) && surface.range === '30' &&
     surface.businessDay === '2026-10-07' && surface.from === '2026-09-08' && surface.through === '2026-10-07' &&
+    isDeepStrictEqual(surface.periodLabels, ['固定期间：2026-09-08 至 2026-10-07（含首尾）。跨日与返回时保持此期间。']) &&
     isDeepStrictEqual(surface.pressed, ['近30天']) && expected.length === 7 && surface.rows.every(renderedMember) && isDeepStrictEqual(membership(surface.rows), expected);
   return { pass: !dayChanged && valid, dayChanged, expected, actual: membership(surface.rows), interval: { businessDay: surface.businessDay, from: surface.from, through: surface.through }, note: dayChanged ? 'Business-day/interval transition: stable-scope comparison stopped; this is not a data-loss claim' : 'Actual browser business date and rendered membership, not query text alone' };
 }
@@ -88,8 +96,9 @@ function readTimelineDescriptor(wanted) {
   const state = globalThis.__ykReadNodes, nodeId = el => { if (!state.nodes.has(el)) state.nodes.set(el, state.next++); return state.nodes.get(el); };
   const selector = el => { const parts = []; for (let node = el; node && node !== document.body; node = node.parentElement) { const peers = [...node.parentElement.children].filter(other => other.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${peers.indexOf(node) + 1})`); } return 'body > ' + parts.join(' > '); };
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-  const businessDay = `${parts.year}-${parts.month}-${parts.day}`, range = new URLSearchParams(location.search).get('range') ?? '7';
-  const from = range === 'all' ? null : new Date(new Date(`${businessDay}T12:00:00Z`).getTime() - (range === '30' ? 29 : 6) * 86400000).toISOString().slice(0, 10);
+  const businessDay = `${parts.year}-${parts.month}-${parts.day}`, params = new URLSearchParams(location.search), range = params.get('range') ?? '7';
+  const from = params.get('from'), through = params.get('through');
+  const periodLabels = [...document.querySelectorAll('[data-component="timeline"] p')].map(el => el.textContent.trim()).filter(value => value.startsWith('固定期间：'));
   const paint = el => {
     if (!el) return null;
     const styles = []; for (let node = el; node; node = node.parentElement) { const css = getComputedStyle(node); styles.push({ tag: node.tagName, visibility: css.visibility, opacity: css.opacity, display: css.display, contentVisibility: css.contentVisibility }); }
@@ -102,7 +111,7 @@ function readTimelineDescriptor(wanted) {
   });
   const wantedTitle = `${wanted.isIncome ? '+' : '-'}¥${(wanted.amount / 100).toFixed(2)} ${wanted.name}`;
   const matches = rows.filter(row => row.date === wanted.date && row.title === wantedTitle && row.ariaLabel === `收支: ${wantedTitle}`), index = rows.indexOf(matches[0]);
-  return { url: location.pathname + location.search, present: Boolean(document.querySelector('[data-component="timeline"]')), loading: Boolean(document.querySelector('[data-component="timeline"] [role="status"]')), range, businessDay, from, through: businessDay, pressed: [...document.querySelectorAll('[data-component="timeline"] [aria-label="时间范围"] button[aria-pressed="true"]')].map(el => el.textContent.trim()), rows,
+  return { url: location.pathname + location.search, present: Boolean(document.querySelector('[data-component="timeline"]')), loading: Boolean(document.querySelector('[data-component="timeline"] [role="status"]')), range, businessDay, from, through, periodLabels, pressed: [...document.querySelectorAll('[data-component="timeline"] [aria-label="时间范围"] button[aria-pressed="true"]')].map(el => el.textContent.trim()), rows,
     anchor: matches.length === 1 ? { ...matches[0], matches: 1, neighbors: rows.slice(Math.max(0, index - 1), index + 2) } : { matches: matches.length } };
 }
 

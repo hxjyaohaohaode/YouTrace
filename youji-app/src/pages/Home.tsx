@@ -1,3 +1,4 @@
+import { OverviewCard } from '../components/home/OverviewCard';
 import { db } from '../db';
 import { Link } from 'react-router-dom';
 import { useExpenseStore } from '../stores/expenseStore';
@@ -174,7 +175,8 @@ export default function Home() {
           <div className="editorial-list">{recentRecords.length ? recentRecords.map(row => <Link className="editorial-row recent-record" to={row.route} state={{ returnTo: { path: '/', label: '返回首页' } }} key={row.id}><span><small>{row.date ?? '日期未知'} · {recentLabels[row.type]}</small><strong>{row.title}</strong></span><ArrowRight size={16} aria-hidden /></Link>) : <div className="editorial-empty"><p>还没有速记、日记或收支记录。</p><p>第一条记录会从这里开始。</p></div>}</div>
         </section>
       </div>
-      {!isEmpty && <div className="home-review"><WeeklyReviewCard /><details className="editorial-details"><summary>今日回顾与建议</summary><div className="pt-4">{dailyBrief ? <BriefCard data={dailyBrief} /> : <p role="status" className="text-sm text-[var(--text-2)]">{briefError ? '今日回顾暂时无法读取，仍可在时间线查看原始记录。' : '正在读取今日回顾…'}</p>}</div></details></div>}
+      <section className="home-review" aria-labelledby="home-overview-heading"><h2 id="home-overview-heading" className="mb-4 text-[22px] font-semibold">记录概览</h2><OverviewCard /></section>
+      {!isEmpty && <div className="home-review"><WeeklyReviewCard /><details className="editorial-details"><summary>查看今日回顾与建议</summary><div className="pt-4">{dailyBrief ? <BriefCard data={dailyBrief} /> : <p role="status" className="text-sm text-[var(--text-2)]">{briefError ? '今日回顾暂时无法读取，仍可在时间线查看原始记录。' : '正在读取今日回顾…'}</p>}</div></details></div>}
     </div>
   );
 }

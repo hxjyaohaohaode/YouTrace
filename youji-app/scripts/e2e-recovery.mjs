@@ -301,14 +301,14 @@ async function businessRegressions(page) {
     await clickButton(page, '工作', '[aria-label="日程类型"]');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await reloadPage(page);
-    await clickControl(page, '[role=button][aria-label="09:00-10:30 Synthetic schedule original"]');
+    await clickControl(page, ':is(button:not([role]),[role=button])[aria-label="09:00-10:30 Synthetic schedule original"]');
     assert.equal(await page.$eval('#schedule-location', (el) => el.value), 'Synthetic room A', 'schedule location must survive reload');
     await fillControl(page, '#schedule-title', 'Synthetic schedule revised');
     await fillControl(page, '#schedule-location', 'Synthetic room B');
     await clickButton(page, '保存', '[role=dialog]'); await modalClosed(page);
     await reloadPage(page);
     await expectText(page, 'Synthetic schedule original', false);
-    await clickControl(page, '[role=button][aria-label="09:00-10:30 Synthetic schedule revised"]');
+    await clickControl(page, ':is(button:not([role]),[role=button])[aria-label="09:00-10:30 Synthetic schedule revised"]');
     assert.equal(await page.$eval('#schedule-location', (el) => el.value), 'Synthetic room B', 'schedule edit must survive reload');
     await clickButton(page, '删除', '[role=dialog]');
     await page.waitForFunction(() => document.querySelectorAll('[role=dialog]').length === 2);
@@ -420,7 +420,7 @@ async function businessRegressions(page) {
     assert.equal((await initialGoalAck).status(), 200);
     await expectText(page, '已同步', true, 'main article span');
     await clickControl(page, '[aria-label="编辑目标 Synthetic 跨设备目标"]');
-    await fillControl(page, '[role=dialog] input[placeholder="补充说明..."]', '跨设备完整描述');
+    await fillControl(page, '[role=dialog] #goal-description', '跨设备完整描述');
     const editedGoalAck = page.waitForResponse((response) => response.url().endsWith('/api/sync/push') && response.request().method() === 'POST' && JSON.parse(response.request().postData() || '{}').goals?.some((goal) => goal.description === '跨设备完整描述'));
     await clickButton(page, '保存修改', '[role=dialog]'); await modalClosed(page);
     await expectText(page, '已同步', true, 'main article span');

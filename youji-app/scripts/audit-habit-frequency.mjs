@@ -72,11 +72,13 @@ export async function runCurrentFrequencyJourney(page, api, target, neighbor, la
   });
   await segment(page, `${label}-current-frequency-home-history-reopen`, async () => {
     await closeDialogs(page); await home(page);
-    const cards = await page.$$eval('main button', rows => rows.filter(el => /习惯打卡/.test(el.innerText)).map(el => el.innerText));
+    const cards = await page.$$eval('main [data-component="home-overview"] button', rows => rows.filter(el => el.querySelector('[data-overview-label]')?.textContent.trim() === '习惯打卡').map(el => el.innerText));
     assert.equal(cards.length, 1);
-    const homeSelector = await page.evaluate(() => { const el = [...document.querySelectorAll('main button')].find(row => /习惯打卡/.test(row.innerText)), parts = []; for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(sibling => sibling.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); } return 'body > ' + parts.join(' > '); });
+    const homeSelector = await page.evaluate(() => { const el = [...document.querySelectorAll('main [data-component="home-overview"] button')].find(row => row.querySelector('[data-overview-label]')?.textContent.trim() === '习惯打卡'), parts = []; for (let node = el; node && node !== document.body; node = node.parentElement) { const siblings = [...node.parentElement.children].filter(sibling => sibling.tagName === node.tagName); parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(node) + 1})`); } return 'body > ' + parts.join(' > '); });
     await readControl(page, homeSelector); const homeReading = await readable(page, homeSelector); await capture(page, `${label}-current-daily-mixed-home`);
-    await observe(page, `${label}-home-separates-current-daily-and-weekly`, homeReading.visible && /今日 0\/1.*本周 1\/1/.test(cards[0]), JSON.stringify({ cards, homeReading }));
+    const homeFields = {};
+    for (const key of ['label', 'value', 'detail']) { const selector = `${homeSelector} [data-overview-${key}]`; await readControl(page, selector); homeFields[key] = await readable(page, selector); }
+    await observe(page, `${label}-home-separates-current-daily-and-weekly`, homeReading.visible && Object.values(homeFields).every(field => field.visible) && homeFields.label.text.trim() === '习惯打卡' && /^1\s*\/\s*2$/.test(homeFields.value.text.trim()) && /今日 0\/1.*本周 1\/1/.test(homeFields.detail.text), JSON.stringify({ cards, homeReading, homeFields }));
     await enter(page); const root = await card(page, target); await readControl(page, root); const reading = await readable(page, root);
     await observe(page, `${label}-historical-dates-stay-labelled-actual-records`, reading.visible && /今天尚未记录/.test(reading.text) && /近7天实际记录/.test(reading.text) && !/完成率/.test(reading.text), JSON.stringify({ reading }));
     await pointer(page, `${root} button[aria-label=${JSON.stringify(`调整频率 ${target.name}`)}]`); await page.waitForSelector('[role=dialog]');
