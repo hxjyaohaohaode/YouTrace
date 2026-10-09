@@ -1,6 +1,6 @@
 {
   "identity_scope": "本文件将历史已验证提交与本轮生产文件字节身份分开。production_snapshot仅标识所列生产文件，不含本文件或其他文档，因此不自引用整库tree。整库同步提交、tree及该提交CI须由外部最终回执或GitHub精确提交记录绑定。",
-  "recorded_at_utc": "2026-10-09T18:46:45Z",
+  "recorded_at_utc": "2026-10-09T19:21:00Z",
   "historical_material_baseline": {
     "scope": "2026-10-09首次材料编制前的历史416文件候选，不能作为后续HEAD身份。",
     "base_main_commit": "7e45e36bcbfb07191cfed446967f99dd1cda9a05",
@@ -35,8 +35,8 @@
       ".d.ts"
     ],
     "file_count": 182,
-    "physical_lines": 18621,
-    "file_set_sha256": "9837398eeb41736daa92c45ca819a3a81b687a0db33c5c204e6fa585b0bd8671",
+    "physical_lines": 18655,
+    "file_set_sha256": "4a949c7a9a63902c66e53ed94b3c8c2ab115c9b9e62b18709a431d77a1f92769",
     "digest_format": "SHA-256 of UTF-8 lines sorted by repository-relative path; each line is the raw file SHA-256, two spaces, path, and LF. No source EOL normalization.",
     "files_sha256": {
       "youji-app/server/src/app.ts": "8f497f7a968a4181cabf95b9f743450596df2e454306fe0a285752bd345f8946",
@@ -169,7 +169,7 @@
       "youji-app/src/pages/QuickNoteResult.tsx": "2b586f5774cd39f9b166f8971aa0c5cd463ce00fe0f80faf7e3af395a7ca61ce",
       "youji-app/src/pages/Schedule.tsx": "71dd253d4927a0c0aaf68bfe7a9838f92905662f0115653fcd184ab51afa308e",
       "youji-app/src/pages/Settings.tsx": "922197883d03bdeaeb32974ee610bc5b7d09a06e9e5cabb3cd83dc8a0759abf1",
-      "youji-app/src/pages/Timeline.tsx": "3c6e09c9540043d6b88d7986103ce8324a271e0642e1320569e4e92f63f91f14",
+      "youji-app/src/pages/Timeline.tsx": "c1d01d797b280d3de7deab99af5b421407355ef10e5b25586dd3bf07e4f1ea9e",
       "youji-app/src/pages/Todo.tsx": "04a8d59e3e3f0b38e3fbce01e030007323c86363a5318d1baa316e63734cb050",
       "youji-app/src/pages/timelineRange.ts": "ba30f40a4ae0dc99f7db3e0d1ac59533f299a9fa4799a01ae0054aff375e67f5",
       "youji-app/src/pages/timelineReturnFocus.ts": "1c8df0d62e2b5cc4850dfcdb0d873899117ed4262855be20b3668b9d49048629",
@@ -225,11 +225,22 @@
     "authorship_not_certified": true
   },
   "validation_at_authoring": {
-    "scope": "2026-10-10北京时间，本轮仅新增/修改3个测试层文件，生产代码、Logo、CI配置与上述424文件主线不变。",
-    "frontend_tests_passed": 1045,
+    "scope": "2026-10-10北京时间，本轮仅修改Timeline.tsx生产可视性处理并新增一份回归测试；无品牌、CI、原生审计脚本、断言或超时修改。完整工程提交身份由外部最终回执绑定。",
+    "code_tree_before_material_delta": "84cf78398ac4637ff0cbb98d0ab1db5e45ce1f13",
+    "code_files_before_material_delta": 429,
+    "frontend_tests_passed": 1051,
     "backend_tests_passed": 73,
-    "native_first_empty_account_regression": "编制时尚未实跑；须读取包含新增回归的精确提交CI及工件，不以测试定义或本地通过冒充原生通过。",
-    "historical_first_empty_account_disappearance": "仍保留原范围；不能与迟到回焦修复或普通日记通过自动合并关闭。",
+    "typecheck": "passed",
+    "lint": "passed_frontend_and_backend",
+    "build": "passed_frontend_and_backend",
+    "timeline_handler_regression": {
+      "old_failed": 4,
+      "old_passed": 2,
+      "new_passed": 6,
+      "native_browser_acceptance": false
+    },
+    "native_timeline_verification": "编制时新候选尚未在新精确提交托管原生旅程复验，不将旧运行的21项成功、1项失败改写为新CI通过。",
+    "historical_first_empty_account_disappearance": "四场景已完成限定原生观察，但未出现首开后的初始化重叠；历史根因仍未知。",
     "render_platform_skip_observed": false,
     "deployment_scope": "未执行生产发布操作；提交标记不能代替Render平台事件观察。"
   },
@@ -240,5 +251,37 @@
     "completion_date": "待事实确认",
     "first_publication": "待事实确认",
     "filing_ready": false
+  },
+  "previous_authoring_snapshots": [
+    {
+      "recorded_at_utc": "2026-10-09T18:46:45Z",
+      "validation_at_authoring": {
+        "scope": "2026-10-10北京时间，本轮仅新增/修改3个测试层文件，生产代码、Logo、CI配置与上述424文件主线不变。",
+        "frontend_tests_passed": 1045,
+        "backend_tests_passed": 73,
+        "native_first_empty_account_regression": "编制时尚未实跑；须读取包含新增回归的精确提交CI及工件，不以测试定义或本地通过冒充原生通过。",
+        "historical_first_empty_account_disappearance": "仍保留原范围；不能与迟到回焦修复或普通日记通过自动合并关闭。",
+        "render_platform_skip_observed": false,
+        "deployment_scope": "未执行生产发布操作；提交标记不能代替Render平台事件观察。"
+      }
+    }
+  ],
+  "historical_partial_ci": {
+    "scope": "本轮Timeline修复之前的428文件主线，失败原样保留；不能转写为全绿。",
+    "commit": "0e67e392bcb89eddbc22bfad2dfbcf5d6c139143",
+    "tree": "ab9e3c8687f10b848e8120e29dbc97a85b33fae3",
+    "files": 428,
+    "ci_run": "https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37976299454",
+    "ci_attempt": 1,
+    "jobs_success": 21,
+    "jobs_failed": 1,
+    "failed_job": "expense-records",
+    "failed_native_observations": 2,
+    "failure_scope": "桌面Timeline原生Tab焦点正确，但完整记录行及焦点轮廓越过视窗底边；不是新增日记测试失败。",
+    "post_first_open_initialization_overlap_observed": false,
+    "historical_diary_root_cause": "仍未知；限定四场景通过不证明所有时序或初始化重叠条件均覆盖。",
+    "diary_native_observed_pass_total": 66,
+    "new_first_open_scenarios": 4,
+    "new_first_open_observed_pass": 16
   }
 }

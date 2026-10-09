@@ -104,7 +104,7 @@
 
 证据：`src/components/diary/DiaryContent.tsx`、`src/components/diary/DiaryEditor.tsx:57,98-107`、`src/components/diary/useDiaryEditorDraft.ts`、`src/stores/diaryStore.ts`。此前限定修复：`src/components/diary/DiaryContent.tsx` 令已建立的深链编辑快照不因同账号迟到读取失败卸载；不证明首次空账号原生弹窗异常已解决。后续迟到回焦保护位于`src/components/diary/useDiaryFocusReturn.ts`，与首次空账号历史现象分开核验。
 
-拟配图：空态、新增、编辑、取消保稿、日期冲突、删除确认和明确的新副本状态。首次空账号日记异常仍需原生复测，不能先写“全部稳定通过”。
+拟配图：空态、新增、编辑、取消保稿、日期冲突、删除确认和明确的新副本状态。已完成的四场景首开复测记录见第六章；均未观察到首开后的初始化重叠，原现象根因仍未知，不宣称所有时序条件均已闭环。
 
 ### 9. 目标
 
@@ -118,7 +118,7 @@
 
 按近7天、近30天或全部记录查看本机资料；期间可固定并显式更新到今天。按记录身份进入原记录纠错并返回；无发生时间的旧资料显示未知，日程计划/待办截止与完成事实分开解释。
 
-证据：`src/pages/Timeline.tsx:59-76`、`src/pages/timelineRange.ts`、`src/pages/timelineReturnFocus.ts`、`src/services/timelineEntries.ts`。
+证据：`src/pages/Timeline.tsx`、`src/pages/timelineRange.ts`、`src/pages/timelineReturnFocus.ts`、`src/services/timelineEntries.ts`。
 
 拟配图：期间、同名记录定位、纠错后返回、原速记及回执入口。不要写为全站全文搜索、文件搜索或无限完整云历史。
 
@@ -161,15 +161,19 @@
 - 可公开追溯的历史CI入口：[602716d8运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37208454062)、[2629d9e4运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37211614212)、[48ea8819运行](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37424048535)。这些均为旧版本，只能按各自提交和实际任务范围引用；不能替代上述历史416文件候选的999/73摘要或新版整体验收。历史附件是否仍可访问需另行核对。
 - 源码中的`仓库根/.github/workflows/ci.yml:55-60,108-118`定义截图/结果上传及14天保留。配置存在不表示已经执行或已生成可用图片。最终定稿仍需取得同版真实截图并保存原件。
 
-本轮更新（2026-10-10北京时间）：历史主线`7327e22700bb5fbb9639d0aef42182472a1656d6`、tree `e6a8c605efaf50aec4c538c405d7bffbde45be3f`共424文件，其[CI 37970818142](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37970818142)首次22项作业全过，日记50项、日程126项原生观察通过，覆盖当时迟到回焦和键盘可视性问题。本轮另外新增首次空账号审计前置与回归，仅修改3个测试层文件，生产实现与品牌不变；本地前端1045、后端73项通过。编制时新增首开原生场景尚未实跑，测试定义和本地通过不能替代它，也不能自动关闭历史首次空账号弹窗消失现象。含新增回归的精确提交、完整CI和实际工件仍须另行绑定。
+前次材料更新记录（2026-10-10北京时间）：历史主线`7327e22700bb5fbb9639d0aef42182472a1656d6`、tree `e6a8c605efaf50aec4c538c405d7bffbde45be3f`共424文件，其[CI 37970818142](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37970818142)首次22项作业全过，日记50项、日程126项原生观察通过，覆盖当时迟到回焦和键盘可视性问题。当时另外新增首次空账号审计前置与回归，仅修改3个测试层文件，生产实现与品牌不变；本地前端1045、后端73项通过。编制时新增首开原生场景尚未实跑，测试定义和本地通过不能替代它，也不能自动关闭历史首次空账号弹窗消失现象。含新增回归的精确提交、完整CI和实际工件仍须另行绑定。
+
+后续精确运行：主线`0e67e392bcb89eddbc22bfad2dfbcf5d6c139143`、tree `ab9e3c8687f10b848e8120e29dbc97a85b33fae3`共428文件，[CI 37976299454](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/37976299454)为21项作业成功、1项expense-records失败。日记整组66项原生观察通过，其中新增首开四场景共16项通过，但均未出现首开后的初始化重叠，原历史消失现象根因仍未知。expense-records的两项失败发生在桌面收支编辑取消/保存返回Timeline后的下一次Tab：焦点正确而记录行及其轮廓被视窗底边裁切；不能归因于新增日记测试，也不改旧失败为全绿。
+
+本轮Timeline代码候选仅增加键盘焦点可视性检查及一份回归，不修改品牌、布局样式、数据协议、原生断言或超时。同一真实handler替身回归在旧代码4失败/2通过、新代码6通过；前端1051、后端73项及类型、lint、构建检查通过。这些是代码候选的本地结果，新候选在精确同步提交上的原生复验仍须另取证，不能以本地回归替代托管旅程。
 
 逐文件身份可用准备包中的“YouTrace-交付源码SHA256清单.txt”核对。正式截图应另记录冻结版本、实际执行提交/会话、原始文件SHA-256、页面和步骤、视窗尺寸、合成账号及限定范围；不得把旧图或模拟结果改标成新版实际操作，也不使用私人真实数据。
 
 ## 七、源码材料范围与排序
 
-本轮严格正文候选：182个生产TS/TSX/CSS文件，共18,621物理行（含注释/空行；不等于正式排版有效行）。顺序：启动/认证 → 账号数据库和本地事务 → 同步协议 → 速记确认与回执 → 六类日常记录模块 → 首页/时间线/教练 → 服务端认证/业务/同步 → 公共组件与样式。上述为建议编排顺序；逐文件路径、字节、行数与哈希见仓内[source-excerpt-order.json](copyright-preparation/source-excerpt-order.json)，完整生产集合身份见[source-identity.json](copyright-preparation/source-identity.json)。上述182项摘要集合为`9837398eeb41736daa92c45ca819a3a81b687a0db33c5c204e6fa585b0bd8671`；适用后续版本前须重新逐文件核对，不能代替作者来源确认。
+本轮严格正文候选：182个生产TS/TSX/CSS文件，共18,655物理行（含注释/空行；不等于正式排版有效行）。顺序：启动/认证 → 账号数据库和本地事务 → 同步协议 → 速记确认与回执 → 六类日常记录模块 → 首页/时间线/教练 → 服务端认证/业务/同步 → 公共组件与样式。上述为建议编排顺序；逐文件路径、字节、行数与哈希见仓内[source-excerpt-order.json](copyright-preparation/source-excerpt-order.json)，完整生产集合身份见[source-identity.json](copyright-preparation/source-identity.json)。上述182项摘要集合为`4a949c7a9a63902c66e53ed94b3c8c2ab115c9b9e62b18709a431d77a1f92769`；适用后续版本前须重新逐文件核对，不能代替作者来源确认。
 
-本轮冻结候选按实际目录排除110测试文件、45审计工具、两个依赖锁文件、node_modules/生成客户端/dist、九份素材、合成seed、声明文件及来源未逐项确认的migration SQL。schema、必要入口与配置可作为结构说明附录；选取不代表对所有项目文件的作者身份作出认定。不为凑篇幅插入第三方代码、生成文件或空白填充。
+本轮冻结候选按实际目录排除111测试文件、45审计工具、两个依赖锁文件、node_modules/生成客户端/dist、九份素材、合成seed、声明文件及来源未逐项确认的migration SQL。schema、必要入口与配置可作为结构说明附录；选取不代表对所有项目文件的作者身份作出认定。不为凑篇幅插入第三方代码、生成文件或空白填充。
 
 ## 八、依赖与素材来源补充
 
