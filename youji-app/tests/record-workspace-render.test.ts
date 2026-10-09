@@ -7,6 +7,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import ts from 'typescript';
+import * as diaryFocusReturn from '../src/components/diary/useDiaryFocusReturn';
 import { getExpensePeriodTotals } from '../src/utils/expensePeriod';
 
 // Real page JSX/hooks rendered with synthetic read-only stores and host controls.
@@ -27,7 +28,7 @@ const today = '2026-10-08';
 let diaryState: { items: unknown[]; loaded: boolean; loadError: string; removeItem: () => void };
 const diary = loadComponent('../src/components/diary/DiaryContent.tsx', {
   'react-router-dom': { useLocation: () => ({ search: '', key: 'test', state: null }), useNavigate: () => () => undefined },
-  './DiaryEditor': { DiaryEditor: () => React.createElement('div', { 'data-editor': true }, '可编辑日记') },
+  './useDiaryFocusReturn': diaryFocusReturn, './DiaryEditor': { DiaryEditor: () => React.createElement('div', { 'data-editor': true }, '可编辑日记') },
   'framer-motion': { motion: { div: ({ children }: { children: React.ReactNode }) => React.createElement('div', {}, children) }, AnimatePresence: ({ children }: { children: React.ReactNode }) => children },
   'lucide-react': { Plus: icon, BookOpen: icon, Sparkles: icon, ChevronDown: icon, ChevronUp: icon, Edit3: icon, Trash2: icon },
   '../../stores/diaryStore': { useDiaryStore: (select: (state: typeof diaryState) => unknown) => select(diaryState) },

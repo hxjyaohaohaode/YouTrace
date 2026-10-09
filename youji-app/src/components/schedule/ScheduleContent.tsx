@@ -54,6 +54,40 @@ function getMonthDates(date: Date): Date[][] {
   );
 }
 
+function revealScheduleKeyboardFocus(target: HTMLButtonElement) {
+  const document = target.ownerDocument, view = document.defaultView;
+  if (!view || !target.isConnected || document.activeElement !== target || !target.matches(':focus-visible') || target.closest('[role="dialog"]')) return;
+  const painted = (element: Element) => {
+    const box = element.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return false;
+    for (let current: Element | null = element; current; current = current.parentElement) {
+      const style = view.getComputedStyle(current);
+      if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) <= 0) return false;
+    }
+    return true;
+  };
+  // A background card must never move the page while a modal owns interaction.
+  if ([...document.querySelectorAll('[role="dialog"]')].some(painted)) return;
+  const box = target.getBoundingClientRect(), style = view.getComputedStyle(target);
+  if (!painted(target)) return;
+  const outline = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset)) || 0;
+  let bottom = view.innerHeight;
+  for (const nav of document.querySelectorAll('nav[aria-label="主导航"]')) {
+    const bounds = nav.getBoundingClientRect();
+    if (!painted(nav) || view.getComputedStyle(nav).position !== 'fixed' || bounds.top <= view.innerHeight / 2 || bounds.bottom < view.innerHeight - 1) continue;
+    // The primary Capture button protrudes above the flat bottom-navigation bar.
+    for (const obstacle of [nav, ...nav.querySelectorAll('button, a')]) {
+      const area = obstacle.getBoundingClientRect();
+      if (painted(obstacle) && area.bottom > 0 && area.left < box.right + outline && area.right > box.left - outline) bottom = Math.min(bottom, area.top);
+    }
+  }
+  if (box.top - outline < 0 || box.bottom + outline > bottom) {
+    // Keep the browser's chosen focus and tab order. Scroll immediately only
+    // when that keyboard-focused card is obscured; never schedule a later jump.
+    target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+  }
+}
+
 function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurrence) => void }) {
   const items = useScheduleStore((s) => s.items);
   const agenda = useMemo(() => expandRecurringForRange(items, date, date).sort((a, b) => a.startTime.localeCompare(b.startTime)), [items, date]);
@@ -61,7 +95,7 @@ function DayView({ date, onEdit }: { date: string; onEdit: (item: ScheduleOccurr
     <div className="planning-section-heading"><h2>当天安排</h2><span>{agenda.length} 项 · {date}</span></div>
     {agenda.length ? <ol className="agenda-list">{agenda.map(item => {
       const config = scheduleTypeConfig[item.type] ?? scheduleTypeConfig.other;
-      return <li key={item.virtualId}><button type="button" className="agenda-row" onClick={() => onEdit(item)} aria-label={`${item.startTime}-${item.endTime} ${item.title}`}>
+      return <li key={item.virtualId}><button type="button" className="agenda-row" onFocus={(event) => revealScheduleKeyboardFocus(event.currentTarget)} onClick={() => onEdit(item)} aria-label={`${item.startTime}-${item.endTime} ${item.title}`}>
         <span className="agenda-time"><strong>{item.startTime}</strong><span>{item.endTime}</span></span>
         <span className="agenda-marker" style={{ backgroundColor: config.color }} aria-hidden />
         <span className="agenda-detail"><strong>{item.title}</strong><span>{config.label}{item.location ? ` · ${item.location}` : ''}{item.repeat === 'weekly' ? ' · 每周重复' : ''}</span></span>

@@ -105,3 +105,13 @@ Records summary `11401023108`、原分片 `11400563837` / `11400593805`；recove
 纠错版本仍为 4/8，删除墓碑为 4/9，新副本为 5/10。这里的新副本不是撤销或恢复旧 ID；没有 OS 剪贴板读取、全库恢复、任意两设备合并或全部无障碍结论。e69 原三类读者红和 Timeline 取证误红均保留。
 
 通用 browser 工件 `11401536164` 只独立核了 25 项检查报告及 Diary 360 / Todo 1280 关键原图，无本轮新 failure；这不是完整逐步媒体独审，更不证明 e69/07bc 等旧启动红已有根因修复。
+
+## 2026-10-10 取消后的过时回焦候选
+
+GitHub main `46336179f0018b19cc883d49782074a4af81d1fc`（tree `2930f3ec8a4de8c9a102c61de20179b6a2ff8ff6`）的 run `37966540484` 提供了新的真实 360px 失败证据：`YD-records-360-setup` 在取消编辑、上滚后尝试打开“写日记”时不可达。错误文字为控件未停止移动，但最终 50 轮几何的 y 均为 -726、centerHit=false，截图无运行中动画。不能据此增加等待或让测试多滚一次。
+
+`YD-records-360-trace.json` 的精确时间链（相对取消时安装 timer 37）为：0ms 安装 250ms 日记回焦；109.108ms 原生 wheel、109.728ms document scroll 完成；250.076ms 旧 Diary 回调执行、250.131ms 再次滚动 document、250.438ms focus 的 stack 落在 Diary bundle 列 17745。旧 `closeEditor` 无条件延迟 `scrollIntoView` 和 `focus`，覆盖了用户已经完成的新滚动。
+
+候选仅为日记关闭后的返回增加作用域和取消机制：关闭 Modal 的正常回焦先完成，再安排一次精确记录返回；新 wheel、pointerdown、keydown、touchstart 或焦点移动立即取消，重开编辑器/删除弹窗、路由改变与卸载在 layout cleanup 取消；恢复前复核当前账号、数据库对象、会话 generation/revision 和退出标记。正常取消与真实保存仍返回正确记录，不触碰日记写入协议或输入草稿。
+
+可控挂载回归使用真实 React/Router/DiaryContent/DiaryEditor/Modal、store 与 Dexie，DOM host 与 250ms 定时器为明确替身。同一 23 项测试在上述精确旧树上 20 fail / 3 pass，在候选上 23 pass；包含真实 Modal host-ref cleanup 次序、正常取消/新建保存、过时已排队回调、重开、路由往返、卸载、会话失效/同账号新会话、不同账号、账号绑定拒绝、缺失/隐藏/断开记录和完整草稿守恒。与既有 editor lifecycle / Modal 专项合计 33 pass。它们不代替 Chromium 原生可见区及输入验收；修改后的同 SHA 托管旅程尚待运行。此前首次空账号编辑器消失的独立现象未在这里混同根因。

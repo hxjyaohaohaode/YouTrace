@@ -7,6 +7,7 @@ import * as React from 'react';
 import { act, createElement } from 'react';
 import { create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import ts from 'typescript';
+import * as diaryFocusReturn from '../src/components/diary/useDiaryFocusReturn';
 import { getExpensePeriodTotals } from '../src/utils/expensePeriod';
 import * as expenseFilters from '../src/components/expense/expenseListFilter';
 import * as expensePresentation from '../src/components/expense/expensePresentation';
@@ -97,7 +98,7 @@ test('Mounted BudgetCard distinguishes unset, explicit zero and overspend with u
 
 test('Mounted DiaryContent retains exact visible-card ancestry, original prose and full-content expansion', async () => {
   const content = '合成日记。'.repeat(90), item = { id: 'local-diary', date: '2026-10-06', createdAt: 1, content, mood: null, moodScore: null, source: 'manual' };
-  const Page = load('../src/components/diary/DiaryContent.tsx', { 'react-router-dom': router, 'framer-motion': { motion, AnimatePresence: host('div') }, '../../stores/diaryStore': { useDiaryStore: (select: (value: object) => unknown) => select({ items: [item], loaded: true, loadError: '', removeItem() {} }) }, '../ui/Modal': { Modal: frame }, '../ui/Button': { Button: host('button') }, './DiaryEditor': { DiaryEditor: empty }, '../../services/toastBus': { toast: { success() {} } }, '../../utils/date': dates, '../../utils/icons': { getMoodMeta: () => null } }).DiaryContent;
+  const Page = load('../src/components/diary/DiaryContent.tsx', { 'react-router-dom': router, 'framer-motion': { motion, AnimatePresence: host('div') }, '../../stores/diaryStore': { useDiaryStore: (select: (value: object) => unknown) => select({ items: [item], loaded: true, loadError: '', removeItem() {} }) }, '../ui/Modal': { Modal: frame }, '../ui/Button': { Button: host('button') }, './useDiaryFocusReturn': diaryFocusReturn, './DiaryEditor': { DiaryEditor: empty }, '../../services/toastBus': { toast: { success() {} } }, '../../utils/date': dates, '../../utils/icons': { getMoodMeta: () => null } }).DiaryContent;
   let tree!: ReactTestRenderer; await act(async () => { tree = create(createElement(Page)); });
   try {
     const edit = tree.root.findByProps({ 'aria-label': '编辑2026-10-06的日记' }), card = edit.parent!.parent!.parent!;

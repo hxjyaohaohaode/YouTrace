@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DiaryEditor } from './DiaryEditor';
+import { useDiaryFocusReturn } from './useDiaryFocusReturn';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, BookOpen, Sparkles, ChevronDown, ChevronUp, Edit3, Trash2 } from 'lucide-react';
 import { useDiaryStore } from '../../stores/diaryStore';
@@ -119,6 +120,7 @@ export function DiaryContent() {
   // Loading establishes the initial snapshot, but a later read failure must not
   // unmount an already opened editor. Route changes and explicit close still win.
   const requestedItem = dismissed !== requestKey && routeSnapshot?.key === requestKey ? routeSnapshot.item : undefined;
+  const returnFocus = useDiaryFocusReturn(requestKey, Boolean(showModal || editItem || requestedItem || recoveryId || deleteConfirm));
   const source = (location.state as { returnTo?: { path?: string; label?: string } } | null)?.returnTo;
   const returnPath = source?.path?.startsWith('/') && !source.path.startsWith('//') ? source.path : null;
 
@@ -160,7 +162,7 @@ export function DiaryContent() {
   const closeEditor = (saved?: DiaryRecord) => {
     const focusId = saved?.id ?? editItem?.id ?? target?.id;
     setShowModal(false); setEditItem(undefined); setRecoveryId(undefined); setDismissed(requestKey);
-    if (focusId) window.setTimeout(() => { const row = document.getElementById(`diary-record-${focusId}`); row?.scrollIntoView({ block: 'center' }); row?.focus(); }, 250);
+    returnFocus(focusId);
   };
   const openLinkedRecord = (id: string) => {
     setShowModal(false); setEditItem(undefined); setRecoveryId(undefined); setDismissed('');
