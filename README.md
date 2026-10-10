@@ -4,7 +4,7 @@
 
 - 本地优先：业务数据以 Dexie (IndexedDB) 为本地单一读路径；已打开的账号可离线编辑，重新打开时仍需确认身份，详见[账号与同步边界](youji-app/README.md)
 - 多端同步：登录后通过 outbox 队列 + 增量拉取在多设备间同步
-- 免费优先的本机持久化运行包见 [本机运行与恢复](deploy/local/README.md)；已有电脑、受信 TLS、短信及本人模型账户仍有各自前提与费用。历史 Render 配置保留但未经本轮生产验收
+- 免费优先的本机持久化运行包见 [本机运行与恢复](deploy/local/README.md)；已有电脑、受信 TLS、短信及模型服务仍有各自前提与费用。Render 当前仅完成[重新部署准备](docs/RENDER_READINESS_20261010.md)，未执行实际重新部署
 
 ## 目录结构
 
@@ -30,18 +30,20 @@
 
 当前账户自配 AI 与持久化组合说明见 [AI 外发与密钥边界](docs/USER_OWNED_AI_20261010.md)和[组合验证记录](deploy/local/VALIDATION.md)。模型权限、加密密钥、备份恢复、最终提交 CI 和真实界面仍按各项门禁分别核验。
 
-## 历史部署配置（未经本轮生产验收）
+## 部署选择与发布前提
 
-不要直接Apply或重部署现有真实服务；先完成备份/restore和单独发布审批。仓库根目录保留 [render.yaml](render.yaml) 蓝图，包含两个服务：
+优先使用已有的[本机持久化运行包](deploy/local/README.md)。它不产生云托管费，但需要已有电脑持续运行、受信 TLS 和真实短信服务；电脑、电力、短信及可选模型调用仍可能有费用，不能将其视为已提供全天公网服务。
 
-| 服务 | 类型 | 说明 |
-|------|------|------|
-| `youtrace` | Static Site | Vite 构建产物，构建时注入 `VITE_API_BASE_URL=https://youji-api.onrender.com/api` |
-| `youji-api` | Web Service | Hono API，启动前执行 `prisma generate` + `migrate deploy` |
+Render 目前只有源码与配置准备，未实际重新部署。现行选择为：
 
-使用方式：Render 控制台 → New → Blueprint → 选择本仓库，首次 Apply 时需在面板生成 `JWT_SECRET`（≥32 位随机字符串）。
+- **免费静态前端**：[free-static.yaml](deploy/render/free-static.yaml) 仅部署前端，必须连接用户已有且获准使用的可靠持久化 API。没有可用 API，不等于完整业务已经上线。
+- **付费 API 与持久盘候选**：[render.yaml](render.yaml) 包含静态前端及需要付费计算实例、付费持久盘的 API。该 Render 启动器在没有实际持久盘挂载时会拒绝启动，不提供可存放真实资料的免费临时 SQLite 后端。
 
-注意：免费档实例无持久磁盘，SQLite 数据随每次部署重置；需要持久化时升级实例并按 render.yaml 头部注释修改 `DATABASE_URL` 并挂载磁盘。
+创建服务或发布前，须分别完成成本与发布批准、真实服务地址核对、已有数据的一致备份及恢复验证，并满足生产 JWT、真实短信登录/注册和跨域 Cookie 验收前提。模型配置不能替代认证或存储前提；缺少 AI 配置不影响已正常登录后的基础增删改查。不要直接同步蓝图或将新空库当作原数据恢复，现行部署边界与待办详见 [Render 重新部署准备](docs/RENDER_READINESS_20261010.md)。
+
+账号 BYOK 继续保留；另有默认关闭、需部署者配置且用户明确选择并同意外发的[可选基础 AI](docs/SERVER_AI_20261010.md)。模型供应商权限、额度与实际调用费用仍需单独确认。
+
+早期 Render 部署说明仅作历史背景；当前配置、外部阻塞和验收以以上文档为准。
 
 ## 历史
 

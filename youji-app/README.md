@@ -20,7 +20,7 @@ npm --prefix server run dev  # 终端1，后端3000
 npm run dev                  # 终端2，前端5180
 ```
 
-server环境样例仅供本地：会返回开发验证码，不发送真实短信，没有账号自配连接或本次页面未选择模型时使用明确标注的规则回复。平台不提供预置模型或共享供应商密钥。样例JWT值绝不能用于部署；生产必须提供独立安全配置且关闭DEV_OTP_EXPOSE。前端默认同源 `/api` 代理，也可用VITE_API_BASE_URL显式配置。
+server环境样例仅供本地：会返回开发验证码，不发送真实短信。平台默认不预置模型或共享供应商密钥；保留账号自配连接，部署者也可通过 SERVER_AI_ENABLED、SERVER_AI_API_KEY、SERVER_AI_BASE_URL、SERVER_AI_MODEL 四个变量另行显式配置可选基础 AI，用户仍须明确选择并同意外发范围，详见 [可选站点基础 AI](../docs/SERVER_AI_20261010.md)。本次页面未选择任何模型时使用明确标注的规则回复。样例JWT值绝不能用于部署；生产必须提供独立安全配置且关闭DEV_OTP_EXPOSE。前端默认同源 `/api` 代理，也可用VITE_API_BASE_URL显式配置。
 
 ## 数据和账号边界
 
@@ -57,4 +57,4 @@ AUDIT_BROWSER_PATH=/usr/bin/google-chrome npm run test:browser
 
 SQLite生产需要持久存储、已验证备份/恢复、已核对的迁移履历。旧sync_foundation迁移对填充旧库存在已复现缺陷，不能直接重跑或改checksum解决。新触发器必须通过migrate deploy安装；仅db push会缺失变更链，服务端会拒绝同步。
 
-Render持久盘在build/pre-deploy阶段不可访问。现有render.yaml保持历史配置以免误触部署，不是本轮认可的安全生产模板。生产方案及真实Cookie/SMS/模型验收需单独批准，不以GitHub推送替代上线。
+Render 持久盘在 build/pre-deploy 阶段不可访问。[根级 render.yaml](../render.yaml) 现为付费 API 与持久盘的准备候选，尚未完成生产验收或实际重新部署。构建阶段不访问数据库或持久盘；运行时先检查实际持久盘挂载及安装状态，对已有安装完成一致备份后再执行迁移并启动。服务创建、成本、已有数据恢复及生产 JWT、真实短信和 Cookie 验收仍须分别确认，详见 [Render 重新部署准备](../docs/RENDER_READINESS_20261010.md)。GitHub 推送和 CI 通过不代表获准上线。
