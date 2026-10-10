@@ -5,6 +5,8 @@
 .record-eyebrow { color: var(--text-3); font-size: 12px; font-weight: 550; letter-spacing: .09em; line-height: 1.8; }
 .record-deck { color: var(--text-2); font-size: 14px; line-height: 1.8; }
 .record-text-link { display: inline-flex; align-items: center; min-height: 44px; gap: 8px; color: var(--link); font-size: 14px; text-decoration: underline; text-underline-offset: 4px; }
+/* Keep a heading action intact when its neighboring description wraps on mobile. */
+.record-page-heading > .record-text-link { flex-shrink: 0; white-space: nowrap; }
 .record-disclosure { border-top: 1px solid var(--border); padding: 20px 0; }
 .record-disclosure summary { cursor: pointer; min-height: 32px; font-size: 14px; font-weight: 550; color: var(--text-2); }
 .diary-index-line { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-3); }

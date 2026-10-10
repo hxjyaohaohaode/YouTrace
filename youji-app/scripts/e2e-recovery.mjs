@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { sampleStableWorkspace, workspaceLayoutFailures } from './workspace-layout-contract.mjs';
+import { sampleTimelineHeading, timelineHeadingFailures } from './timeline-heading-contract.mjs';
 import { installStorageProgress, projectStorageProgress, storageProgressSchema } from './audit-storage-progress.mjs';
 
 // BEGIN safe initialization capture (also exercised without a browser in unit tests).
@@ -723,6 +724,12 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), false, `${path} overflow at ${width}`);
       assert.equal(await page.evaluate(() => document.body.textContent.includes('页面出了点问题')), false, path);
       await delay(1000); // Existing greeting reveal is 900ms; capture its settled content.
+      if (path === '/timeline') {
+        const geometry = await page.evaluate(sampleTimelineHeading);
+        const failures = timelineHeadingFailures(geometry);
+        report.push({ name: `Timeline capture heading remains one line at ${width}px`, passed: failures.length === 0, detail: geometry, failures });
+        assert.deepEqual(failures, [], `Timeline heading at ${width}px: ${failures.join('; ')}`);
+      }
       await page.screenshot({ path: join(artifactDir, `youtrace-${width}-${path.replaceAll('/', '-') || 'home'}.png`), fullPage: true });
     }
     await page.screenshot({ path: join(artifactDir, `youtrace-${width}.png`), fullPage: true });

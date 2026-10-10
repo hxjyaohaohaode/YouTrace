@@ -35,8 +35,8 @@
       ".d.ts"
     ],
     "file_count": 182,
-    "physical_lines": 18655,
-    "file_set_sha256": "4a949c7a9a63902c66e53ed94b3c8c2ab115c9b9e62b18709a431d77a1f92769",
+    "physical_lines": 18657,
+    "file_set_sha256": "6cb8d5032e60c314c6fe75b90d9f6ad1a78edc37cb885c7ef94a5e9ef450e98c",
     "digest_format": "SHA-256 of UTF-8 lines sorted by repository-relative path; each line is the raw file SHA-256, two spaces, path, and LF. No source EOL normalization.",
     "files_sha256": {
       "youji-app/server/src/app.ts": "8f497f7a968a4181cabf95b9f743450596df2e454306fe0a285752bd345f8946",
@@ -213,7 +213,7 @@
       "youji-app/src/stores/todoStore.ts": "1925d4a85d3fcb7e379fa97d947dd3ee3ef25ad3498c70df47bfa746ac5aca3c",
       "youji-app/src/styles/global.css": "9fa992b094c52e046a4f13786e032bf33a96ad293f9f4dd52524ec17afd9c0d0",
       "youji-app/src/styles/home-coach.css": "0cff8261e772078425470ae28c32576aad40cd13c33498843088a89ec29f4c2a",
-      "youji-app/src/styles/record-pages.css": "5717763e1b7b4f6c8b0573f80b67e46ecff0c7cde4a626616badd77767ae65fb",
+      "youji-app/src/styles/record-pages.css": "adea7a542201a2dbfb54e107fe243e2a5c69e7b054723fa01232bf61cfcf5055",
       "youji-app/src/styles/tokens.css": "91d23848dcd545bdae4137fe1649f480316815dea522ea6f0aa4046a26e0a3af",
       "youji-app/src/utils/actionPaths.ts": "ada575b08dc69fc8262b26f448a92c212cdcda2bc6dec93a99f64e307442ecf7",
       "youji-app/src/utils/date.ts": "93eab7ecda1a5f6e7aa16264cff1c7ab8b932f4d8c8fc6842e10f1661783bb23",
@@ -344,5 +344,21 @@
       "cancelled_scope": "字体安装前置未完成，probe及原生任务未执行；不是原生日记失败或通过。"
     },
     "new_exact_ci": "Ubuntu官方APT真实准备、工件传输、离线安装和全部23项作业尚未托管执行，须以新精确提交另核；本地合同测试不代替实装。"
+  },
+  "timeline_heading_layout_update": {
+    "recorded_at_utc": "2026-10-10T02:16:49.668261+00:00",
+    "scope": "仅生产样式 record-pages.css 增加2行，使标题旁速记链接不收缩、不拆行；其余181项生产文件字节不变。另新增布局契约helper及其测试，并接入既有原生响应式检查；完整源码文件数由434变为436。",
+    "changed_production_files": [
+      "youji-app/src/styles/record-pages.css"
+    ],
+    "production_files": 182,
+    "production_physical_lines": 18657,
+    "source_files_before": 434,
+    "source_files_after": 436,
+    "local_heading_contract_oracles_passed": 6,
+    "local_scope": "六项布局契约oracle（合成几何正反例及原生检查接线静态断言）；不代替真实浏览器布局验收。完整本地套件由代码任务另行记录。",
+    "new_exact_ci": "待含代码与本次材料身份更新的新精确提交托管验证；未预写通过。",
+    "production_deployment": "本次未执行生产发布。",
+    "identity_rule": "新完整Git提交与内容树由外部冻结回执绑定；此文件不自引用新提交SHA，原历史验证字段保留原时点。"
   }
 }
