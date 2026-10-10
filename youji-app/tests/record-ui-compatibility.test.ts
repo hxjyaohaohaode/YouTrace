@@ -8,6 +8,7 @@ import { act, createElement } from 'react';
 import { create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import ts from 'typescript';
 import * as diaryFocusReturn from '../src/components/diary/useDiaryFocusReturn';
+import * as expenseFocusReturn from '../src/components/expense/expenseFocus';
 import { getExpensePeriodTotals } from '../src/utils/expensePeriod';
 import * as expenseFilters from '../src/components/expense/expenseListFilter';
 import * as expensePresentation from '../src/components/expense/expensePresentation';
@@ -50,8 +51,8 @@ const fixture = [
 test('Mounted actual Expense renders exact period cents, current dated identities and native add control', async () => {
   const store = (select: (value: { items: typeof fixture; loaded: boolean }) => unknown) => select({ items: fixture, loaded: true });
   const StatsRow = load('../src/components/expense/StatsRow.tsx', { '../../stores/expenseStore': { useExpenseStore: store }, '../../utils/date': dates, '../../utils/expensePeriod': { getExpensePeriodTotals } }).StatsRow;
-  const ExpenseDetail = load('../src/components/expense/ExpenseDetail.tsx', { '../../stores/expenseStore': { useExpenseStore: store }, '../../utils/date': dates, '../../utils/icons': { expenseCategoryIcons: categories }, './expenseListFilter': expenseFilters, './expensePresentation': expensePresentation, '../ui/Button': { Button: host('button') }, 'framer-motion': { motion, AnimatePresence: host('div') } }).ExpenseDetail;
-  const Page = load('../src/pages/Expense.tsx', { 'react-router-dom': router, 'framer-motion': { motion }, '../components/ui/Button': { Button: host('button') }, '../stores/expenseStore': { useExpenseStore: store }, '../stores/coachStore': { useCoachStore: (select: (value: { insights: unknown[] }) => unknown) => select({ insights: [] }) }, '../utils/date': dates, '../utils/icons': { expenseCategoryIcons: categories }, '../components/expense': { StatsRow, ExpenseDetail, BudgetCard: empty, AddExpenseModal: ({ open }: { open: boolean }) => open ? createElement('div', { 'data-native-add-open': true }) : null } }).default;
+  const ExpenseDetail = load('../src/components/expense/ExpenseDetail.tsx', { '../../stores/expenseStore': { useExpenseStore: store }, '../../utils/date': dates, '../../utils/icons': { expenseCategoryIcons: categories }, './expenseListFilter': expenseFilters, './expensePresentation': expensePresentation, '../ui/Button': { Button: host('button') }, 'framer-motion': { motion, AnimatePresence: host('div'), useIsPresent: () => true } }).ExpenseDetail;
+  const Page = load('../src/pages/Expense.tsx', { '../components/expense/expenseFocus': expenseFocusReturn, 'react-router-dom': router, 'framer-motion': { motion }, '../components/ui/Button': { Button: host('button') }, '../stores/expenseStore': { useExpenseStore: store }, '../stores/coachStore': { useCoachStore: (select: (value: { insights: unknown[] }) => unknown) => select({ insights: [] }) }, '../utils/date': dates, '../utils/icons': { expenseCategoryIcons: categories }, '../components/expense': { StatsRow, ExpenseDetail, BudgetCard: empty, AddExpenseModal: ({ open }: { open: boolean }) => open ? createElement('div', { 'data-native-add-open': true }) : null } }).default;
   let tree!: ReactTestRenderer; await act(async () => { tree = create(createElement(Page)); });
   try {
     for (const [period, amount] of [['今日', '12.34'], ['本周', '24.68'], ['本月', '27.89']]) assert.equal(text(tree.root.findByProps({ 'aria-label': `${period}支出人民币${amount}元` })), `¥${amount}`);
@@ -63,7 +64,7 @@ test('Mounted actual Expense renders exact period cents, current dated identitie
 
 test('Actual SpendingPatternCard keeps native audit scope, row meaning, exact cents and expense-only shares', async () => {
   const store = (select: (value: { items: typeof fixture; loaded: boolean }) => unknown) => select({ items: fixture, loaded: true });
-  const Page = load('../src/pages/Expense.tsx', { 'react-router-dom': router, 'framer-motion': { motion }, '../components/ui/Button': { Button: host('button') }, '../stores/expenseStore': { useExpenseStore: store }, '../stores/coachStore': { useCoachStore: (select: (value: { insights: unknown[] }) => unknown) => select({ insights: [] }) }, '../utils/date': dates, '../utils/icons': { expenseCategoryIcons: categories }, '../components/expense': { StatsRow: empty, ExpenseDetail: empty, BudgetCard: empty, AddExpenseModal: empty } }).default;
+  const Page = load('../src/pages/Expense.tsx', { '../components/expense/expenseFocus': expenseFocusReturn, 'react-router-dom': router, 'framer-motion': { motion }, '../components/ui/Button': { Button: host('button') }, '../stores/expenseStore': { useExpenseStore: store }, '../stores/coachStore': { useCoachStore: (select: (value: { insights: unknown[] }) => unknown) => select({ insights: [] }) }, '../utils/date': dates, '../utils/icons': { expenseCategoryIcons: categories }, '../components/expense': { StatsRow: empty, ExpenseDetail: empty, BudgetCard: empty, AddExpenseModal: empty } }).default;
   let tree!: ReactTestRenderer; await act(async () => { tree = create(createElement(Page)); });
   try {
     const title = exact(tree, 'h3', '消费模式')[0]; assert.ok(title);

@@ -10,10 +10,10 @@ import { getToday } from '../../utils/date';
 import { useExpenseEditorDraft } from './useExpenseEditorDraft';
 import { expenseWriteFailure } from './expensePresentation';
 
-interface AddExpenseModalProps { open: boolean; onClose: () => void; item?: ExpenseItem; draftId?: string }
+interface AddExpenseModalProps { open: boolean; onClose: () => void; item?: ExpenseItem; draftId?: string; fallbackFocus?: () => HTMLElement | null }
 interface ExpenseForm { id: string; name: string; amount: string; category: string; date: string; isIncome: boolean; base: ExpenseItem | null }
 
-function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'open'>) {
+function ExpenseEditor({ onClose, item, draftId, fallbackFocus }: Omit<AddExpenseModalProps, 'open'>) {
   const draft = useExpenseEditorDraft<ExpenseForm>(item?.id ?? draftId ?? 'new', { id: item?.id ?? generateLocalId(), name: item?.name ?? '', amount: item ? (item.amount / 100).toFixed(2) : '', category: item?.category ?? 'food', date: item?.date ?? getToday(), isIncome: Boolean(item?.isIncome), base: item ?? null });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -58,7 +58,7 @@ function ExpenseEditor({ onClose, item, draftId }: Omit<AddExpenseModalProps, 'o
     } catch (reason) { setError(expenseWriteFailure(reason, 'delete')); }
     finally { guard.current = false; setSaving(false); }
   };
-  return <Modal open onClose={close} title={deleted ? '已删除记录的编辑稿' : item ? '编辑记账' : '记一笔'} className="max-h-[90dvh] overflow-y-auto" footer={<>
+  return <Modal open onClose={close} fallbackFocus={fallbackFocus} title={deleted ? '已删除记录的编辑稿' : item ? '编辑记账' : '记一笔'} className="max-h-[90dvh] overflow-y-auto" footer={<>
     {item && !deleted && <Button variant="ghost" onClick={() => setConfirmDelete(true)} disabled={saving || !draft.ready}>删除</Button>}
     <Button variant="ghost" onClick={close} disabled={saving}>取消（保留草稿）</Button>
     <Button onClick={() => void save()} disabled={saving || !draft.ready || stale || amount === null || Boolean(draftId && !draft.restored)}>{saving ? '保存中…' : deleted ? '另存为新记录' : '保存'}</Button>

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Plus, Sparkles, TrendingUp, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { BudgetCard, StatsRow, AddExpenseModal, ExpenseDetail } from '../components/expense';
@@ -8,6 +8,7 @@ import { useExpenseStore, type ExpenseItem } from '../stores/expenseStore';
 import { useCoachStore } from '../stores/coachStore';
 import { expenseCategoryIcons } from '../utils/icons';
 import { getDateDaysAgo, getToday } from '../utils/date';
+import { expenseReturnFocus } from '../components/expense/expenseFocus';
 
 function CoachInsightBanner() {
   const insights = useCoachStore((s) => s.insights);
@@ -136,6 +137,7 @@ function SpendingPatternCard() {
 }
 
 export default function Expense() {
+  const pageRef = useRef<HTMLDivElement>(null);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<ExpenseItem | undefined>();
   const [recoveryId, setRecoveryId] = useState<string | undefined>();
@@ -154,12 +156,10 @@ export default function Expense() {
   const source = (location.state as { returnTo?: { path?: string; label?: string } } | null)?.returnTo;
   const closeEditor = () => {
     setEditing(undefined); setShowModal(false); setRecoveryId(undefined); setDismissed(requestKey);
-    const id = editing?.id ?? target?.id;
-    if (id) window.setTimeout(() => { const row = document.getElementById(`expense-record-${id}`); row?.scrollIntoView({ block: 'center' }); row?.focus(); }, 250);
   };
 
   return (
-    <div className="record-page expense-page">
+    <div ref={pageRef} className="record-page expense-page">
       {source?.path && <Button variant="ghost" onClick={() => navigate(-1)}>← {source.label || '返回来源'}</Button>}
       {recordId && !loaded && <p role="status">正在查找这条记录…</p>}
       {recordId && loaded && !target && <section role="status" className="mb-4 space-y-2 rounded-xl border border-[var(--border)] p-4"><p>当前账号未找到这条记录。它可能已删除，或尚未同步到本机。</p><Button variant="soft" onClick={() => { setRecoveryId(recordId); setDismissed(requestKey); }}>查看此记录的本机编辑稿</Button></section>}
@@ -175,7 +175,7 @@ export default function Expense() {
         <aside className="expense-budget-rail" aria-label="预算与收支参考"><BudgetCard /><details className="record-disclosure"><summary>查看收支统计与历史提示</summary><div className="mt-4 space-y-4"><CoachInsightBanner /><SpendingPatternCard /><p className="text-xs leading-6 text-[var(--text-3)]">仅在已有历史提示或足够的支出记录时显示分析。</p></div></details></aside>
       </div></>}
 
-      <AddExpenseModal key={editing?.id ?? requestedItem?.id ?? recoveryId ?? 'new'} open={showModal || Boolean(editing || requestedItem || recoveryId)} item={editing ?? requestedItem} draftId={recoveryId} onClose={closeEditor} />
+      <AddExpenseModal key={editing?.id ?? requestedItem?.id ?? recoveryId ?? 'new'} open={showModal || Boolean(editing || requestedItem || recoveryId)} item={editing ?? requestedItem} draftId={recoveryId} onClose={closeEditor} fallbackFocus={() => expenseReturnFocus(pageRef.current, editing?.id ?? requestedItem?.id ?? recoveryId)} />
     </div>
   );
 }

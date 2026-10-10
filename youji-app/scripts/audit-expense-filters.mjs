@@ -129,4 +129,47 @@ export async function runExpenseFilterDifference(h, options) {
   await statistics(page, saved.local.expenses, `${prefix}-final-periods`);
   const final = await facts(`${prefix}-terminal`); assert.ok(checks.businessSourcesPreserved(saved, final) && checks.declaredRecordsMatch(final, ids, changedValues));
   await observe(page, `${prefix}-complete-category-only-correction-and-in-page-return`, true, JSON.stringify({ id: target.id, beforeCategory: 'other', afterCategory: 'food', records: 9, scope: 'Native local-filter operations; original amount/date/type and all other sampled fields retained; no new fixture or second Save' }));
+
+  // A distinct regression follows the retained original tail. Reuse the same
+  // native income and its same-day expense neighbor; restore its category at end.
+  // No added fixture, direct store mutation, timer delay or weakened assertion.
+  const focusTarget = final.local.expenses.find(row => row.id === ids[5]);
+  const neighbor = final.local.expenses.find(row => row.id === ids[0]);
+  assert.ok(focusTarget && neighbor && focusTarget.date === neighbor.date && focusTarget.category === 'other' && neighbor.category === 'food');
+  await choose(MONTH, '2026-10'); await choose(CATEGORY, '');
+  await open(page, focusTarget); await category(page, 'food'); await readyDraft(page); await save(page);
+  const joined = await facts(`${prefix}-same-day-neighbor-joined`);
+  assert.ok(categorySaveResult(final, joined, focusTarget.id, 'food', checks), 'Only the existing income category joins its same-day neighbor');
+  const joinedValues = changedValues.map((value, index) => index === 5 ? { ...value, category: 'food' } : value);
+  assert.ok(checks.declaredRecordsMatch(joined, ids, joinedValues));
+  await choose(CATEGORY, 'category:food');
+  await checkpoint('same-day-neighbor-before-exit', joinedValues.map((value, index) => ({ id: ids[index], ...value })), { month: '2026-10', category: 'food' }, joined);
+  const joinedTarget = joined.local.expenses.find(row => row.id === focusTarget.id);
+  await open(page, joinedTarget); await category(page, 'other'); await readyDraft(page); await save(page);
+  const focusSnapshot = () => page.evaluate(({ month, neighborId }) => {
+    const active = document.activeElement, control = document.querySelector(month), row = document.getElementById(`expense-record-${neighborId}`);
+    const rect = control?.getBoundingClientRect();
+    const hit = rect ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
+    let painted = Boolean(control);
+    for (let node = control; node; node = node.parentElement) { const style = getComputedStyle(node); if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) < .99 || style.contentVisibility === 'hidden') painted = false; }
+    return { activeId: active?.id, sameControl: active === control, connected: Boolean(control?.isConnected), enabled: Boolean(control && !control.disabled), neighborRetained: Boolean(row && !row.disabled),
+      painted, centerHit: Boolean(control && hit && (control === hit || control.contains(hit))), visible: Boolean(rect && rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0 && rect.bottom <= innerHeight && rect.right <= innerWidth), scrollY };
+  }, { month: MONTH, neighborId: neighbor.id });
+  const immediateFocus = await focusSnapshot();
+  await page.waitForFunction(id => !document.getElementById(`expense-record-${id}`), { timeout: 2200 }, focusTarget.id);
+  const returnFocus = await focusSnapshot();
+  const restored = await facts(`${prefix}-same-day-neighbor-restored`);
+  assert.ok(categorySaveResult(joined, restored, focusTarget.id, 'other', checks) && checks.declaredRecordsMatch(restored, ids, changedValues));
+  const focusedAndVisible = value => value.sameControl && value.connected && value.enabled && value.neighborRetained && value.visible && value.painted && value.centerHit;
+  await saveJSON('same-day-neighbor-focus-return', { targetId: focusTarget.id, neighborId: neighbor.id, immediateFocus, returnFocus, sourceArtifact: `${prefix}-same-day-neighbor-restored-full-source.json` });
+  await observe(page, `${prefix}-same-day-neighbor-exit-restores-visible-focus`, focusedAndVisible(immediateFocus) && focusedAndVisible(returnFocus), JSON.stringify({ immediateFocus, returnFocus }));
+  assert.ok(focusedAndVisible(immediateFocus) && focusedAndVisible(returnFocus), 'Removing the edited row while its same-day neighbor remains must return to a visible stable control before any driver scroll');
+  // Click the real scope control once after the exited row is gone. It must not
+  // lose focus to old callbacks or be displaced by a deferred editor scroll.
+  const disclosure = `${SECTION} details.expense-scope-disclosure`;
+  await tap(page, `${disclosure} summary`); assert.equal(await page.$eval(disclosure, node => node.open), true);
+  await tap(page, `${disclosure} summary`); assert.equal(await page.$eval(disclosure, node => node.open), false);
+  await tap(page, `${SECTION} button`, '清除筛选');
+  await checkpoint('same-day-neighbor-final-nine-records', changed, {}, restored);
+  assert.ok(checks.businessSourcesPreserved(restored, await facts(`${prefix}-same-day-neighbor-terminal`)));
 }

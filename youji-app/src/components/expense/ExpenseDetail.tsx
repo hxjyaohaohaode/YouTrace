@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useExpenseStore, type ExpenseItem } from '../../stores/expenseStore';
 import { expenseCategoryIcons } from '../../utils/icons';
@@ -23,9 +23,10 @@ function monthLabel(month: string | null): string {
 }
 
 function ExpenseItemRow({ item, onEdit }: { item: ExpenseItem; onEdit: () => void }) {
+  const isPresent = useIsPresent();
   const meta = Object.hasOwn(expenseCategoryIcons, item.category) ? expenseCategoryIcons[item.category] : expenseCategoryIcons.other;
   const Icon = meta.icon;
-  return <button type="button" onClick={onEdit} id={`expense-record-${item.id}`} className="expense-ledger-row flex w-full flex-wrap items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑记账 ${item.name} ${item.date} ${item.isIncome ? '收入' : '支出'} ${formatYuan(item.amount)}元`}>
+  return <button type="button" onClick={onEdit} disabled={!isPresent} id={`expense-record-${item.id}`} className="expense-ledger-row flex w-full flex-wrap items-center gap-3 text-left focus-visible:outline-2 focus-visible:outline-[var(--primary)]" aria-label={`编辑记账 ${item.name} ${item.date} ${item.isIncome ? '收入' : '支出'} ${formatYuan(item.amount)}元`}>
     <Icon size={20} className="shrink-0" style={{ color: meta.color }} aria-hidden />
     <div className="min-w-0 flex-1"><p className="break-words text-base font-semibold text-[var(--text-1)]">{item.name}</p><p className="break-words text-xs text-[var(--text-3)]">{categoryLabel(item.category)} · {item.date || '日期缺失'} · 编辑</p></div>
     <div className={`flex shrink-0 items-center gap-1 font-mono text-base font-bold ${item.isIncome ? 'text-[var(--success)]' : 'text-[var(--text-1)]'}`}>

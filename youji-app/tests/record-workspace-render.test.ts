@@ -8,6 +8,7 @@ import { act } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import ts from 'typescript';
 import * as diaryFocusReturn from '../src/components/diary/useDiaryFocusReturn';
+import * as expenseFocusReturn from '../src/components/expense/expenseFocus';
 import { getExpensePeriodTotals } from '../src/utils/expensePeriod';
 
 // Real page JSX/hooks rendered with synthetic read-only stores and host controls.
@@ -101,6 +102,7 @@ test('Expense waits for a verified local read before displaying totals or an emp
     'framer-motion': { motion: { div: 'div' } },
     '../components/expense': { BudgetCard: () => React.createElement('div', { 'data-budget': true }), StatsRow: () => React.createElement('div', { 'data-totals': true }), ExpenseDetail: () => React.createElement('div', { 'data-ledger': true }), AddExpenseModal: () => null },
     '../components/ui/Button': { Button: button },
+    '../components/expense/expenseFocus': expenseFocusReturn,
     '../stores/expenseStore': { useExpenseStore: store },
     '../stores/coachStore': { useCoachStore: (select: (state: { insights: unknown[] }) => unknown) => select({ insights: [] }) },
     '../utils/icons': { expenseCategoryIcons: {} },
@@ -129,8 +131,9 @@ test('Expense compact scope keeps exact loaded count, discoverable caveats and u
   ];
   const filters = await import('../src/components/expense/expenseListFilter');
   const presentation = await import('../src/components/expense/expensePresentation');
+  let present = true;
   const module = loadComponent('../src/components/expense/ExpenseDetail.tsx', {
-    'framer-motion': { motion: { div: ({ children }: { children: React.ReactNode }) => React.createElement('div', {}, children) }, AnimatePresence: ({ children }: { children: React.ReactNode }) => children },
+    'framer-motion': { useIsPresent: () => present, motion: { div: ({ children }: { children: React.ReactNode }) => React.createElement('div', {}, children) }, AnimatePresence: ({ children }: { children: React.ReactNode }) => children },
     'lucide-react': { ArrowUpRight: icon, ArrowDownRight: icon },
     '../../stores/expenseStore': { useExpenseStore: (select: (state: { items: typeof items }) => unknown) => select({ items }) },
     '../../utils/icons': { expenseCategoryIcons: { food: { icon, label: '餐饮' }, other: { icon, label: '其他' } } },
@@ -149,6 +152,10 @@ test('Expense compact scope keeps exact loaded count, discoverable caveats and u
   assert.equal(tree.root.findByProps({ role: 'status' }).children.join(''), '当前明细：2026-10 · 所有类别，显示 1 / 2 笔');
   assert.equal(tree.root.findAllByProps({ id: 'expense-record-october' }).length, 1);
   assert.equal(tree.root.findAllByProps({ id: 'expense-record-september' }).length, 0);
+  assert.equal(tree.root.findByProps({ id: 'expense-record-october' }).props.disabled, false);
+  present = false;
+  await act(async () => tree.update(React.createElement(module.ExpenseDetail, { onEdit: () => undefined })));
+  assert.equal(tree.root.findByProps({ id: 'expense-record-october' }).props.disabled, true, 'Real row JSX disables an exiting opener before focus restoration');
   assert.equal(tree.root.findByProps({ id: 'expense-local-scope' }).children.join(''), '本机记录 · 已加载 2 笔');
   await act(async () => tree.unmount());
 });
