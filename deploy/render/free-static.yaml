@@ -1,0 +1,20 @@
+# FREE FRONTEND ONLY. Requires an existing, approved persistent API and real SMS.
+# This file deliberately does not create a free ephemeral SQLite backend.
+# Use this Blueprint path only after approving the actual API destination.
+services:
+  - type: web
+    name: youtrace
+    runtime: static
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: cd youji-app && npm ci && npm run build
+    staticPublishPath: youji-app/dist
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

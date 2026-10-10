@@ -1,3 +1,4 @@
+import { publicServerAIConfiguration } from '../services/serverAI.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AuthUser } from '../middleware/auth.js'
@@ -14,7 +15,7 @@ aiConnectionRoutes.onError((error, c) => error instanceof AIError
 aiConnectionRoutes.get('/', async c => {
   const user = c.get('user') as AuthUser
   const row = await prisma.userAIConnection.findUnique({ where: { userId: user.id } })
-  return c.json({ connection: publicConnection(row), templates: AI_PROVIDERS, credentialStorageReady: encryptionReady() })
+  return c.json({ connection: publicConnection(row), templates: AI_PROVIDERS, credentialStorageReady: encryptionReady(), serverAI: publicServerAIConfiguration() })
 })
 aiConnectionRoutes.put('/', async c => {
   const parsed = connectionSchema.safeParse(await c.req.json())

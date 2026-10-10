@@ -39,6 +39,10 @@ export async function exerciseUserAI(page, { route, clickControl, clickButton, f
     await page.screenshot({ path: join(artifactDir, 'user-ai-coach-default.png'), fullPage: true });
     await clickControl(page, '[aria-label="本次页面使用我的模型"]');
     assert.equal(await page.$eval('[aria-label="本次页面使用我的模型"]', el => el.checked), true);
+    await page.waitForSelector('[aria-label="本次页面使用部署者的基础模型"]');
+    await clickControl(page, '[aria-label="本次页面使用部署者的基础模型"]');
+    assert.equal(await page.$eval('[aria-label="本次页面使用我的模型"]', el => el.checked), false);
+    assert.equal(await page.$eval('[aria-label="本次页面使用部署者的基础模型"]', el => el.checked), true);
     await route(page, '/settings'); await route(page, '/coach');
     await page.waitForSelector('[aria-label="本次页面使用我的模型"]');
     assert.equal(await page.$eval('[aria-label="本次页面使用我的模型"]', el => el.checked), false);

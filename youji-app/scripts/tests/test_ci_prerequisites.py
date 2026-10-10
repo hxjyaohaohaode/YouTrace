@@ -165,7 +165,12 @@ class BundleTests(unittest.TestCase):
 
     def test_workflow_keeps_budgets_probes_and_all_matrix_tasks(self):
         workflow = (Path(__file__).parents[3] / '.github/workflows/ci.yml').read_text()
-        self.assertEqual(workflow.count('timeout-minutes: 20'), 3)
+        original_jobs, render_job = workflow.split('\n  render_image:', 1)
+        self.assertEqual(original_jobs.count('timeout-minutes: 20'), 3)
+        self.assertEqual(render_job.count('timeout-minutes: 20'), 1)
+        self.assertIn('docker build --file deploy/render/Dockerfile', render_job)
+        self.assertIn('test \"$result\" -eq 1', render_job)
+        self.assertIn('Render startup refused', render_job)
         self.assertEqual(workflow.count('timeout-minutes: 8'), 1)
         self.assertEqual(workflow.count('45s bash scripts/recording-prereq-probe.sh'), 2)
         self.assertEqual(workflow.count('needs: prepare_prerequisites'), 2)

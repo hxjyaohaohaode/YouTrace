@@ -1,55 +1,68 @@
-# 有迹 v2 渲染蓝图（Render Blueprint）
-#
-# 架构：前后端分离部署
-#   - youtrace  : Static Site —— Vite 构建的 SPA（构建时注入 API 地址）
-#   - youji-api : Web Service —— Hono + Prisma(SQLite) 纯 API 服务
-#
-# 持久化说明：免费档实例没有持久磁盘，SQLite 文件随每次重新部署重置。
-# 如需数据持久化：升级为付费实例后取消下方 disk 注释，
-# 并把 DATABASE_URL 改为 file:/var/data/youji.db
-#
-# 可选集成（默认关闭，可在面板自行添加环境变量）：
-#   AI_CREDENTIAL_ENCRYPTION_KEY             —— 仅加密用户自配凭据，不提供模型或额度
-#   旧 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 不再读取；用户在设置中自行添加模型。
-#   SMS_PROVIDER_URL / SMS_PROVIDER_TOKEN    —— 短信服务商（必须成对配置）
-
+# Production candidate: PAID API + PAID persistent disk, free static frontend.
+# Do not Apply without cost approval, verified restore and actual service URLs.
+# Pure-free frontend-only alternative: deploy/render/free-static.yaml.
+# API refuses startup without the declared mounted disk; never ephemeral SQLite.
+# Auto Sync is a separate Blueprint setting and must remain No until authorized.
 services:
   - type: web
     name: youji-api
-    runtime: node
-    plan: free
+    runtime: docker
+    plan: 0.5c-512mb
     region: singapore
     branch: main
-    rootDir: youji-app/server
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
-    startCommand: node dist/index.js
+    autoDeployTrigger: 'off'
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
     healthCheckPath: /health
+    disk:
+      name: youtrace-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: HOST
+        value: 0.0.0.0
       - key: PORT
-        value: 10000
-      # ≥32 位随机字符串；Apply 蓝图时在面板中生成
+        value: '10000'
       - key: JWT_SECRET
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://youtrace-ezu4.onrender.com
-      - key: TRUST_PROXY
-        value: true
-      - key: SESSION_COOKIE_NAME
-        value: youji_session
+        sync: false
+      - key: SMS_PROVIDER_URL
+        sync: false
+      - key: SMS_PROVIDER_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: /var/data/youtrace
+      - key: BACKUP_DIR
+        value: /var/data/backups
       - key: DATABASE_URL
-        value: file:./prisma/youji.db
+        value: file:/var/data/youtrace/youtrace.sqlite3
       - key: DEV_OTP_EXPOSE
-        value: false
+        value: 'false'
+      # Set true manually ONLY for an approved, empty installation; then remove.
+      - key: YOU_TRACE_INITIALIZE_EMPTY
+        value: 'false'
+      - key: SERVER_AI_ENABLED
+        value: 'false'
+      # Optional: add AI_CREDENTIAL_ENCRYPTION_KEY for account-owned BYOK storage.
+      # Optional basic chat: SERVER_AI_API_KEY / SERVER_AI_BASE_URL / SERVER_AI_MODEL.
+      # No generated credentials or implicit provider/model defaults.
 
   - type: web
     name: youtrace
     runtime: static
-    buildCommand: cd youji-app && npm ci && VITE_API_BASE_URL=https://youji-api.onrender.com/api npm run build
+    branch: main
+    autoDeployTrigger: 'off'
+    buildCommand: cd youji-app && npm ci && npm run build
     staticPublishPath: youji-app/dist
+    envVars:
+      - key: NODE_VERSION
+        value: '24'
+      - key: VITE_API_BASE_URL
+        sync: false
     routes:
-      # SPA 回退：静态文件优先命中，未命中的路径回退到 index.html
       - type: rewrite
         source: /*
         destination: /index.html

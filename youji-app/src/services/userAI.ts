@@ -4,7 +4,10 @@ export interface AIConnection extends AIConnectionIdentity {
   providerId: string; providerName: string; endpoint: string; model: string;
   chatConsent: boolean; configured: boolean; connectivity: 'not_tested'; updatedAt: string
 }
+export interface ServerAISelection { configurationId: string; consent: true }
+export interface ServerAIConfiguration { configurationId: string; endpoint: string; model: string }
 export interface AIConfiguration {
+  serverAI?: ServerAIConfiguration | null;
   connection: AIConnection | null; credentialStorageReady: boolean;
   templates: Array<{ id: string; name: string; endpoint: string }>
 }
@@ -12,6 +15,8 @@ export const readAIConfiguration = () => api.get<AIConfiguration>('/ai-connectio
 export function aiErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : ''
   const messages: Record<string, string> = {
+    AI_SERVER_UNAVAILABLE: '部署者提供的基础模型尚未配置或已停用。可以继续使用本地规则或自己的 AI 连接。',
+    AI_SELECTION_AMBIGUOUS: '请只选择一种模型来源。',
     AI_CREDENTIAL_STORAGE_UNAVAILABLE: '服务器尚未配置凭据加密，暂不能保存或使用模型。',
     AI_CREDENTIALS_UNAVAILABLE: '密钥暂时无法解密。请联系部署者恢复匹配的加密配置，或重新填写密钥。',
     AI_CONNECTION_CHANGED: '连接已在其他页面改变。请刷新核对后再操作。',

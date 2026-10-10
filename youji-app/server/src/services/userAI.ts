@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { UserAIConnection } from '@prisma/client'
 import { prisma } from '../utils/db.js'
 import { readChatCompletionStream } from './openAiStream.js'
+import { ServerAIBudget } from './serverAIBudget.js'
+import { serverAIConfiguration } from './serverAI.js'
 
 // Connection form templates, never installed connections or model defaults.
 export const AI_PROVIDERS = [
@@ -104,7 +106,7 @@ export function chatMessages(history: Array<{ role: string; content: string; sou
   // No app records, local-rule summaries, hidden tools, or other sessions are added.
   const chosen: AIMessage[] = []
   let remaining = 12000
-  for (const message of history.filter(message => message.source === 'user_text' || message.source === 'user_ai').slice(-20).reverse()) {
+  for (const message of history.filter(message => message.source === 'user_text' || message.source === 'user_ai' || message.source === 'server_ai').slice(-20).reverse()) {
     if (!['user', 'assistant'].includes(message.role) || message.content.length > remaining) break
     chosen.unshift({ role: message.role as 'user' | 'assistant', content: message.content })
     remaining -= message.content.length
@@ -113,29 +115,64 @@ export function chatMessages(history: Array<{ role: string; content: string; sou
 }
 
 export async function* completeUserAI(row: UserAIConnection, messages: AIMessage[], signal: AbortSignal, probe = false): AsyncGenerator<string> {
-  const controllers = active.get(row.userId) ?? new Set<AbortController>()
+  yield* completeAI(row.userId, messages, signal, async () => {
+    await selectedConnection(row.userId, row.id, row.version, !probe)
+    const template = AI_PROVIDERS.find(provider => provider.id === row.providerId)
+    if (!template) throw new AIError('AI_PROVIDER_UNSUPPORTED', 422)
+    return { endpoint: template.endpoint, model: row.model, key: decryptCredential(row), mimo: row.providerId === 'mimo' }
+  }, probe)
+}
+
+export function selectedServerAI(configurationId: string) {
+  const config = serverAIConfiguration()
+  if (!config) throw new AIError('AI_SERVER_UNAVAILABLE', 503)
+  if (config.configurationId !== configurationId) throw new AIError('AI_CONNECTION_CHANGED')
+  return config
+}
+
+const serverAIBudget = new ServerAIBudget()
+export async function* completeServerAI(userId: string, configurationId: string, messages: AIMessage[], signal: AbortSignal): AsyncGenerator<string> {
+  selectedServerAI(configurationId)
+  signal.throwIfAborted()
+  // Site-wide, single-process guard in addition to per-account chat limits.
+  // Restarts reset this conservative ceiling; provider hard budgets remain required.
+  const release = serverAIBudget.acquire(userId)
+  if (!release) throw new AIError('AI_RATE_LIMITED', 429)
+  try {
+    yield* completeAI(userId, messages, signal, async () => {
+      const config = selectedServerAI(configurationId)
+      const options = config.endpoint.startsWith('https://dashscope.aliyuncs.com/')
+        ? { max_completion_tokens: 1024, enable_thinking: false }
+        : config.endpoint.startsWith('https://api.xiaomimimo.com/')
+          ? { max_completion_tokens: 1024, thinking: { type: 'disabled' } }
+          : { max_tokens: 1024, thinking: { type: 'disabled' } }
+      return { endpoint: config.endpoint, model: config.model, key: config.apiKey, mimo: false, options }
+    })
+  } finally { release() }
+}
+
+async function* completeAI(userId: string, messages: AIMessage[], signal: AbortSignal,
+  resolve: () => Promise<{ endpoint: string; model: string; key: string; mimo: boolean; options?: Record<string, unknown> }>, probe = false): AsyncGenerator<string> {
+  const controllers = active.get(userId) ?? new Set<AbortController>()
   if (controllers.size >= 1) throw new AIError('AI_REQUEST_IN_PROGRESS', 429)
   const controller = new AbortController()
-  controllers.add(controller); active.set(row.userId, controllers)
+  controllers.add(controller); active.set(userId, controllers)
   const boundedSignal = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(probe ? 15000 : 30000)])
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const abortBody = () => { void reader?.cancel().catch(() => undefined) }
   boundedSignal.addEventListener('abort', abortBody, { once: true })
   try {
-    await selectedConnection(row.userId, row.id, row.version, !probe)
+    const { endpoint, model, key, mimo, options } = await resolve()
     boundedSignal.throwIfAborted()
-    const template = AI_PROVIDERS.find(provider => provider.id === row.providerId)
-    if (!template) throw new AIError('AI_PROVIDER_UNSUPPORTED', 422)
-    const key = decryptCredential(row)
     if (!key || !/^[\x21-\x7e]{1,1000}$/.test(key)) throw new AIError('AI_CREDENTIALS_UNAVAILABLE', 503)
-    const payload = { model: row.model, messages, stream: true,
-      ...(row.providerId === 'mimo' ? { max_completion_tokens: probe ? 32 : 1000, thinking: { type: 'disabled' } } : { max_tokens: probe ? 32 : 1000 }) }
+    const payload = { model, messages, stream: true,
+      ...(options ?? (mimo ? { max_completion_tokens: probe ? 32 : 1000, thinking: { type: 'disabled' } } : { max_tokens: probe ? 32 : 1000 })) }
     // Fixed HTTPS URLs, no client-controlled URL/headers, no redirects or retries.
-    const response = await fetch(template.endpoint, { method: 'POST', redirect: 'error',
+    const response = await fetch(endpoint, { method: 'POST', redirect: 'error',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(payload), signal: boundedSignal })
     if (!response.ok || !response.body) { await response.body?.cancel(); throw new AIError('AI_PROVIDER_UNAVAILABLE', 502) }
-    if (response.redirected || (response.url && response.url !== template.endpoint)) { await response.body.cancel(); throw new AIError('AI_REDIRECT_REJECTED', 502) }
+    if (response.redirected || (response.url && response.url !== endpoint)) { await response.body.cancel(); throw new AIError('AI_REDIRECT_REJECTED', 502) }
     reader = response.body.getReader()
     let bytes = 0
     const guarded = new ReadableStream<Uint8Array>({
@@ -175,6 +212,6 @@ export async function* completeUserAI(row: UserAIConnection, messages: AIMessage
     await reader?.cancel().catch(() => undefined)
     reader?.releaseLock()
     controllers.delete(controller)
-    if (controllers.size === 0) active.delete(row.userId)
+    if (controllers.size === 0) active.delete(userId)
   }
 }

@@ -67,6 +67,9 @@ jobs:
       - name: Backend lint, build, auth and synchronization regressions
         run: npm run check
         working-directory: youji-app/server
+      - name: Refuse ephemeral Render SQLite and validate persistent-disk startup gates
+        run: python3 -m unittest discover -s deploy/render/tests -v
+        working-directory: .
       - name: All dependency audit
         run: npm audit --audit-level=high && npm --prefix server audit --audit-level=high
       - name: Download this run's authenticated prerequisites
@@ -305,4 +308,37 @@ jobs:
           path: youji-app/test-artifacts/outcome-package/evidence.part-15
           compression-level: 0
           if-no-files-found: error
+          retention-days: 14
+
+  render_image:
+    name: Render candidate image and ephemeral-storage refusal (no deployment)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact Render API Dockerfile without touching a database
+        run: docker build --file deploy/render/Dockerfile --tag youtrace-render-synthetic .
+      - name: Refuse startup without a mounted persistent disk
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -e NODE_ENV=production -e RENDER=true \
+            -e DATA_DIR=/var/data/youtrace -e BACKUP_DIR=/var/data/backups \
+            -e DATABASE_URL=file:/var/data/youtrace/youtrace.sqlite3 \
+            -e YOU_TRACE_INITIALIZE_EMPTY=true \
+            youtrace-render-synthetic > "$RUNNER_TEMP/render-no-disk.log" 2>&1
+          result=$?
+          set -e
+          cat "$RUNNER_TEMP/render-no-disk.log"
+          test "$result" -eq 1
+          grep -q 'Render startup refused' "$RUNNER_TEMP/render-no-disk.log"
+          if grep -q 'Youji server running' "$RUNNER_TEMP/render-no-disk.log"; then exit 1; fi
+      - name: Keep isolated image gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtrace-render-image-gate-${{ github.sha }}
+          path: ${{ runner.temp }}/render-no-disk.log
+          if-no-files-found: warn
           retention-days: 14

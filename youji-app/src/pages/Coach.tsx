@@ -1,4 +1,4 @@
-import { readAIConfiguration, type AIConnection } from '../services/userAI';
+import { readAIConfiguration, type AIConnection, type ServerAIConfiguration } from '../services/userAI';
 import { useAuthStore } from '../stores/authStore';
 import { getSessionGeneration, getVerifiedSessionOwner } from '../services/apiClient';
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
@@ -39,16 +39,20 @@ export default function Coach() {
   const clearHistory = useCoachStore((s) => s.clearHistory);
 
   const owner = useAuthStore(state => state.user?.id ?? '');
-  const [modelState, setModelState] = useState<{ owner: string; generation: number; connection: AIConnection | null; ready: boolean; failed: boolean } | null>(null);
+  const sessionGeneration = getSessionGeneration();
+  const [modelState, setModelState] = useState<{ owner: string; generation: number; connection: AIConnection | null; serverAI: ServerAIConfiguration | null; ready: boolean; failed: boolean } | null>(null);
   const [modelChoice, setModelChoice] = useState<{ owner: string; generation: number; connectionId: string; enabled: boolean } | null>(null);
+  const [serverChoice, setServerChoice] = useState<{ owner: string; generation: number; configurationId: string; enabled: boolean } | null>(null);
+  const currentServerAI = modelState?.owner === owner && modelState.generation === getSessionGeneration() ? modelState.serverAI : null;
   const currentModel = modelState?.owner === owner && modelState.generation === getSessionGeneration() && modelState.ready ? modelState.connection : null;
   const useModel = modelChoice?.owner === owner && modelChoice.generation === getSessionGeneration() && modelChoice.connectionId === currentModel?.connectionId && modelChoice.enabled;
+  const useServerAI = !useModel && serverChoice?.owner === owner && serverChoice.generation === getSessionGeneration() && serverChoice.configurationId === currentServerAI?.configurationId && serverChoice.enabled;
   useEffect(() => {
     let live = true;
     const generation = getSessionGeneration();
     if (owner) void readAIConfiguration().then(config => {
-      if (live && getVerifiedSessionOwner() === owner && getSessionGeneration() === generation) setModelState({ owner, generation, connection: config.connection, ready: config.credentialStorageReady, failed: false });
-    }).catch(() => { if (live) setModelState({ owner, generation, connection: null, ready: false, failed: true }); });
+      if (live && getVerifiedSessionOwner() === owner && getSessionGeneration() === generation) setModelState({ owner, generation, connection: config.connection, serverAI: config.serverAI ?? null, ready: config.credentialStorageReady, failed: false });
+    }).catch(() => { if (live) setModelState({ owner, generation, connection: null, serverAI: null, ready: false, failed: true }); });
     return () => { live = false; };
   }, [owner]);
 
@@ -75,6 +79,8 @@ export default function Coach() {
 
   const handleSend = useCallback(
     async (text: string) => {
+      // A callback from the previous account must not submit under new cookies.
+      if (owner !== getVerifiedSessionOwner() || sessionGeneration !== getSessionGeneration()) return;
       if (isTyping || !text.trim()) return;
       followingRef.current = true; setFollowing(true);
 
@@ -84,9 +90,9 @@ export default function Coach() {
         return;
       }
 
-      await sendMessage(text, useModel && currentModel?.chatConsent ? { connectionId: currentModel.connectionId, version: currentModel.version } : undefined);
+      await sendMessage(text, useModel && currentModel?.chatConsent ? { connectionId: currentModel.connectionId, version: currentModel.version } : undefined, useServerAI && currentServerAI ? { configurationId: currentServerAI.configurationId, consent: true } : undefined);
     },
-    [isTyping, addMessage, sendMessage, useModel, currentModel]
+    [owner, sessionGeneration, isTyping, addMessage, sendMessage, useModel, currentModel, useServerAI, currentServerAI]
   );
 
   const recordWelcome = useSyncExternalStore(subscribeRecordCoverage, getRecordCoverageWelcome, getRecordCoverageWelcome);
@@ -153,7 +159,8 @@ export default function Coach() {
       </div>
 
       <div className="shrink-0 border-b border-[var(--border)] px-4 py-2 text-xs leading-5">
-        {currentModel?.chatConsent ? <label className="flex items-start gap-2"><input type="checkbox" aria-label="本次页面使用我的模型" checked={useModel} disabled={isTyping} onChange={event => setModelChoice({ owner, generation: getSessionGeneration(), connectionId: currentModel.connectionId, enabled: event.target.checked })} /><span>使用我的 {currentModel.providerName} · {currentModel.model}。发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。可能产生 API 费用。</span></label> : <p>{modelState?.failed ? '暂未读到模型设置。当前仅使用本地规则回复。' : '当前使用本地规则回复，未调用外部模型。'}</p>}
+        {currentModel?.chatConsent ? <label className="flex items-start gap-2"><input type="checkbox" aria-label="本次页面使用我的模型" checked={useModel} disabled={isTyping} onChange={event => { setServerChoice(null); setModelChoice({ owner, generation: getSessionGeneration(), connectionId: currentModel.connectionId, enabled: event.target.checked }); }} /><span>使用我的 {currentModel.providerName} · {currentModel.model}。发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。可能产生 API 费用。</span></label> : <p>{modelState?.failed ? '暂未读到模型设置。当前仅使用本地规则回复。' : useServerAI ? '本页已选择部署者提供的基础模型。' : '当前使用本地规则回复，未调用外部模型。'}</p>}
+        {currentServerAI && <label className="flex items-start gap-2"><input type="checkbox" aria-label="本次页面使用部署者的基础模型" checked={Boolean(useServerAI)} disabled={isTyping} onChange={event => { setModelChoice(null); setServerChoice({ owner, generation: getSessionGeneration(), configurationId: currentServerAI.configurationId, enabled: event.target.checked }); }} /><span className="min-w-0 break-words">同意使用部署者提供的基础模型 {currentServerAI.model}，将本次文字与当前会话的有限文字历史发送至 {currentServerAI.endpoint}，不附加应用记录。API 用量由部署者承担；仅文字建议，不执行操作。本页默认关闭。</span></label>}
         <button type="button" className="underline" onClick={() => navigate('/settings')}>管理我的 AI 连接与外发许可</button>
       </div>
       <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
@@ -170,7 +177,7 @@ export default function Coach() {
             <div className="coach-starters" aria-label="开始一段对话">
               {quickQuestions.map(q => <button key={q} type="button" aria-label={q} onClick={() => void handleSend(q)}>{q} <span aria-hidden>↗</span></button>)}
             </div>
-            <p className="coach-boundary">默认使用本地规则回复。只有你选择自己的模型后，才会发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。模型不会自动变更记录；操作建议须先核对，再由你主动点击执行。调用可能产生 API 费用。</p>
+            <p className="coach-boundary">默认使用本地规则回复。只有你明确选择并同意模型来源后，才会发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。模型不会自动变更记录；操作建议须先核对，再由你主动点击执行。调用可能产生 API 费用。</p>
             <button type="button" onClick={() => navigate('/insights')} className="mt-4 min-h-11 text-sm text-[var(--link)] underline">先查看可核对的记录依据</button>
           </div>
         ) : (

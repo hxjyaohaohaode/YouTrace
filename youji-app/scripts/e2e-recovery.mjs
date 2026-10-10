@@ -1,6 +1,8 @@
 // Real Chromium + real HTTP cookies + real IndexedDB. Synthetic, isolated data only.
 import assert from 'node:assert/strict';
 import { exerciseUserAI } from './user-ai-browser-contract.mjs';
+import { exerciseServerAI } from './server-ai-browser-contract.mjs';
+import { pathToFileURL } from 'node:url';
 import { mkdtemp, mkdir, rm, writeFile, access, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -156,7 +158,7 @@ const artifactDir = resolve(appDir, 'test-artifacts');
 await mkdir(artifactDir, { recursive: true });
 const port = Number(process.env.E2E_API_PORT || 3327), frontPort = Number(process.env.E2E_FRONT_PORT || 5273);
 const front = `http://127.0.0.1:${frontPort}`;
-const env = { ...process.env, NODE_ENV: 'test', PORT: String(port), DATABASE_URL: `file:${join(scratch, 'fixture.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: front, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', AI_CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('base64'), VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${port}` };
+const env = { ...process.env, SERVER_AI_ENABLED: 'true', SERVER_AI_API_KEY: 'FIXTURE-BROWSER-SHARED-NOT-A-REAL-KEY', SERVER_AI_BASE_URL: 'https://api.deepseek.com/v1', SERVER_AI_MODEL: 'deepseek-synthetic-browser', NODE_ENV: 'test', PORT: String(port), DATABASE_URL: `file:${join(scratch, 'fixture.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: front, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', AI_CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('base64'), VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${port}` };
 const logs = [];
 const report = [];
 const children = [];
@@ -678,7 +680,7 @@ async function businessRegressions(page) {
 try {
   const migrated = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { cwd: join(appDir, 'server'), env, encoding: 'utf8' });
   assert.equal(migrated.status, 0, migrated.stderr);
-  start(process.execPath, ['dist/index.js'], join(appDir, 'server'));
+  start(process.execPath, ['--import', pathToFileURL(join(appDir, 'scripts/server-ai-provider-fixture.mjs')).href, 'dist/index.js'], join(appDir, 'server'));
   start(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', String(frontPort), '--strictPort'], appDir);
   await waitFor(`http://127.0.0.1:${port}/health`); await waitFor(front);
   let executablePath = process.env.AUDIT_BROWSER_PATH;
@@ -691,6 +693,7 @@ try {
   await page.setViewport({ width: 1280, height: 900 });
   await login(page, '13900009901', 'Synthetic A'); step('Real OTP-cookie registration and onboarding');
   await exerciseUserAI(page, { route, clickControl, clickButton, fillControl, artifactDir }); step('User-owned AI add/delete, per-page opt-in reset, and zero provider requests');
+  await exerciseServerAI(page, { route, clickControl, fillControl, artifactDir }); step('Shared AI explicit consent, real HTTP/SSE with synthetic provider transport, per-page reset and rule fallback');
   step('Paint-stable workspace geometry and computed margin clear actual fixed navigation');
   await addTodo(page, 'Synthetic A private todo');
   // A success notification must not steal the user's next create click.

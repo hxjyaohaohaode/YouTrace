@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { prisma } from '../utils/db.js'
 import { generateId } from '../utils/id.js'
 import type { AuthUser } from '../middleware/auth.js'
-import { AIError, chatMessages, completeUserAI, selectedConnection } from '../services/userAI.js'
+import { AIError, chatMessages, completeUserAI, completeServerAI, selectedServerAI, selectedConnection } from '../services/userAI.js'
 import type { UserAIConnection } from '@prisma/client'
 import { consumeRateLimit, getClientIp } from '../utils/rateLimit.js'
 import { addDays, getToday, getWeekStart } from '../utils/date.js'
@@ -17,6 +17,7 @@ export const chatRoutes = new Hono()
 const chatSchema = z.object({
   sessionId: z.string().min(8).max(64).optional(),
   message: z.string().trim().min(1).max(2000),
+  serverAI: z.object({ configurationId: z.string().regex(/^[a-f0-9]{64}$/), consent: z.literal(true) }).strict().optional(),
   aiConnection: z.object({ connectionId: z.string().uuid(), version: z.number().int().min(1).max(2147483646) }).strict().optional(),
 }).strict()
 
@@ -72,7 +73,16 @@ chatRoutes.post('/', async (c) => {
     return c.json({ error: parsed.error.flatten().fieldErrors }, 400)
   }
 
-  const { sessionId, message, aiConnection } = parsed.data
+  const { sessionId, message, aiConnection, serverAI } = parsed.data
+  // Never silently switch an account-owned request to the deployment key.
+  if (aiConnection && serverAI) return c.json({ error: 'AI_SELECTION_AMBIGUOUS' }, 400)
+  if (serverAI && !hasCurrentSelfHarmCue(message)) {
+    try { selectedServerAI(serverAI.configurationId) }
+    catch (error) {
+      if (error instanceof AIError) return c.json({ error: error.code }, error.status)
+      throw error
+    }
+  }
   let selectedAI: UserAIConnection | null = null
   if (aiConnection && !hasCurrentSelfHarmCue(message)) {
     try { selectedAI = await selectedConnection(user.id, aiConnection.connectionId, aiConnection.version) }
@@ -136,7 +146,7 @@ chatRoutes.post('/', async (c) => {
     let fullContent = ''
     let fallbackActions: Array<Record<string, unknown>> = []
     let allowGeneratedActions = true
-    let responseSource = 'user_ai'
+    let responseSource = serverAI ? 'server_ai' : 'user_ai'
     const controller = new AbortController()
     const signal = AbortSignal.any([c.req.raw.signal, controller.signal])
     s.onAbort(() => controller.abort())
@@ -146,7 +156,7 @@ chatRoutes.post('/', async (c) => {
       fullContent = getSafetySupportResponse()
       allowGeneratedActions = false
       await s.write(`data: ${JSON.stringify({ content: fullContent, source: 'safety_template' })}\n\n`)
-    } else if (!selectedAI) {
+    } else if (!selectedAI && !serverAI) {
       responseSource = 'rule_fallback'
       const fallback = generateFallbackResponse(message, contextData)
       fullContent = fallback.content
@@ -154,7 +164,12 @@ chatRoutes.post('/', async (c) => {
       await s.write(`data: ${JSON.stringify({ content: fullContent, source: 'rule_fallback' })}\n\n`)
     } else {
       try {
-        for await (const delta of completeUserAI(selectedAI, messages, signal)) {
+        const completion = serverAI
+          ? completeServerAI(user.id, serverAI.configurationId, messages, signal)
+          : completeUserAI(selectedAI!, messages, signal)
+        // Shared basic chat is text only; no provider-generated action proposals.
+        if (serverAI) allowGeneratedActions = false
+        for await (const delta of completion) {
           fullContent += delta
           await s.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
         }

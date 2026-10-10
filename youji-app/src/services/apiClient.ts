@@ -1,3 +1,4 @@
+import type { ServerAISelection } from './userAI'
 import { recordDiagnostic, requestArea } from './diagnostics'
 import { consumeSseStream } from './sseParser'
 
@@ -169,6 +170,7 @@ export async function streamChat(
   onActions?: (actions: CoachActionPayload[]) => void,
   signal?: AbortSignal,
   aiConnection?: { connectionId: string; version: number },
+  serverAI?: ServerAISelection,
 ): Promise<{ sessionId: string; content: string }> {
   const authority = requestAuthority()
   if (!activeOwner) throw new AuthError('请先确认登录身份')
@@ -178,7 +180,7 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...accountHeaders(),
     },
-    body: JSON.stringify({ message, sessionId, ...(aiConnection ? { aiConnection } : {}) }),
+    body: JSON.stringify({ message, sessionId, ...(aiConnection ? { aiConnection } : {}), ...(serverAI ? { serverAI } : {}) }),
     credentials: 'include',
     signal: sessionSignal(60_000, signal),
   })
