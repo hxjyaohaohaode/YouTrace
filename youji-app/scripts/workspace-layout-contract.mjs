@@ -44,11 +44,11 @@ export function sampleStableWorkspace() {
   return ready && frames >= 2 ? snapshot : false;
 }
 
-export function workspaceLayoutFailures(s) {
+export function workspaceLayoutFailures(s, expectedPath = '/') {
   const errors = [];
   const require = (ok, reason) => { if (!ok) errors.push(reason); };
   const painted = item => item && item.visible && item.opacity === 1 && item.inViewport && item.painted && !item.animating && item.rect.width > 0 && item.rect.height > 0;
-  require(s.mainSelector === 'main#workspace-main' && s.mainCount === 1 && s.path === '/', 'actual root workspace required');
+  require(s.mainSelector === 'main#workspace-main' && s.mainCount === 1 && s.path === expectedPath, 'actual expected workspace required');
   require(s.desktop === (s.viewport.width >= 1025) && s.tablet === (s.viewport.width >= 769 && s.viewport.width <= 1024), 'viewport and responsive mode must agree');
   require(painted(s.main) && painted(s.heading), 'workspace and heading must be visible, opaque, painted and settled');
   require(s.navigation.length === 1 && painted(s.navigation[0]?.nav), 'one painted primary navigation required');
