@@ -33,7 +33,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://youtrace.onrender.com
+        value: https://youtrace-ezu4.onrender.com
       - key: TRUST_PROXY
         value: true
       - key: SESSION_COOKIE_NAME
