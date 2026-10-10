@@ -206,3 +206,98 @@ test('retained source detects resizable buffer capacity changes and export prese
     assert.equal((await current.table('futureMetadata').get(original.id)).buffer.maxByteLength, 8, 'Detection and export never apply a later source change to current data');
   } finally { current.close(); source.close(); }
 });
+
+// Delay delivery of one completed read, not the transaction itself: another
+// browser connection may commit a cutover before this caller resumes.
+async function interleaveAfterFirstTargetRead(owner: string, otherConnection: () => Promise<void>, operation: () => Promise<void>) {
+  const transaction = IDBDatabase.prototype.transaction;
+  let intercepted = false;
+  let contenderError: unknown;
+  IDBDatabase.prototype.transaction = function(...args: Parameters<IDBDatabase['transaction']>) {
+    const tx = transaction.apply(this, args);
+    if (!intercepted && this.name === accountDatabaseName(owner) && tx.mode === 'readonly') {
+      intercepted = true;
+      Object.defineProperty(tx, 'oncomplete', {
+        configurable: true,
+        set(handler: ((event: Event) => void) | null) {
+          tx.addEventListener('complete', async (event: Event) => {
+            try { await otherConnection(); } catch (error) { contenderError = error; }
+            handler?.call(tx, event);
+          });
+        },
+      });
+    }
+    return tx;
+  };
+  try { await operation(); assert.equal(intercepted, true); if (contenderError) throw contenderError; }
+  finally { IDBDatabase.prototype.transaction = transaction; }
+}
+
+test('another connection completing cutover after an empty target read is accepted without losing its later edits', async () => {
+  const owner = 'generation-cross-tab-read-gap';
+  const source = await sourceDatabase(owner); await source.table('schedules').put(schedule);
+  const first = new Dexie(accountDatabaseName(owner)); first.version(3).stores({ ...ACCOUNT_SCHEMA, [GENERATION_STORE]: 'key' }); await first.open();
+  const second = new Dexie(accountDatabaseName(owner)); await second.open();
+  try {
+    await interleaveAfterFirstTargetRead(owner, async () => {
+      await prepareAccountGeneration(owner);
+      await second.table('schedules').update(schedule.id, { title: 'newer tab edit survives' });
+    }, () => prepareAccountGeneration(owner));
+    assert.equal((await first.table('schedules').get(schedule.id)).title, 'newer tab edit survives');
+    assert.equal((await first.table(GENERATION_STORE).get('cutover')).state, 'ready');
+    assert.deepEqual(await source.table('schedules').get(schedule.id), schedule);
+  } finally { first.close(); second.close(); source.close(); }
+});
+
+for (const [field, value] of Object.entries({ ownerId: 'foreign-owner', generation: 'unknown-generation', sourceName: 'youtrace', state: 'unconfirmed' })) {
+  test(`concurrent target receipt with wrong ${field} remains rejected without changing either connection's data`, async () => {
+    const owner = `generation-cross-tab-invalid-${field}`;
+    const first = new Dexie(accountDatabaseName(owner)); first.version(3).stores({ ...ACCOUNT_SCHEMA, [GENERATION_STORE]: 'key' }); await first.open();
+    const second = new Dexie(accountDatabaseName(owner)); await second.open();
+    try {
+      await assert.rejects(interleaveAfterFirstTargetRead(owner, async () => {
+        await second.transaction('rw', second.table('schedules'), second.table(GENERATION_STORE), async () => {
+          await second.table('schedules').put(schedule);
+          await second.table(GENERATION_STORE).put({ key: 'cutover', ownerId: owner, generation: 'schedule-v1', sourceName: accountDatabaseName(owner, true), state: 'ready', source: null, [field]: value });
+        });
+      }, () => prepareAccountGeneration(owner)), /账号或版本/);
+      assert.deepEqual(await first.table('schedules').get(schedule.id), schedule);
+      assert.equal((await first.table(GENERATION_STORE).get('cutover'))[field], value);
+    } finally { first.close(); second.close(); }
+  });
+}
+
+test('concurrent unreceipted target data is rejected and preserved through both connections', async () => {
+  const owner = 'generation-cross-tab-unreceipted';
+  const first = new Dexie(accountDatabaseName(owner)); first.version(3).stores({ ...ACCOUNT_SCHEMA, [GENERATION_STORE]: 'key' }); await first.open();
+  const second = new Dexie(accountDatabaseName(owner)); await second.open();
+  try {
+    await assert.rejects(interleaveAfterFirstTargetRead(owner, async () => { await second.table('schedules').put(schedule); }, () => prepareAccountGeneration(owner)), /未确认资料/);
+    assert.deepEqual(await first.table('schedules').get(schedule.id), schedule);
+    assert.equal(await first.table(GENERATION_STORE).count(), 0);
+    assert.deepEqual(await second.table('schedules').get(schedule.id), schedule);
+  } finally { first.close(); second.close(); }
+});
+
+test('an existing target without the generation store is never adopted even when empty', async () => {
+  const owner = 'generation-no-receipt-store';
+  const target = new Dexie(accountDatabaseName(owner)); target.version(3).stores(ACCOUNT_SCHEMA); await target.open();
+  try { await assert.rejects(prepareAccountGeneration(owner), /缺少升级凭据/); assert.equal(await target.table('schedules').count(), 0); }
+  finally { target.close(); }
+});
+
+test('a concurrently copied receipt still verifies exact data before activation', async () => {
+  const owner = 'generation-cross-tab-copied-invalid';
+  const first = new Dexie(accountDatabaseName(owner)); first.version(3).stores({ ...ACCOUNT_SCHEMA, [GENERATION_STORE]: 'key' }); await first.open();
+  const second = new Dexie(accountDatabaseName(owner)); await second.open();
+  try {
+    await assert.rejects(interleaveAfterFirstTargetRead(owner, async () => {
+      await second.transaction('rw', second.table('schedules'), second.table(GENERATION_STORE), async () => {
+        await second.table('schedules').put(schedule);
+        await second.table(GENERATION_STORE).put({ key: 'cutover', ownerId: owner, generation: 'schedule-v1', sourceName: accountDatabaseName(owner, true), state: 'copied', source: null });
+      });
+    }, () => prepareAccountGeneration(owner)), /复制校验未通过/);
+    assert.equal((await first.table(GENERATION_STORE).get('cutover')).state, 'copied');
+    assert.deepEqual(await first.table('schedules').get(schedule.id), schedule);
+  } finally { first.close(); second.close(); }
+});

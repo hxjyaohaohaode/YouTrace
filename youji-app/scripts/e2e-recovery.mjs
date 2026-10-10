@@ -751,7 +751,11 @@ try {
   assert.equal(await page.evaluate(() => document.body.textContent.includes('Synthetic A private todo')), true); step('A recovers its data after A/B/A switch');
   const secondTab = await context.newPage(); await observeInitialization(secondTab); await route(secondTab, '/todo');
   await route(page, '/settings'); await clickText(page, '退出登录'); await page.waitForSelector('#login-phone'); await secondTab.bringToFront(); await secondTab.waitForSelector('#login-phone'); step('Cross-tab sign-out locks old account view');
+  currentScenario = 'Cross-tab new-account initialization after sign-out';
+  boundary(page, 'account-c-cross-tab-login-start', '/login');
   await login(page, '13900009903', 'Synthetic C'); await route(secondTab, '/todo');
+  boundary(page, 'account-c-cross-tab-login-ready', '/');
+  currentScenario = 'Cross-tab account deletion locks stale private views';
   await route(page, '/settings'); await clickText(page, '注销账号（删除全部云端数据）'); await clickText(page, '永久注销');
   await page.waitForSelector('#login-phone'); await secondTab.bringToFront(); await secondTab.waitForSelector('#login-phone'); step('Cross-tab account deletion locks stale private views');
   assert.deepEqual(errors, []); step('No uncaught page errors');

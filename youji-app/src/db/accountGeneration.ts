@@ -259,9 +259,17 @@ export async function prepareAccountGeneration(verifiedOwnerId: string): Promise
   let target = await existing(name);
   try {
     if (target) {
-      const marker = await readMarker(target, verifiedOwnerId);
-      if (marker) { await verifyAndActivate(target, verifiedOwnerId); return; }
+      const existingMarker = await readMarker(target, verifiedOwnerId);
+      if (existingMarker) { await verifyAndActivate(target, verifiedOwnerId); return; }
+      // Read the receipt and rows in one transaction. Another tab may finish
+      // copying between separate reads; its valid cutover is not unknown data.
       const partial = await snapshot(target);
+      const marker = partial.tables.find((table) => table.name === GENERATION_STORE)?.rows.find((row) => row.key === MARKER_KEY)?.value;
+      if (marker !== undefined) {
+        validateMarker(marker, verifiedOwnerId);
+        await verifyAndActivate(target, verifiedOwnerId);
+        return;
+      }
       if (partial.tables.some((table) => table.rows.length)) throw new Error('目标库存在未确认资料，未自动覆盖');
     }
     const previous = await existing(sourceName);
