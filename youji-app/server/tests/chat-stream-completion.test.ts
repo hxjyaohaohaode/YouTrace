@@ -17,6 +17,7 @@ process.env.JWT_SECRET = 'synthetic-stream-completion-secret-at-least-32-charact
 process.env.LLM_API_KEY = 'synthetic-placeholder-not-a-real-key'
 process.env.LLM_BASE_URL = 'https://synthetic-provider.invalid/v1'
 process.env.LLM_MODEL = 'synthetic-model'
+process.env.AI_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64')
 const values = new Map<string, string>()
 const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) }
 Object.assign(globalThis, { localStorage: storage, sessionStorage: storage, window: Object.assign(new EventTarget(), { matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) }), document: { documentElement: { setAttribute() {} } } })
@@ -24,6 +25,8 @@ const appRequire = createRequire(new URL('../../package.json', import.meta.url))
 await import(pathToFileURL(appRequire.resolve('fake-indexeddb/auto')).href)
 const { prisma } = await import('../src/utils/db.js')
 const { chatRoutes } = await import('../src/routes/chat.js')
+const { saveConnection } = await import('../src/services/userAI.js')
+let aiConnection: { connectionId: string; version: number }
 const { useCoachStore } = await import('../../src/stores/coachStore.ts')
 const { setSessionActive } = await import('../../src/services/apiClient.ts')
 const { getToastSnapshot } = await import('../../src/services/toastBus.ts')
@@ -42,6 +45,9 @@ before(async () => {
     for (const name of (await readdir(migrations, { withFileTypes: true })).filter(row => row.isDirectory()).map(row => row.name).sort()) fixture.exec(await readFile(resolve(migrations, name, 'migration.sql'), 'utf8'))
   } finally { fixture.close() }
   await prisma.user.create({ data: { id: owner, phone: owner, nickname: 'Synthetic' } })
+  const saved = await saveConnection(owner, { connectionId: null, version: 0, providerId: 'deepseek', model: 'synthetic-model', apiKey: 'synthetic-placeholder-not-a-real-key', chatConsent: true })
+  assert.ok(saved)
+  aiConnection = { connectionId: saved.connectionId, version: saved.version }
 })
 after(async () => { globalThis.fetch = realFetch; await prisma.$disconnect(); db.close(); await rm(directory, { recursive: true, force: true }) })
 
@@ -95,7 +101,7 @@ test('unknown content sources retain the actual store normal action-fence cleanu
       const payload = [{ content: CLOSED_FENCE, source }, { actions: [PROVIDER_ACTION] }].map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
       return new Response(bytesStream(payload), { headers: { 'X-Session-Id': 'synthetic-direct-session' } })
     }
-    await useCoachStore.getState().sendMessage('查看待办')
+    await useCoachStore.getState().sendMessage('查看待办', aiConnection)
     const messages = useCoachStore.getState().messages
     assert.deepEqual(messages.slice(0, -2), before)
     assert.equal(messages.at(-1)?.content, PARTIAL)
@@ -126,10 +132,10 @@ test('real route and store preserve partial/fallback text and action source thro
         routeSession = response.headers.get('X-Session-Id') ?? ''
         responseWire = response.clone().text(); return response
       }
-      assert.equal(url, 'https://synthetic-provider.invalid/v1/chat/completions'); assert.equal(init?.method, 'POST'); providerCalls++
+      assert.equal(url, 'https://api.deepseek.com/chat/completions'); assert.equal(init?.method, 'POST'); providerCalls++
       return new Response(bytesStream(providerWire(row.content ? [row.content] : [], row.done === true, '\r\n', false), row.error), { headers: { 'Content-Type': 'text/event-stream' } })
     }
-    await useCoachStore.getState().sendMessage('查看待办')
+    await useCoachStore.getState().sendMessage('查看待办', aiConnection)
     const state = useCoachStore.getState(), [user, assistant] = state.messages.slice(-2)
     const expected = row.done ? PARTIAL : row.content + (row.content ? INTERRUPTION : '') + RULE_TEXT
     const expectedAction = row.done ? PROVIDER_ACTION : RULE_ACTION

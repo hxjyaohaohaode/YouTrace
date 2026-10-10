@@ -1,0 +1,16 @@
+BEGIN TRANSACTION;
+CREATE TABLE "UserAIConnection" (
+  "id" TEXT NOT NULL,
+  "userId" TEXT NOT NULL PRIMARY KEY,
+  "providerId" TEXT NOT NULL,
+  "model" TEXT NOT NULL,
+  "cipher" TEXT NOT NULL,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "chatConsent" BOOLEAN NOT NULL DEFAULT false,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL,
+  CONSTRAINT "UserAIConnection_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "UserAIConnection_id_key" ON "UserAIConnection"("id");
+ALTER TABLE "ChatMessage" ADD COLUMN "source" TEXT NOT NULL DEFAULT 'legacy';
+COMMIT;

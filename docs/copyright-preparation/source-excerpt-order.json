@@ -1,7 +1,7 @@
 {
   "project": "YouTrace",
   "identity_scope": "本轮所列生产文件的原始字节快照，须先逐文件比对才能用于后续HEAD。完整工程tree和同步状态另由外部回执绑定。",
-  "production_file_set_sha256": "6cb8d5032e60c314c6fe75b90d9f6ad1a78edc37cb885c7ef94a5e9ef450e98c",
+  "production_file_set_sha256": "546dd6f3559c768bfbe57e99ec7d37407dfadd7c63f7df36eb36f2ed6583a331",
   "not_ready_for_submission": true,
   "suggested_review_order": [
     {
@@ -77,9 +77,9 @@
     {
       "order": 11,
       "path": "youji-app/src/services/apiClient.ts",
-      "bytes": 7854,
-      "physical_lines": 223,
-      "sha256": "6944705992c355f60d0659c9f2b5a5facfc3e29aeb26377c3a450c65a25ccefb"
+      "bytes": 7957,
+      "physical_lines": 224,
+      "sha256": "57884fad5629c75dc4e674cc0bf1bafda86827b2a9bb27d9c94c207f06f93bb7"
     },
     {
       "order": 12,
@@ -560,16 +560,16 @@
     {
       "order": 80,
       "path": "youji-app/src/stores/coachStore.ts",
-      "bytes": 32653,
-      "physical_lines": 897,
-      "sha256": "b199374b5c36d7f0eff16152e51cfb6351e91bd783a46098b414688b86922bc5"
+      "bytes": 32876,
+      "physical_lines": 899,
+      "sha256": "44343b7b55139481126e86a4f4c5b0cf1bbd25a2d121e99c14ef61e7ab8e2ae8"
     },
     {
       "order": 81,
       "path": "youji-app/src/pages/Coach.tsx",
-      "bytes": 8971,
-      "physical_lines": 190,
-      "sha256": "8a3e55723b831e44bb09346546d47b708a2e8695591271a0a7383b5d55cf3339"
+      "bytes": 11679,
+      "physical_lines": 211,
+      "sha256": "c8c677a232ec77feb803ab7046eec9d6df184e03763e6ec8ab4216a9374a471b"
     },
     {
       "order": 82,
@@ -889,9 +889,9 @@
     {
       "order": 127,
       "path": "youji-app/src/pages/DataInfo.tsx",
-      "bytes": 2842,
+      "bytes": 3337,
       "physical_lines": 14,
-      "sha256": "4b6ead7568992de36d5d20e5ae47a80ca5c774d269d1a076fd98c2019d9ef867"
+      "sha256": "9c0a166d4ef31134a66e49045c4dc543fe60111ec74ba027dda5477fc2bffbb4"
     },
     {
       "order": 128,
@@ -910,16 +910,16 @@
     {
       "order": 130,
       "path": "youji-app/src/pages/Onboarding.tsx",
-      "bytes": 2090,
+      "bytes": 2289,
       "physical_lines": 26,
-      "sha256": "be92eb4989085cc1171aad0faf5f0f30e112571c56245e99b431cc1ac9818c3a"
+      "sha256": "98bb2cb23fdb5c4700e573a494bcbadad1810d66b81c4be761b0b0725af5eac6"
     },
     {
       "order": 131,
       "path": "youji-app/src/pages/Settings.tsx",
-      "bytes": 33649,
-      "physical_lines": 558,
-      "sha256": "922197883d03bdeaeb32974ee610bc5b7d09a06e9e5cabb3cd83dc8a0759abf1"
+      "bytes": 33904,
+      "physical_lines": 560,
+      "sha256": "03cc2196b73b467ebc8bb451734742ed529744cc5a2b7acde3a0824bb70fdbf4"
     },
     {
       "order": 132,
@@ -1050,9 +1050,9 @@
     {
       "order": 150,
       "path": "youji-app/server/src/app.ts",
-      "bytes": 3525,
-      "physical_lines": 105,
-      "sha256": "8f497f7a968a4181cabf95b9f743450596df2e454306fe0a285752bd345f8946"
+      "bytes": 3641,
+      "physical_lines": 107,
+      "sha256": "59b8a60a8c7bdb839eb36a296124642bfe93f94b3283a1156e22f0ebce7dd00f"
     },
     {
       "order": 151,
@@ -1064,9 +1064,9 @@
     {
       "order": 152,
       "path": "youji-app/server/src/utils/env.ts",
-      "bytes": 3013,
-      "physical_lines": 90,
-      "sha256": "58ee7539e584512039075d9a79b07a9110049031d2d5c2ac39edbc56d6ef4b96"
+      "bytes": 2725,
+      "physical_lines": 86,
+      "sha256": "f4e35e1fbefc4e787f24a9903fc1d93538bfc6c292f84ffbe454a680a1aac0dd"
     },
     {
       "order": 153,
@@ -1099,9 +1099,9 @@
     {
       "order": 157,
       "path": "youji-app/server/src/routes/user.ts",
-      "bytes": 2634,
-      "physical_lines": 52,
-      "sha256": "cf6f0628cfee4b7490e2024c0dc7c4c2c17719cb0cc8dec92f437c6fd4076f20"
+      "bytes": 2719,
+      "physical_lines": 54,
+      "sha256": "ac258dacfc1a85ce010b5c10a16a62beea689ed8f3677a80efef30bf85ce30b3"
     },
     {
       "order": 158,
@@ -1127,9 +1127,9 @@
     {
       "order": 161,
       "path": "youji-app/server/src/routes/chat.ts",
-      "bytes": 21921,
-      "physical_lines": 502,
-      "sha256": "731b1c8ce8ce0cd2dc57e16e6bca737b47c8e94bc963c027bbe12d472409fcdd"
+      "bytes": 21971,
+      "physical_lines": 486,
+      "sha256": "5b34744244d001d7374cb3a70e464a42b307c9cee5ecf2c5165881a2853d61a0"
     },
     {
       "order": 162,
@@ -1277,10 +1277,38 @@
       "bytes": 5041,
       "physical_lines": 168,
       "sha256": "91d23848dcd545bdae4137fe1649f480316815dea522ea6f0aa4046a26e0a3af"
+    },
+    {
+      "order": 183,
+      "path": "youji-app/server/src/routes/aiConnection.ts",
+      "bytes": 2953,
+      "physical_lines": 45,
+      "sha256": "4a3aebd9a5eda0bbea307bb9a268212fa80fc18306d76401cb257ba99390c4e6"
+    },
+    {
+      "order": 184,
+      "path": "youji-app/server/src/services/userAI.ts",
+      "bytes": 10693,
+      "physical_lines": 180,
+      "sha256": "0ff8498d883dd50bd2264be9e0b76184b8b129d13bf7c5d9454af8dcabc7e90b"
+    },
+    {
+      "order": 185,
+      "path": "youji-app/src/components/settings/AIConnectionPanel.tsx",
+      "bytes": 8684,
+      "physical_lines": 89,
+      "sha256": "c91e31193bbcd4014ceea6d4d8d0d134f57b28d09a5cbbee5f4e5e1d9d22ff54"
+    },
+    {
+      "order": 186,
+      "path": "youji-app/src/services/userAI.ts",
+      "bytes": 2147,
+      "physical_lines": 29,
+      "sha256": "6ea39c7c7e08dc76038626d979a8f3d5fc76255dc7df2f83ce38d5040fcffb8c"
     }
   ],
-  "listed_files": 182,
-  "listed_physical_lines": 18657,
+  "listed_files": 186,
+  "listed_physical_lines": 19010,
   "notes": [
     "审阅顺序不是最终连续页或有效行数认定，也不证明作者和权属。",
     "排除测试、工具、声明文件、依赖、编译副本、素材和来源未逐项确认的migration SQL；不填充代码凑页数。",

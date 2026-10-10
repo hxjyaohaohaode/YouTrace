@@ -9,7 +9,8 @@
 # 并把 DATABASE_URL 改为 file:/var/data/youji.db
 #
 # 可选集成（默认关闭，可在面板自行添加环境变量）：
-#   LLM_API_KEY / LLM_BASE_URL / LLM_MODEL   —— AI 教练远端模型
+#   AI_CREDENTIAL_ENCRYPTION_KEY             —— 仅加密用户自配凭据，不提供模型或额度
+#   旧 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 不再读取；用户在设置中自行添加模型。
 #   SMS_PROVIDER_URL / SMS_PROVIDER_TOKEN    —— 短信服务商（必须成对配置）
 
 services:

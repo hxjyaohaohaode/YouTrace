@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/*.pem
+**/*.key
+**/private-backups
+**/.runtime
+.git
+
+**/__pycache__
+**/*.pyc
+**/test-artifacts

@@ -1,5 +1,6 @@
 // Real Chromium + real HTTP cookies + real IndexedDB. Synthetic, isolated data only.
 import assert from 'node:assert/strict';
+import { exerciseUserAI } from './user-ai-browser-contract.mjs';
 import { mkdtemp, mkdir, rm, writeFile, access, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -155,7 +156,7 @@ const artifactDir = resolve(appDir, 'test-artifacts');
 await mkdir(artifactDir, { recursive: true });
 const port = Number(process.env.E2E_API_PORT || 3327), frontPort = Number(process.env.E2E_FRONT_PORT || 5273);
 const front = `http://127.0.0.1:${frontPort}`;
-const env = { ...process.env, NODE_ENV: 'test', PORT: String(port), DATABASE_URL: `file:${join(scratch, 'fixture.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: front, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', LLM_API_KEY: '', VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${port}` };
+const env = { ...process.env, NODE_ENV: 'test', PORT: String(port), DATABASE_URL: `file:${join(scratch, 'fixture.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: front, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', AI_CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('base64'), VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${port}` };
 const logs = [];
 const report = [];
 const children = [];
@@ -689,6 +690,7 @@ try {
   await observeInitialization(page);
   await page.setViewport({ width: 1280, height: 900 });
   await login(page, '13900009901', 'Synthetic A'); step('Real OTP-cookie registration and onboarding');
+  await exerciseUserAI(page, { route, clickControl, clickButton, fillControl, artifactDir }); step('User-owned AI add/delete, per-page opt-in reset, and zero provider requests');
   step('Paint-stable workspace geometry and computed margin clear actual fixed navigation');
   await addTodo(page, 'Synthetic A private todo');
   // A success notification must not steal the user's next create click.

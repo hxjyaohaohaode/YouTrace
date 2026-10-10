@@ -1,0 +1,23 @@
+name: Local Docker durability (synthetic)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'youji-app/**'
+      - 'deploy/local/**'
+      - '.dockerignore'
+      - '.github/workflows/local-durability.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: local-durability-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  durable-local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify isolated durable stack
+        run: bash deploy/local/test-docker.sh

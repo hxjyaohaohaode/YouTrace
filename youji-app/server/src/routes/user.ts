@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { prisma } from '../utils/db.js'
 import type { AuthUser } from '../middleware/auth.js'
+import { cancelAIRequests } from '../services/userAI.js'
 import { clearSession } from '../utils/session.js'
 import { preferenceMutationSchema, readAccountPreferences, writeAccountPreferences, preferenceFailure } from '../services/settingsProtocol.js'
 
@@ -47,6 +48,7 @@ userRoutes.delete('/', async (c) => {
     await tx.user.delete({ where: { id: user.id } })
   })
 
+  cancelAIRequests(user.id)
   clearSession(c)
   return c.json({ success: true })
 })

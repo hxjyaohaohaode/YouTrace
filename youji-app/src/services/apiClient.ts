@@ -168,6 +168,7 @@ export async function streamChat(
   onChunk?: (text: string, source?: 'rule_fallback') => void,
   onActions?: (actions: CoachActionPayload[]) => void,
   signal?: AbortSignal,
+  aiConnection?: { connectionId: string; version: number },
 ): Promise<{ sessionId: string; content: string }> {
   const authority = requestAuthority()
   if (!activeOwner) throw new AuthError('请先确认登录身份')
@@ -177,7 +178,7 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...accountHeaders(),
     },
-    body: JSON.stringify({ message, sessionId }),
+    body: JSON.stringify({ message, sessionId, ...(aiConnection ? { aiConnection } : {}) }),
     credentials: 'include',
     signal: sessionSignal(60_000, signal),
   })

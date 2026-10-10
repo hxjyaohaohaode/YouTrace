@@ -129,6 +129,9 @@ function componentDriver(initialText = '') {
   const coach = compile(componentSources[0], {
     ...common, 'react-router-dom': { useLocation: () => ({ state: { prefill } }), useNavigate: () => () => undefined },
     '../components/ui/Brand': { Brand: 'img' }, '../styles/home-coach.css': {},
+    '../services/userAI': { readAIConfiguration: async () => ({ connection: null, credentialStorageReady: false, templates: [] }) },
+    '../stores/authStore': { useAuthStore: (select: (value: unknown) => unknown) => select({ user: null }) },
+    '../services/apiClient': { getSessionGeneration: () => 0, getVerifiedSessionOwner: () => null },
     '../stores/coachStore': { useCoachStore: storeHook }, '../components/coach/MessageList': list, '../components/coach/ChatInput': input,
     '../hooks/useMediaQuery': { useMediaQuery: () => false }, '../components/ui/Modal': { Modal: modal }, '../components/ui/Button': { Button: 'button' },
     '../services/emotionEngine': { assessEmotionState: () => ({ shouldShowHotline: false }), detectCrisisKeywords: () => false, getCrisisResponse: () => '' },
@@ -163,6 +166,7 @@ function componentDriver(initialText = '') {
   render();
   return {
     render, button,
+    text: () => text(tree),
     value: () => inputElement().props.value,
     dialog: () => elements().find(node => node.props.role === 'dialog'),
     click(label: string) { const element = button(label); assert.notEqual(element.props.disabled, true); (element.props.onClick as () => void)(); render(); },
@@ -171,6 +175,16 @@ function componentDriver(initialText = '') {
     setPrefill(value: string) { prefill = value; render(); },
   };
 }
+
+test('actual coach welcome discloses optional own-model chat scope and never claims application records are sent', () => {
+  const ui = componentDriver();
+  assert.ok(ui.text().includes('默认使用本地规则回复。只有你选择自己的模型后'));
+  assert.ok(ui.text().includes('本次文字与当前会话中已披露范围的有限历史，不附加应用记录'));
+  assert.ok(ui.text().includes('模型不会自动变更记录；操作建议须先核对，再由你主动点击执行'));
+  assert.ok(ui.text().includes('可能产生 API 费用'));
+  assert.ok(!ui.text().includes('问题与相关记录摘要会交给在线模型'));
+  assert.ok(!ui.text().includes('模型回复仅为文字建议'));
+});
 
 function transport() {
   const requests: Array<{ message: string; sessionId?: string }> = [];

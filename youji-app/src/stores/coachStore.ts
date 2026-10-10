@@ -1,3 +1,4 @@
+import { aiErrorMessage, type AIConnectionIdentity } from '../services/userAI';
 import { create } from 'zustand';
 import Dexie from 'dexie';
 import { api, streamChat, isLoggedIn } from '../services/apiClient';
@@ -489,7 +490,7 @@ interface CoachState {
   executeSmartAction: (messageId: string, actionId: string) => Promise<void>;
   clearHistory: () => void;
 
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, aiConnection?: AIConnectionIdentity) => Promise<void>;
 
   loadFromDB: () => Promise<void>;
   addInsight: (insight: Omit<CoachInsightRecord, 'id' | 'createdAt'>) => Promise<CoachInsightRecord>;
@@ -631,7 +632,7 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     set({ messages: [], sessionId: null, isTyping: false });
   },
 
-  sendMessage: async (content: string) => {
+  sendMessage: async (content: string, aiConnection?: AIConnectionIdentity) => {
     if (get().isTyping || !content.trim()) return;
     const version = ++chatRequestVersion;
     const controller = new AbortController();
@@ -706,17 +707,18 @@ export const useCoachStore = create<CoachState>((set, get) => ({
           }
         },
         controller.signal,
+        aiConnection,
       );
 
       if (current()) set((state) => ({
         sessionId: result.sessionId || state.sessionId,
       }));
-    } catch {
+    } catch (error) {
       if (!current()) return;
       const partial = get().messages.find((m) => m.id === aiMsgId);
       const recoveryText = partial?.content
         ? ''
-        : '抱歉，网络似乎不太稳定，请稍后重试。';
+        : aiConnection ? aiErrorMessage(error) : '抱歉，网络似乎不太稳定，请稍后重试。';
       set((state) => ({
         messages: state.messages.map((m) =>
           m.id === userMsgId ? { ...m, replyFailed: true }

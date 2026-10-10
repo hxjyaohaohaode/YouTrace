@@ -1,3 +1,6 @@
+import { readAIConfiguration, type AIConnection } from '../services/userAI';
+import { useAuthStore } from '../stores/authStore';
+import { getSessionGeneration, getVerifiedSessionOwner } from '../services/apiClient';
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +38,20 @@ export default function Coach() {
   const executeSmartAction = useCoachStore((s) => s.executeSmartAction);
   const clearHistory = useCoachStore((s) => s.clearHistory);
 
+  const owner = useAuthStore(state => state.user?.id ?? '');
+  const [modelState, setModelState] = useState<{ owner: string; generation: number; connection: AIConnection | null; ready: boolean; failed: boolean } | null>(null);
+  const [modelChoice, setModelChoice] = useState<{ owner: string; generation: number; connectionId: string; enabled: boolean } | null>(null);
+  const currentModel = modelState?.owner === owner && modelState.generation === getSessionGeneration() && modelState.ready ? modelState.connection : null;
+  const useModel = modelChoice?.owner === owner && modelChoice.generation === getSessionGeneration() && modelChoice.connectionId === currentModel?.connectionId && modelChoice.enabled;
+  useEffect(() => {
+    let live = true;
+    const generation = getSessionGeneration();
+    if (owner) void readAIConfiguration().then(config => {
+      if (live && getVerifiedSessionOwner() === owner && getSessionGeneration() === generation) setModelState({ owner, generation, connection: config.connection, ready: config.credentialStorageReady, failed: false });
+    }).catch(() => { if (live) setModelState({ owner, generation, connection: null, ready: false, failed: true }); });
+    return () => { live = false; };
+  }, [owner]);
+
   const location = useLocation();
   const prefill = (location.state as { prefill?: unknown } | null)?.prefill;
   const prefillText = typeof prefill === 'string' ? prefill : '';
@@ -67,9 +84,9 @@ export default function Coach() {
         return;
       }
 
-      await sendMessage(text);
+      await sendMessage(text, useModel && currentModel?.chatConsent ? { connectionId: currentModel.connectionId, version: currentModel.version } : undefined);
     },
-    [isTyping, addMessage, sendMessage]
+    [isTyping, addMessage, sendMessage, useModel, currentModel]
   );
 
   const recordWelcome = useSyncExternalStore(subscribeRecordCoverage, getRecordCoverageWelcome, getRecordCoverageWelcome);
@@ -94,7 +111,7 @@ export default function Coach() {
           <div className="flex items-center gap-2.5">
             <Brand variant="mark" className="coach-header-brand" />
             <div>
-              <h1 className="text-lg font-bold text-[var(--text-1)]">AI 教练</h1>
+              <h1 className="text-lg font-bold text-[var(--text-1)]">生活教练</h1>
               <p className="text-xs font-medium text-[var(--text-3)]">
                 {isTyping ? '正在思考...' : emotionState.shouldShowHotline ? '如需即时支持，可拨打热线' : '从你的问题和记录出发'}
               </p>
@@ -135,6 +152,10 @@ export default function Coach() {
         </div>
       </div>
 
+      <div className="shrink-0 border-b border-[var(--border)] px-4 py-2 text-xs leading-5">
+        {currentModel?.chatConsent ? <label className="flex items-start gap-2"><input type="checkbox" aria-label="本次页面使用我的模型" checked={useModel} disabled={isTyping} onChange={event => setModelChoice({ owner, generation: getSessionGeneration(), connectionId: currentModel.connectionId, enabled: event.target.checked })} /><span>使用我的 {currentModel.providerName} · {currentModel.model}。发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。可能产生 API 费用。</span></label> : <p>{modelState?.failed ? '暂未读到模型设置。当前仅使用本地规则回复。' : '当前使用本地规则回复，未调用外部模型。'}</p>}
+        <button type="button" className="underline" onClick={() => navigate('/settings')}>管理我的 AI 连接与外发许可</button>
+      </div>
       <div ref={containerRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
         const el = containerRef.current;
         if (!el) return;
@@ -149,7 +170,7 @@ export default function Coach() {
             <div className="coach-starters" aria-label="开始一段对话">
               {quickQuestions.map(q => <button key={q} type="button" aria-label={q} onClick={() => void handleSend(q)}>{q} <span aria-hidden>↗</span></button>)}
             </div>
-            <p className="coach-boundary">发送后，问题与相关记录摘要会交给在线模型。回复可能不准确；涉及记录变更时，请先核对内容，再确认执行。</p>
+            <p className="coach-boundary">默认使用本地规则回复。只有你选择自己的模型后，才会发送本次文字与当前会话中已披露范围的有限历史，不附加应用记录。模型不会自动变更记录；操作建议须先核对，再由你主动点击执行。调用可能产生 API 费用。</p>
             <button type="button" onClick={() => navigate('/insights')} className="mt-4 min-h-11 text-sm text-[var(--link)] underline">先查看可核对的记录依据</button>
           </div>
         ) : (

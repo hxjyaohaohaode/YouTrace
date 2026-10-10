@@ -5,10 +5,10 @@ import { z } from 'zod'
 import { prisma } from '../utils/db.js'
 import { generateId } from '../utils/id.js'
 import type { AuthUser } from '../middleware/auth.js'
-import { env } from '../utils/env.js'
+import { AIError, chatMessages, completeUserAI, selectedConnection } from '../services/userAI.js'
+import type { UserAIConnection } from '@prisma/client'
 import { consumeRateLimit, getClientIp } from '../utils/rateLimit.js'
 import { addDays, getToday, getWeekStart } from '../utils/date.js'
-import { readChatCompletionStream } from '../services/openAiStream.js'
 import { computeHabitStats } from '../services/habitStats.js'
 import { getSafetySupportResponse, hasCurrentSelfHarmCue, mainlandPsychologicalSupport } from '../services/safetyResources.js'
 
@@ -17,7 +17,8 @@ export const chatRoutes = new Hono()
 const chatSchema = z.object({
   sessionId: z.string().min(8).max(64).optional(),
   message: z.string().trim().min(1).max(2000),
-})
+  aiConnection: z.object({ connectionId: z.string().uuid(), version: z.number().int().min(1).max(2147483646) }).strict().optional(),
+}).strict()
 
 chatRoutes.get('/sessions', async (c) => {
   const user = c.get('user') as AuthUser
@@ -71,7 +72,15 @@ chatRoutes.post('/', async (c) => {
     return c.json({ error: parsed.error.flatten().fieldErrors }, 400)
   }
 
-  const { sessionId, message } = parsed.data
+  const { sessionId, message, aiConnection } = parsed.data
+  let selectedAI: UserAIConnection | null = null
+  if (aiConnection && !hasCurrentSelfHarmCue(message)) {
+    try { selectedAI = await selectedConnection(user.id, aiConnection.connectionId, aiConnection.version) }
+    catch (error) {
+      if (error instanceof AIError) return c.json({ error: error.code }, error.status)
+      throw error
+    }
+  }
   const clientIp = getClientIp(c)
   const rateLimit = consumeRateLimit(`chat:${user.id}:${clientIp}`, {
     limit: 20,
@@ -105,6 +114,7 @@ chatRoutes.post('/', async (c) => {
       sessionId: session.id,
       role: 'user',
       content: message,
+      source: 'user_text',
     },
   })
 
@@ -114,20 +124,8 @@ chatRoutes.post('/', async (c) => {
     take: 20,
   })).reverse()
 
-  const [dbUser, contextData] = await Promise.all([
-    prisma.user.findUnique({ where: { id: user.id } }),
-    buildUserContext(user.id, message),
-  ])
-
-  const systemPrompt = buildCoachSystemPrompt(dbUser?.coachStyle || 'gentle', contextData)
-
-  const messages = [
-    { role: 'system' as const, content: systemPrompt },
-    ...history.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    })),
-  ]
+  const contextData = await buildUserContext(user.id, message)
+  const messages = chatMessages(history)
 
   c.header('X-Session-Id', session.id)
   c.header('Content-Type', 'text/event-stream; charset=utf-8')
@@ -138,48 +136,32 @@ chatRoutes.post('/', async (c) => {
     let fullContent = ''
     let fallbackActions: Array<Record<string, unknown>> = []
     let allowGeneratedActions = true
+    let responseSource = 'user_ai'
+    const controller = new AbortController()
+    const signal = AbortSignal.any([c.req.raw.signal, controller.signal])
+    s.onAbort(() => controller.abort())
 
     if (hasCurrentSelfHarmCue(message)) {
+      responseSource = 'safety_template'
       fullContent = getSafetySupportResponse()
       allowGeneratedActions = false
       await s.write(`data: ${JSON.stringify({ content: fullContent, source: 'safety_template' })}\n\n`)
-    } else if (!env.llmApiKey) {
+    } else if (!selectedAI) {
+      responseSource = 'rule_fallback'
       const fallback = generateFallbackResponse(message, contextData)
       fullContent = fallback.content
       fallbackActions = fallback.actions
       await s.write(`data: ${JSON.stringify({ content: fullContent, source: 'rule_fallback' })}\n\n`)
     } else {
       try {
-        const response = await fetch(`${env.llmBaseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${env.llmApiKey}`,
-          },
-          body: JSON.stringify({
-            model: env.llmModel,
-            messages,
-            stream: true,
-            temperature: 0.7,
-            max_tokens: 1000,
-          }),
-          signal: AbortSignal.timeout(env.llmTimeoutMs),
-        })
-
-        if (!response.ok) {
-          throw new Error(`LLM API error: ${response.status}`)
-        }
-
-        if (!response.body) {
-          throw new Error('LLM stream unavailable')
-        }
-
-        for await (const delta of readChatCompletionStream(response.body)) {
+        for await (const delta of completeUserAI(selectedAI, messages, signal)) {
           fullContent += delta
           await s.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
         }
         if (!fullContent.trim()) throw new Error('LLM returned an empty response')
-      } catch {
+      } catch (error) {
+        if (signal.aborted || (error instanceof AIError && error.code === 'AI_REQUEST_CANCELLED')) return
+        responseSource = 'rule_fallback'
         // Never present a partial provider answer or its unfinished actions as a
         // successful completion. The deterministic fallback is visibly labelled.
         const fallback = generateFallbackResponse(message, contextData)
@@ -191,6 +173,7 @@ chatRoutes.post('/', async (c) => {
       }
     }
 
+    if (signal.aborted) return
     const { cleanContent, actions } = fallbackActions.length > 0 || !allowGeneratedActions
       ? { cleanContent: fullContent, actions: fallbackActions }
       : extractCoachActions(fullContent)
@@ -202,6 +185,7 @@ chatRoutes.post('/', async (c) => {
           sessionId: session.id,
           role: 'assistant',
           content: cleanContent,
+          source: responseSource,
           actions: actions.length > 0 ? JSON.stringify(actions) : null,
         },
       })

@@ -1,6 +1,7 @@
 import '../styles/home-coach.css';
 import { useState, useEffect, useRef } from 'react';
 import { liveQuery } from 'dexie';
+import { AIConnectionPanel } from '../components/settings/AIConnectionPanel';
 import { DiagnosticsPanel } from '../components/settings/DiagnosticsPanel';
 import { TimeSettingInput } from '../components/settings/TimeSettingInput';
 import { readPreferenceTime } from '../services/readPreferenceTime';
@@ -301,6 +302,7 @@ export default function Settings() {
 
         <div className="space-y-8">
           <PreferenceSyncPanel />
+          <AIConnectionPanel />
           {preferenceError && <p role="alert" className="text-sm text-[var(--danger)]">{preferenceError}</p>}
           <section className="space-y-3" aria-label="教练风格">
             <h2 className="flex items-center gap-2 settings-section-title">
@@ -503,7 +505,7 @@ export default function Settings() {
               <div>
                 <p className="text-base font-bold text-[var(--text-1)]">你的数据属于你</p>
                 <p className="mt-1 text-sm leading-relaxed text-[var(--text-2)]">
-                  当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；新目标和提醒偏好支持账号同步；旧目标需逐项确认上传，草稿、外观和预算仍留本机。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。
+                  当前账号的数据独立保存在本设备。支持同步的记录会上传至服务端；新目标和提醒偏好支持账号同步；旧目标需逐项确认上传，草稿、外观和预算仍留本机。备份包含未确认修改，文件可能含私人内容，请存放在你信任的位置。本地导出不包含服务器保存的 AI 连接密钥；服务器整库备份含连接密文，恢复时还需单独保管的原加密密钥。
                 </p>
               </div>
               {generationError && <div role="alert" className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm">升级前资料状态暂时无法读取，原始资料没有删除</p><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>重新检查保留资料</Button></div>}

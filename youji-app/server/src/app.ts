@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { authMiddleware } from './middleware/auth.js'
 import { authRoutes } from './routes/auth.js'
+import { aiConnectionRoutes } from './routes/aiConnection.js'
 import { chatRoutes } from './routes/chat.js'
 import { coachRoutes } from './routes/coach.js'
 import { diaryRoutes } from './routes/diary.js'
@@ -74,6 +75,7 @@ export function createApp() {
   app.route('/api/diary', diaryRoutes)
   app.route('/api/coach', coachRoutes)
   app.route('/api/chat', chatRoutes)
+  app.route('/api/ai-connection', aiConnectionRoutes)
   app.route('/api/sync', syncRoutes)
 
   app.get('/health', async (c) => {
