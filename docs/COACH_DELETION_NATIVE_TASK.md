@@ -18,7 +18,7 @@
 
 ## 本地可运行检查
 
-仓库根先运行 CI 的同一前置门禁：`python3 -m unittest discover -s youji-app/scripts/tests -p 'test_ci_prerequisites.py' -v`。它校验全部22个任务的明确集合、唯一性、runner白名单及证据上传入口，不能仅运行新增脚本测试后发布。
+仓库根先运行 CI 的同一前置门禁：`python3 -m unittest discover -s youji-app/scripts/tests -p 'test_ci_prerequisites.py' -v`。它校验当前全部23个任务的明确集合（含独立legacy-backup候选）、唯一性、runner白名单及证据上传入口，不能仅运行新增脚本测试后发布。
 
 `cd youji-app && node --import tsx --test tests/coach-deletion-native-contract.test.ts`
 

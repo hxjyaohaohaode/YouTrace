@@ -31,3 +31,13 @@ IndexedDB 的 structured clone 还可能支持 Error、DOMException、CryptoKey�
 `cd youji-app && node --import tsx --test tests/legacy-snapshot.test.ts tests/storage-recovery.test.ts`
 
 还需前端 lint/build/全量测试、后端既有门禁及 CI 前置原命令。严格解码器是技术自验组件；暂无界面恢复工具。不得因导出成功删除原共享库、清除浏览器数据或自动认领。回退代码不需要任何源库迁移；已生成v2文件须保留原版本解码说明，旧版本代码不具备完整导出能力。
+
+## 原生下载验收候选
+
+新增独立 `legacy-backup` CI任务，仅在既有获准的hosted Chromium运行。全新隔离profile经原登录/引导，再显式建立合成旧IDB20，包含原始主键/复合与二进制key、Map/Date/BigInt/Blob/4MiB共享buffer/view/循环/稀疏数组及4294967295普通属性。它是历史准备条件，不能称用户用UI创建这些旧数据。
+
+原设置说明与确认控件触发浏览器真实下载（Browser.downloadWillBegin/Progress和落盘文件），下载JSON经严格解码，再用独立语义图/二进制SHA256与原生源库前后比较，核所有读取事务为readonly。第二阶段仅向合成旧源加入明确不支持的Error，通过原控件获得明确错误提示；核原下载事件数和实际文件列表都没增加、原共享源连该Error保持。该拒绝证据包含肯定错误状态，不能仅以下载超时推断拒绝。页面不导入/认领/修改原数据。
+
+本地附加契约：`node --import tsx --test tests/legacy-backup-native-contract.test.ts`。独立语义oracle的key/原文/buffer/别名/schema损坏反例必须被识别；浏览器任务前的真实前置原命令校验23任务明确集合、runner和工件入口。当前尚未执行这套原生下载，不把准备脚本当作浏览器通过；先等待提醒修复链终态再发布合并候选。
+
+原生成功和失败两阶段另分别捕获当前已核实owner的完整IDB结构/表/key/value前后快照并严格逐值相等，不豁免整个settings/业务类。正常偏好核对和网络空闲后才捕获基线；这不是停止同步或改设置。若发生后台合法变化，测试应失败并保留事实，不能因此给全表豁免。事务账本同时观测共享源与该owner库；unsupported准备写入完成后明确重置分相账本，失败控件期间同样逐事务要求readonly。
