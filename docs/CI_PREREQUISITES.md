@@ -43,3 +43,5 @@ References: [APT command semantics](https://manpages.ubuntu.com/manpages/jammy/m
 ## Optional isolated startup diagnosis
 
 A push commit explicitly marked `[startup diagnostic]` adds one independent `startup_navigation_diagnostic` consumer; it does not add a formal outcome task. It reuses the same run/attempt/SHA-bound prerequisites and original 45-second probe, with a 15-minute job and 8-minute native step. The formal matrix remains 25. Thus an enabled run has 27 prerequisite consumers (verify + 25 outcomes + this diagnostic); other runs retain 26. See [the diagnostic contract](STARTUP_NAVIGATION_DIAGNOSTIC.md) for once-only cases and the `observed-failure` / `not-reproduced` / `infra-blocked` meanings. This job never emits an acceptance result.
+
+After the first diagnostic run at 27727c9, the independent job explicitly selects only `full-unobserved` via `AUDIT_STARTUP_DIAGNOSTIC_CASE`. The runtime rejects missing/other values. Three already-completed control results remain referenced to their original run rather than executed again. This selection does not change the 25 formal matrix tasks.

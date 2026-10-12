@@ -21,6 +21,20 @@ export const navigationCases = Object.freeze([
   { name: 'spa-unobserved', navigation: 'spa', storageObserver: false },
 ].map(row => Object.freeze({ ...row, width: 1280, height: 900, reducedMotion: 'reduce', attempts: 1 })));
 export const diagnosticBaseline = 'fcec29d6437fe556150ef657097cb61eb717d564';
+export function selectNavigationCases(value) {
+  assert.equal(value, 'full-unobserved', 'Only the previously blocked full-unobserved control may be supplemented');
+  return navigationCases.filter(arm => arm.name === value);
+}
+// Preparation only: observe the original StaticPageEntry effect, never create
+// focus/scroll, and never insert this gate after the measured existing-A login.
+export function sampleSettingsEntryReady() {
+  const root = document.querySelector('[data-page-route="/settings"]'), heading = root?.querySelector('h1');
+  if (location.pathname !== '/settings' || !heading || heading.textContent.trim() !== '设置' || document.activeElement !== heading || Math.abs(window.scrollY) > 1) return false;
+  const rect = heading.getBoundingClientRect();
+  if (rect.height <= 0 || rect.top < 0 || rect.bottom > window.innerHeight) return false;
+  for (let node = heading; node; node = node.parentElement) { const style = getComputedStyle(node); if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) <= 0) return false; }
+  return { path: location.pathname, activeTag: heading.tagName, heading: heading.textContent.trim(), scrollY: window.scrollY, rect: { top: rect.top, bottom: rect.bottom, height: rect.height } };
+}
 const phases = ['initial', 'recovery', 'data-updated'];
 const stages = ['initialization', 'settings', 'sync', 'sync-offline', 'stores', 'expense', 'todo', 'habit', 'quick-note', 'schedule', 'diary', 'coach', 'goal'];
 const outcomes = ['start', 'success', 'error', 'timeout', 'cancel'];
@@ -144,6 +158,7 @@ export function classifyNavigationFailure(phase, visible, errorName) {
 }
 export async function runNavigationDiagnostic() {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Hosted CI only; local browser restrictions must not be bypassed');
+  const selectedCases = selectNavigationCases(process.env.AUDIT_STARTUP_DIAGNOSTIC_CASE);
   const root = resolve(import.meta.dirname, '..');
   const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
   const productionPaths = ['src', 'server/src', 'server/prisma', 'public', 'package.json', 'package-lock.json', 'server/package.json', 'server/package-lock.json'];
@@ -154,10 +169,10 @@ export async function runNavigationDiagnostic() {
   const scratch = await mkdtemp(join(tmpdir(), 'youtrace-startup-diagnostic-'));
   const port = 3343, frontPort = 5293, origin = `http://127.0.0.1:${frontPort}`;
   const env = { ...process.env, NODE_ENV: 'test', PORT: String(port), DATABASE_URL: `file:${join(scratch, 'synthetic.db')}`, JWT_SECRET: randomBytes(48).toString('hex'), ALLOWED_ORIGINS: origin, DEV_OTP_EXPOSE: 'true', SMS_PROVIDER_URL: '', SMS_PROVIDER_TOKEN: '', LLM_API_KEY: '', SERVER_AI_ENABLED: 'false', VITE_DEV_PROXY_TARGET: `http://127.0.0.1:${port}` };
-  const children = [], results = navigationCases.map(arm => ({ ...arm, status: 'infra-blocked', phase: 'not-started', diagnosticOnly: true })); let browser;
+  const children = [], results = selectedCases.map(arm => ({ ...arm, status: 'infra-blocked', phase: 'not-started', diagnosticOnly: true })); let browser;
   let complete = false;
   const save = (path, value) => writeFile(join(artifacts, path), JSON.stringify(value, null, 2));
-  const saveReport = () => save('report.json', { version: 1, ...identity, diagnosticOnly: true, complete, cases: results, applicationInitializationDeadlineMs: 12000, attemptsPerArm: 1, productionSourceModified: false, syntheticScratchRetained: true, limitations: ['No-reproduction is not a fix or formal acceptance', 'Observer on/off differs in timing; enabled-only failure is not causal proof', 'Missing terminal/lifecycle events do not prove locks or bfcache', 'No B account in this smallest A/logout/A comparison', 'Complete Todo/outbox, schema, Todo version/conflict receipts and sync ledger equivalence are asserted; other settings are retained in full snapshots but are not asserted unchanged', 'Incomplete or unstarted arms are infrastructure-blocked, never counted as no-reproduction'] });
+  const saveReport = () => save('report.json', { version: 1, ...identity, diagnosticOnly: true, complete, cases: results, selection: process.env.AUDIT_STARTUP_DIAGNOSTIC_CASE, ...(selectedCases.length === 1 ? { supplements: { publicCommit: '27727c914ca869e60f290ed11a782eb8ac6440cf', run: 38318171708, originalArtifact: 11776838622, originalZipSha256: '7c5ff15a651bcc38f7eddd967050f1660aee8ad80f9d59875a70a470a15cf782', onlyPreviouslyBlockedArm: true, otherArmsRerun: false } } : {}), applicationInitializationDeadlineMs: 12000, attemptsPerArm: 1, productionSourceModified: false, syntheticScratchRetained: true, limitations: ['No-reproduction is not a fix or formal acceptance', 'Observer on/off differs in timing; enabled-only failure is not causal proof', 'Missing terminal/lifecycle events do not prove locks or bfcache', 'No B account in this smallest A/logout/A comparison', 'Complete Todo/outbox, schema, Todo version/conflict receipts and sync ledger equivalence are asserted; other settings are retained in full snapshots but are not asserted unchanged', 'Incomplete or unstarted arms are infrastructure-blocked, never counted as no-reproduction'] });
   await saveReport();
   const startup = (args, cwd) => { const child = spawn(process.execPath, args, { cwd, env, stdio: ['ignore', 'ignore', 'ignore'] }); children.push(child); return child; };
   const ready = async url => { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(url, { signal: AbortSignal.timeout(1000) })).ok) return; } catch { /* startup only */ } await new Promise(resolve => setTimeout(resolve, 200)); } throw Error('Synthetic service startup failed'); };
@@ -167,8 +182,9 @@ export async function runNavigationDiagnostic() {
     await ready(`http://127.0.0.1:${port}/health`); await ready(origin);
     assert.ok(process.env.AUDIT_BROWSER_PATH, 'Use the existing hosted Chrome prerequisite');
     browser = await puppeteer.launch({ executablePath: process.env.AUDIT_BROWSER_PATH, headless: true, protocolTimeout: 30000, args: ['--no-sandbox'] });
-    for (const [index, arm] of navigationCases.entries()) {
-      results[index] = { ...arm, status: 'infra-blocked', phase: 'preparation', diagnosticOnly: true }; await saveReport();
+    for (const [resultIndex, arm] of selectedCases.entries()) {
+      const index = navigationCases.indexOf(arm);
+      results[resultIndex] = { ...arm, status: 'infra-blocked', phase: 'preparation', diagnosticOnly: true }; await saveReport();
       let measurement, firstFaultSave;
       const context = await browser.createBrowserContext(), page = await context.newPage(), ledger = createNavigationLedger(20000, row => measurement?.observe(row)), network = [], actions = [];
       const assertMeasuredActive = () => measurement?.assertActive();
@@ -180,7 +196,7 @@ export async function runNavigationDiagnostic() {
         assertMeasuredActive();
         const found = await page.waitForFunction((selector, text) => [...document.querySelectorAll(selector)].find(el => !el.disabled && (text === undefined || el.textContent.trim() === text)), { timeout: 10000 }, selector, text);
         assertMeasuredActive(); const el = found.asElement(); assert.ok(el);
-        try { await el.scrollIntoView(); await el.evaluate(waitSharedGoalTargetSettled); assert.ok(await el.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }), 'Original control is obscured'); assertMeasuredActive(); actions.push({ phase, kind: 'native-click', selector, text }); await el.click(); } finally { await found.dispose(); }
+        try { await el.scrollIntoView(); await el.evaluate(waitSharedGoalTargetSettled); const geometry = await el.evaluate(el => { const r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { rect: { x: r.x, y: r.y, width: r.width, height: r.height }, hitSelf: el.contains(hit), hitTag: hit?.tagName ?? null, activeTag: document.activeElement?.tagName ?? null, scrollY: window.scrollY }; }); actions.push({ phase, kind: 'original-control-hit-geometry', selector, text, geometry }); assert.ok(geometry.hitSelf, 'Original control is obscured'); assertMeasuredActive(); actions.push({ phase, kind: 'native-click', selector, text }); await el.click(); } finally { await found.dispose(); }
       };
       const route = async path => { assertMeasuredActive(); actions.push({ phase, kind: 'full-navigation', path }); await page.bringToFront(); assertMeasuredActive(); await page.goto(origin + path, { waitUntil: 'networkidle0' }); await page.waitForSelector('h1,h2'); assert.equal(new URL(page.url()).pathname, path); };
       const login = async () => {
@@ -214,10 +230,13 @@ export async function runNavigationDiagnostic() {
         do { before = await snapshot(); const todos = decodeAccountFact(before.tables.find(t => t.name === 'todos').losslessRows), queue = decodeAccountFact(before.tables.find(t => t.name === 'outbox').losslessRows); if (todos.length === 1 && queue.length === 0) { id = todos[0].id; break; } await new Promise(resolve => setTimeout(resolve, 100)); } while (Date.now() < until);
         assert.ok(id, 'Preparation needs real saved and ACKed Todo'); remoteBefore = await api('/sync/pull?protocol=2&features=goals-v1&cursor=0&limit=500'); assert.equal(remoteBefore.hasMore, false); assert.ok(initialSessionChecks.acknowledged({ local: before, events: remoteBefore.events, owner }, `Synthetic retained navigation ${index}`), 'UI Todo must match the real server ACK and version receipt');
         await writeFile(join(directory, 'before.json'), JSON.stringify({ syntheticOnly: true, owner, id, account: before, remote: remoteBefore }, null, 2));
-        await click('aside nav button', '设置'); await page.waitForSelector('h1'); await click('button', '退出登录'); await page.waitForSelector('#login-phone');
+        await click('aside nav button', '设置');
+        const entry = await page.waitForFunction(sampleSettingsEntryReady, { timeout: 3000, polling: 'raf' });
+        actions.push({ phase, kind: 'original-settings-entry-ready', geometry: await entry.jsonValue() }); await entry.dispose();
+        await click('button', '退出登录'); await page.waitForSelector('#login-phone');
         // Measurement starts before existing-A login. No added wait, snapshot,
         // idle gate or artificial transaction between stable Home and navigation.
-        results[index].phase = 'existing-a-navigation'; await saveReport();
+        results[resultIndex].phase = 'existing-a-navigation'; await saveReport();
         phase = 'existing-a-navigation';
         const originFloor = Math.max(0, ...ledger.snapshot().events.map(row => row.timeOrigin));
         measurement = createNavigationFailureLatch(originFloor, failure => {
@@ -235,7 +254,7 @@ export async function runNavigationDiagnostic() {
         await capture('not-reproduced'); phase = 'post-observation-data-read'; const after = await snapshot(), remoteAfter = await api('/sync/pull?protocol=2&features=goals-v1&cursor=0&limit=500');
         assertNavigationData(before, after, id, remoteBefore, remoteAfter);
         await writeFile(join(directory, 'after.json'), JSON.stringify({ syntheticOnly: true, account: after, remote: remoteAfter, todosOutboxSchemaVersionsAndSyncLedgerEqual: true, allSettingsUnchangedClaimed: false }, null, 2));
-        results[index] = { ...arm, status: 'not-reproduced', diagnosticOnly: true };
+        results[resultIndex] = { ...arm, status: 'not-reproduced', diagnosticOnly: true };
       } catch (error) {
         // Freeze before any additional storage read. No Retry, reload or second
         // navigation is attempted after the first failure in this independent arm.
@@ -243,7 +262,7 @@ export async function runNavigationDiagnostic() {
         await writeFile(join(directory, 'first-failure.json'), JSON.stringify({ phase, name: safeErrorName(error), observer: ledger.snapshot(), network, networkDropped: network.dropped ?? 0, actions }, null, 2), { flag: 'wx' });
         const visible = await capture('first-failure-visible').catch(() => null);
         const status = classifyNavigationFailure(phase, visible, safeErrorName(error));
-        results[index] = { ...arm, status, phase, errorName: safeErrorName(error), diagnosticOnly: true };
+        results[resultIndex] = { ...arm, status, phase, errorName: safeErrorName(error), diagnosticOnly: true };
         process.exitCode = 1;
       } finally {
         await saveReport();

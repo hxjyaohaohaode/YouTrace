@@ -380,10 +380,11 @@ jobs:
           PREREQ_MANIFEST_SHA256: ${{ needs.prepare_prerequisites.outputs.manifest_sha256 }}
       - name: Check recording, Chinese font and browser prerequisites
         run: timeout --signal=TERM --kill-after=2s 45s bash scripts/recording-prereq-probe.sh
-      - name: Observe four once-only synthetic startup arms
+      - name: Supplement only the previously blocked startup control
         timeout-minutes: 8
         run: node scripts/diagnose-startup-navigation.mjs
         env:
+          AUDIT_STARTUP_DIAGNOSTIC_CASE: full-unobserved
           AUDIT_BROWSER_PATH: /usr/bin/google-chrome
       - name: Preserve independent diagnostic, including incomplete or failed arms
         if: always()

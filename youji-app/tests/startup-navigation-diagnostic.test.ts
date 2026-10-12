@@ -4,7 +4,7 @@ import { readExistingAccount } from '../scripts/audit-initial-session-outcomes.m
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { createNavigationFailureLatch, measureNavigation, diagnosticEndpoint, assertNavigationData, navigationCases, projectNavigationEvent, createNavigationLedger, installNavigationObserver, classifyNavigationFailure, runNavigationDiagnostic } from '../scripts/diagnose-startup-navigation.mjs';
+import { selectNavigationCases, sampleSettingsEntryReady, createNavigationFailureLatch, measureNavigation, diagnosticEndpoint, assertNavigationData, navigationCases, projectNavigationEvent, createNavigationLedger, installNavigationObserver, classifyNavigationFailure, runNavigationDiagnostic } from '../scripts/diagnose-startup-navigation.mjs';
 const event = (origin: number, transaction: number, outcome: string, request = 0) => ({ kind: 'storage-progress', timeOrigin: origin, event: { timeOrigin: origin, database: 2, transaction, request, outcome, mode: 'readonly', stores: ['todos'], elapsedMs: 1, documentElapsedMs: 10, ...(request ? { method: 'getAll', store: 'todos' } : {}) } });
 test('four frozen once-only arms differ only by native navigation and storage observation', () => {
   assert.equal(navigationCases.length, 4); assert.equal(new Set(navigationCases.map(v => `${v.navigation}:${v.storageObserver}`)).size, 4);
@@ -100,4 +100,30 @@ test('first initialization timeout freezes the measured source document and late
 test('successful measured boundary ends the latch; later unrelated initialization is not retrospectively attributed', async () => {
   const latch = createNavigationFailureLatch(100); await measureNavigation(latch, async assertActive => assertActive());
   latch.observe({ kind: 'application', timeOrigin: 200, event: { phase: 'recovery', stage: 'initialization', outcome: 'error' } }); assert.equal(latch.failure, null);
+});
+
+test('supplement whitelist selects only the blocked arm with its original identity; rejects accidental repetitions or unknown values', () => {
+  assert.deepEqual(selectNavigationCases('full-unobserved'), [navigationCases[1]]);
+  for (const value of [undefined, '', 'all', 'full-observed', 'spa-observed', 'spa-unobserved', 'full-unobserved,spa-unobserved', ' full-unobserved', 'full-unobserved ']) assert.throws(() => selectNavigationCases(value));
+});
+test('Settings setup waits for natural original heading focus and scroll completion without creating either', () => {
+  let active = false, scrollY = 120, visible = true, path = '/settings', text = '设置';
+  const heading = { textContent: text, tagName: 'H1', parentElement: null, getBoundingClientRect: () => ({ top: 30, bottom: 70, height: 40 }) };
+  const root = { querySelector: () => heading };
+  const context = { location: { get pathname() { return path; } }, document: { querySelector: () => root, get activeElement() { return active ? heading : null; } }, window: { get scrollY() { return scrollY; }, innerHeight: 900 }, getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: visible ? '1' : '0' }) };
+  const sample = () => vm.runInNewContext(`(${sampleSettingsEntryReady.toString()})()`, context);
+  assert.equal(sample(), false); active = true; assert.equal(sample(), false); scrollY = 0; visible = false; assert.equal(sample(), false); visible = true; assert.equal(sample().heading, '设置');
+  path = '/todo'; assert.equal(sample(), false); path = '/settings'; text = '待办'; heading.textContent = text; assert.equal(sample(), false);
+  assert.doesNotMatch(sampleSettingsEntryReady.toString(), /\.focus\(|scrollTo|scrollIntoView|setTimeout/);
+});
+test('supplement workflow and readiness gate cannot alter the last-login measurement boundary or rerun three completed arms', async () => {
+  const source = await readFile(new URL('../scripts/diagnose-startup-navigation.mjs', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /AUDIT_STARTUP_DIAGNOSTIC_CASE: full-unobserved/);
+  const gate = source.indexOf('await page.waitForFunction(sampleSettingsEntryReady'), measurement = source.indexOf("phase = 'existing-a-navigation';");
+  assert.ok(gate > 0 && gate < source.indexOf("await click('button', '退出登录')") && gate < measurement);
+  assert.doesNotMatch(source.slice(measurement), /sampleSettingsEntryReady|original-settings-entry-ready/);
+  assert.match(source, /const index = navigationCases.indexOf\(arm\)/);
+  assert.match(source, /kind: 'original-control-hit-geometry'/); assert.match(source, /assert.ok\(geometry.hitSelf, 'Original control is obscured'\)/);
+  assert.match(source, /otherArmsRerun: false/); assert.match(source, /run: 38318171708/);
 });
