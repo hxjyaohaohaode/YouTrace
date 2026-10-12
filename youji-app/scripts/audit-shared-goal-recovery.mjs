@@ -84,13 +84,37 @@ export function sharedGoalTargetGeometry(el) {
   const hit = document.elementFromPoint(x, y);
   return { connected: el.isConnected, enabled: !el.disabled, x, y, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight, hit: Boolean(hit && el.contains(hit)), hitTag: hit?.tagName ?? null, hitLabel: hit?.getAttribute('aria-label') ?? null };
 }
+// Geometry is sampled only after the target's own/ancestor animation finishes.
+// Three unchanged animation frames are required; the timeout never disables an
+// animation or changes application DOM/styles.
+export function waitSharedGoalTargetSettled(el) {
+  return new Promise((resolve, reject) => {
+    let frame, timer, previous, stable = 0, samples = 0, finished = false;
+    const finish = (error, value) => { if (finished) return; finished = true; clearTimeout(timer); cancelAnimationFrame(frame); if (error) reject(error); else resolve(value); };
+    const tick = () => {
+      if (!el.isConnected) { finish(Error('Original control detached while waiting for stable geometry')); return; }
+      const rect = el.getBoundingClientRect(), geometry = [rect.x, rect.y, rect.width, rect.height]; samples++;
+      const animations = document.getAnimations().filter(animation => (animation.playState === 'running' || animation.pending) && animation.effect?.target?.contains?.(el));
+      stable = animations.length === 0 && previous && geometry.every((value, index) => Math.abs(value - previous[index]) < .25) ? stable + 1 : 0;
+      previous = geometry;
+      if (stable >= 3) { finish(null, { samples, stableFrames: stable, activeAncestorAnimations: animations.length }); return; }
+      frame = requestAnimationFrame(tick);
+    };
+    timer = setTimeout(() => finish(Error('Original control did not settle within3seconds')), 3000);
+    frame = requestAnimationFrame(tick);
+  });
+}
 export async function prepareSharedGoalPointer(page, target, actions, label) {
-  await page.bringToFront(); await target.scrollIntoView();
-  for (let attempt = 0; attempt < 4; attempt++) {
+  await page.bringToFront();
+  actions.push({ kind: 'recovery-control-settled', label, ...await target.evaluate(waitSharedGoalTargetSettled) });
+  await target.scrollIntoView();
+  for (let attempt = 0; attempt <= 4; attempt++) {
+    actions.push({ kind: 'recovery-control-settled-after-scroll', label, attempt, ...await target.evaluate(waitSharedGoalTargetSettled) });
     const before = await target.evaluate(sharedGoalTargetGeometry);
     actions.push({ kind: 'recovery-control-hit-test', label, attempt, ...before });
     assert.ok(before.connected && before.enabled && before.width > 0 && before.height > 0, 'Original control is no longer available');
     if (before.hit) return before;
+    assert.ok(attempt < 4, 'Original control remains covered after bounded native scrolling; no click attempted');
     const deltaY = Math.max(-before.viewportHeight * .6, Math.min(before.viewportHeight * .6, before.y - before.viewportHeight / 2));
     assert.ok(Math.abs(deltaY) > 1, 'Original control is covered in the viewport center; refuse a guessed click');
     await page.mouse.move(before.viewportWidth / 2, before.viewportHeight / 2);
@@ -139,6 +163,11 @@ export async function runSharedGoalRecoveryOutcomes(h) {
       const collectSourceTransactions = async () => { sourceTransactions.push(...await page.evaluate(() => window.__sharedSourceTransactions ?? [])); };
       const local = owner => page.evaluate(readExistingAccount, owner);
       const panel = 'section[aria-label="逐项恢复旧版目标"]';
+      const dialogReady = async label => {
+        const dialog = await page.waitForSelector('[role=dialog]', { visible: true, timeout: 7000 }); assert.ok(dialog);
+        try { actions.push({ kind: 'recovery-dialog-ready', label, ...await dialog.evaluate(waitSharedGoalTargetSettled) }); }
+        finally { await dialog.dispose(); }
+      };
       const preview = async () => { await pointer(page, `${panel} button`, '预览旧版目标'); await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('已读取 3 份旧目标'), { timeout: 15000 }, panel); };
       const select = async sourceId => {
         // Read the visible source ID to choose one real row, then native click.
@@ -151,7 +180,7 @@ export async function runSharedGoalRecoveryOutcomes(h) {
         await prepareSharedGoalPointer(page, target, actions, `source:${sourceId}:after-capture`);
         await target.asLocator().click();
         actions.push({ kind: 'native-pointer-source-row', sourceId, width });
-        await page.waitForSelector('[role=dialog] input[type=checkbox]', { visible: true });
+        await page.waitForSelector('[role=dialog] input[type=checkbox]', { visible: true }); await dialogReady('ownership');
       };
       const acknowledge = () => pointer(page, '[role=dialog] input[type=checkbox]');
       const commit = async () => { await pointer(page, '[role=dialog] button', '确认并创建仅本机副本'); await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 15000 }); };
@@ -185,13 +214,13 @@ export async function runSharedGoalRecoveryOutcomes(h) {
       const replayed = await local(actor.ownerId);
       await pass('durable-reload-idempotency', equal(recoveryReceipts(copied), recoveryReceipts(replayed)) && equal(accountRows(copied, 'goalRecords'), accountRows(replayed, 'goalRecords')), 'Same preview and real reload/fresh preview retain the same original receipt/copy ID; no second Goal');
       await pointer(page, `${panel} button`, '查看恢复收据'); await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('已读取 1 份本账号恢复收据'), {}, panel);
-      await pointer(page, `${panel} button`, `比较恢复副本：${sharedGoalFixture[0].title}`); await page.waitForSelector('[role=dialog]', { visible: true });
+      await pointer(page, `${panel} button`, `比较恢复副本：${sharedGoalFixture[0].title}`); await dialogReady('comparison');
       await pass('compare-preserves-without-undo', await page.$eval('[role=dialog]', el => el.textContent.includes('无法确认，保留记录') && el.textContent.includes('不按恢复编号自动定位') && ![...el.querySelectorAll('button')].some(b => /删除|撤销/.test(b.textContent))), 'Original receipt/current comparison explicitly has no automatic deletion and does not claim Goal ID positioning');
       await pointer(page, '[role=dialog] a[href="/goal"]'); await waitPath(page, '/goal'); await page.waitForSelector('[data-component="goal-card"]', { visible: true });
       assert.equal(await page.$$eval('[data-component="goal-card"]', nodes => nodes.length), 1);
       assert.equal(await page.$eval('[data-component="goal-card"] p', el => el.textContent), sharedGoalFixture[0].description);
       assert.ok(await page.$eval('[data-component="goal-card"]', el => el.textContent.includes('仅本机')));
-      await pointer(page, '[data-component="goal-card"] button[aria-label^="删除目标"]'); await page.waitForSelector('[role=dialog]', { visible: true });
+      await pointer(page, '[data-component="goal-card"] button[aria-label^="删除目标"]'); await dialogReady('ordinary-delete');
       assert.ok(await page.$eval('[role=dialog]', el => el.textContent.includes('A 原始计划')));
       await pointer(page, '[role=dialog] button', '确认删除'); await page.waitForSelector('[role=dialog]', { hidden: true });
       await navigate('/settings', '设置'); await preview(); await select(sharedGoalFixture[0].id); await acknowledge(); await commit();

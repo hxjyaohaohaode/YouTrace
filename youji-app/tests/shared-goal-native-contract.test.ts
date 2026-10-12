@@ -108,6 +108,36 @@ test('all native recovery controls use the hit-tested pointer, and source select
   assert.match(source, /pointer: originalPointer/); assert.match(source, /prepareSharedGoalPointer\(page, element, actions/);
   assert.match(source, /prepareSharedGoalPointer\(page, target, actions, `source:\$\{sourceId\}`\)/);
   assert.match(source, /native-wheel-to-recovery-control/); assert.match(source, /elementFromPoint/);
+  for (const name of ['ownership', 'comparison', 'ordinary-delete']) assert.ok(source.includes(`dialogReady('${name}')`));
   assert.match(source, /waitForSelector\('\[role=dialog\] input\[type=checkbox\]'/);
   assert.doesNotMatch(source, /force\s*:\s*true|\.evaluate\([^\n]*\.click\(/);
+});
+
+test('native target waits for ancestor motion and three stable frames without changing animations, with an absolute deadline', async () => {
+  const { waitSharedGoalTargetSettled } = await import('../scripts/audit-shared-goal-recovery.mjs');
+  const { runInNewContext } = await import('node:vm');
+  const setup = () => {
+    let serial = 0, deadline: (() => void) | undefined, cleared = false, moving = true, pending = false, related = true, y = 1300;
+    const frames = new Map<number, () => void>();
+    const el = { isConnected: true, getBoundingClientRect: () => ({ x: 20, y, width: 13, height: 13 }) };
+    const context = { document: { getAnimations: () => [{ playState: moving ? 'running' : 'finished', pending, effect: { target: { contains: () => related } } }] }, requestAnimationFrame: (callback: () => void) => { frames.set(++serial, callback); return serial; }, cancelAnimationFrame: (id: number) => { frames.delete(id); }, setTimeout: (callback: () => void, delay: number) => { assert.equal(delay, 3000); deadline = callback; return 1; }, clearTimeout: () => { cleared = true; } };
+    const fn = runInNewContext(`(${waitSharedGoalTargetSettled.toString()})`, context);
+    return { promise: fn(el), frame: () => { const entry = frames.entries().next().value; assert.ok(entry); frames.delete(entry[0]); entry[1](); }, timeout: () => deadline!(), set: (value: { moving?: boolean; pending?: boolean; related?: boolean; y?: number }) => { moving = value.moving ?? moving; pending = value.pending ?? pending; related = value.related ?? related; y = value.y ?? y; }, el, frames, get cleared() { return cleared; } };
+  };
+  const animated = setup(); animated.frame(); animated.set({ y: 1000 }); animated.frame(); animated.set({ moving: false, y: 700 });
+  for (let i = 0; i < 4; i++) animated.frame();
+  const result = await animated.promise; assert.equal(result.stableFrames, 3); assert.equal(result.activeAncestorAnimations, 0); assert.equal(animated.cleared, true); assert.equal(animated.frames.size, 0);
+  for (const unrelated of [false, true]) {
+    const reduced = setup(); reduced.set(unrelated ? { related: false } : { moving: false }); for (let i = 0; i < 4; i++) reduced.frame(); assert.equal((await reduced.promise).samples, 4);
+  }
+  const forever = setup(); for (let i = 0; i < 8; i++) forever.frame(); const refused = assert.rejects(forever.promise, /within3seconds/); forever.timeout(); await refused; assert.equal(forever.frames.size, 0);
+  const changing = setup(); changing.set({ moving: false }); for (let i = 0; i < 8; i++) { changing.set({ y: i * 10 }); changing.frame(); } const unstable = assert.rejects(changing.promise, /within3seconds/); changing.timeout(); await unstable;
+  const detached = setup(); detached.el.isConnected = false; const gone = assert.rejects(detached.promise, /detached/); detached.frame(); await gone;
+});
+
+test('native pointer checks the fourth wheel result before refusing, without expanding its four-wheel budget', async () => {
+  const { prepareSharedGoalPointer } = await import('../scripts/audit-shared-goal-recovery.mjs'); let wheels = 0;
+  const target = { scrollIntoView: async () => {}, evaluate: async () => ({ connected: true, enabled: true, x: 100, y: wheels === 4 ? 450 : 868, width: 100, height: 44, viewportWidth: 360, viewportHeight: 900, hit: wheels === 4 }) };
+  const page = { bringToFront: async () => {}, mouse: { move: async () => {}, wheel: async () => { wheels++; } }, waitForFunction: async () => {} };
+  assert.equal((await prepareSharedGoalPointer(page, target, [], 'fourth')).hit, true); assert.equal(wheels, 4);
 });
