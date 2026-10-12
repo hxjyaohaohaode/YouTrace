@@ -77,9 +77,39 @@ export function exactLocalCopy(facts, original) {
 // broad settings or business-table exemptions turn legitimate changes into green.
 export function unchangedAccount(before, after) { return equal(before, after); }
 
+// Scrolling is a real wheel action. A fixed bottom bar must never receive a
+// recovery click intended for an offscreen/covered target. No force/DOM click.
+export function sharedGoalTargetGeometry(el) {
+  const rect = el.getBoundingClientRect(), x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+  const hit = document.elementFromPoint(x, y);
+  return { connected: el.isConnected, enabled: !el.disabled, x, y, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight, hit: Boolean(hit && el.contains(hit)), hitTag: hit?.tagName ?? null, hitLabel: hit?.getAttribute('aria-label') ?? null };
+}
+export async function prepareSharedGoalPointer(page, target, actions, label) {
+  await page.bringToFront(); await target.scrollIntoView();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const before = await target.evaluate(sharedGoalTargetGeometry);
+    actions.push({ kind: 'recovery-control-hit-test', label, attempt, ...before });
+    assert.ok(before.connected && before.enabled && before.width > 0 && before.height > 0, 'Original control is no longer available');
+    if (before.hit) return before;
+    const deltaY = Math.max(-before.viewportHeight * .6, Math.min(before.viewportHeight * .6, before.y - before.viewportHeight / 2));
+    assert.ok(Math.abs(deltaY) > 1, 'Original control is covered in the viewport center; refuse a guessed click');
+    await page.mouse.move(before.viewportWidth / 2, before.viewportHeight / 2);
+    await page.mouse.wheel({ deltaY }); actions.push({ kind: 'native-wheel-to-recovery-control', label, deltaY });
+    await page.waitForFunction((el, oldY) => { const r = el.getBoundingClientRect(); return !el.isConnected || Math.abs(r.y + r.height / 2 - oldY) > 1 || el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }, { timeout: 3000 }, target, before.y);
+  }
+  throw Error('Original control remains covered after bounded native scrolling; no click attempted');
+}
+
 export async function runSharedGoalRecoveryOutcomes(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Hosted CI only; no local browser permission bypass');
-  const { isolated, pointer, fill, waitPath, apiFor, capture, observe, actions, artifacts, writeFile, join, origin } = h;
+  const { isolated, pointer: originalPointer, fill, waitPath, apiFor, capture, observe, actions, artifacts, writeFile, join, origin } = h;
+  const pointer = async (page, selector, text) => {
+    const handle = await page.waitForFunction((selector, text) => [...document.querySelectorAll(selector)].find(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.disabled && (text === undefined || el.textContent.trim() === text); }), { timeout: 7000 }, selector, text);
+    const element = handle.asElement(); assert.ok(element);
+    try { await prepareSharedGoalPointer(page, element, actions, text ?? selector); }
+    finally { await handle.dispose(); }
+    await originalPointer(page, selector, text);
+  };
   const media = [];
   for (const [index, width] of [1280, 360].entries()) {
     const name = `YSG-shared-goals-${width}`; media.push(name);
@@ -115,7 +145,11 @@ export async function runSharedGoalRecoveryOutcomes(h) {
         // No synthetic data-* attribute or hidden app/service entrypoint is used.
         const ordinal = await page.$$eval(`${panel} div.rounded-lg`, (rows, id) => rows.findIndex(row => [...row.querySelectorAll('p')].some(p => p.textContent === `原编号：${id}`)), sourceId);
         assert.ok(ordinal >= 0); const candidates = await page.$$(`${panel} div.rounded-lg`);
-        const target = await candidates[ordinal].$('button'); assert.ok(target); await target.scrollIntoView(); await target.asLocator().click();
+        const target = await candidates[ordinal].$('button'); assert.ok(target);
+        await prepareSharedGoalPointer(page, target, actions, `source:${sourceId}`);
+        await capture(page, `${name}-source-row-before-native-click`);
+        await prepareSharedGoalPointer(page, target, actions, `source:${sourceId}:after-capture`);
+        await target.asLocator().click();
         actions.push({ kind: 'native-pointer-source-row', sourceId, width });
         await page.waitForSelector('[role=dialog] input[type=checkbox]', { visible: true });
       };

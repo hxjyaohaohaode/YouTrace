@@ -83,3 +83,31 @@ test('readonly account-fact decoder retains undefined property identity and safe
   assert.equal(Object.hasOwn(value, 'epoch'), true); assert.equal(value.epoch, undefined); assert.equal(Object.getPrototypeOf(value), Object.prototype); assert.deepEqual(value.__proto__, { retained: 'raw' });
   assert.equal(({} as { retained?: string }).retained, undefined); assert.throws(() => decodeAccountFact({ type: 'unimplemented' }));
 });
+
+test('native recovery pointer scrolls a covered bottom-bar target, checks the actual hit and never performs a guessed click', async () => {
+  const { prepareSharedGoalPointer } = await import('../scripts/audit-shared-goal-recovery.mjs');
+  const actions: unknown[] = [], wheels: number[] = [];
+  let covered = true;
+  const target = { scrollIntoView: async () => {}, evaluate: async () => ({ connected: true, enabled: true, x: 100, y: covered ? 868 : 450, width: 120, height: 32, viewportWidth: 360, viewportHeight: 900, hit: !covered, hitTag: covered ? 'NAV' : 'BUTTON', hitLabel: covered ? '日程' : null }) };
+  const page = { bringToFront: async () => {}, mouse: { move: async () => {}, wheel: async ({ deltaY }: { deltaY: number }) => { wheels.push(deltaY); covered = false; } }, waitForFunction: async () => {} };
+  assert.equal((await prepareSharedGoalPointer(page, target, actions, 'source:fixture')).hit, true); assert.deepEqual(wheels, [418]);
+  assert.equal(actions.filter(row => (row as { kind: string }).kind === 'recovery-control-hit-test').length, 2);
+  const blocked = { ...target, evaluate: async () => ({ ...await target.evaluate(), y: 450, hit: false }) };
+  await assert.rejects(prepareSharedGoalPointer(page, blocked, [], 'overlay'), /covered in the viewport center/);
+  const stale = { ...target, evaluate: async () => ({ ...await target.evaluate(), connected: false }) };
+  await assert.rejects(prepareSharedGoalPointer(page, stale, [], 'stale'), /no longer available/);
+  const permanentlyCovered = { ...target, evaluate: async () => ({ ...await target.evaluate(), y: 868, hit: false }) };
+  const repeated: unknown[] = []; await assert.rejects(prepareSharedGoalPointer(page, permanentlyCovered, repeated, 'fixed'), /remains covered/);
+  assert.equal(repeated.filter(row => (row as { kind: string }).kind === 'native-wheel-to-recovery-control').length, 4);
+  const atScrollEnd = { ...page, waitForFunction: async () => { throw Error('No geometry movement at scroll limit'); } };
+  await assert.rejects(prepareSharedGoalPointer(atScrollEnd, permanentlyCovered, [], 'scroll-end'), /scroll limit/);
+});
+
+test('all native recovery controls use the hit-tested pointer, and source selection cannot bypass it', async () => {
+  const source = await readFile(new URL('../scripts/audit-shared-goal-recovery.mjs', import.meta.url), 'utf8');
+  assert.match(source, /pointer: originalPointer/); assert.match(source, /prepareSharedGoalPointer\(page, element, actions/);
+  assert.match(source, /prepareSharedGoalPointer\(page, target, actions, `source:\$\{sourceId\}`\)/);
+  assert.match(source, /native-wheel-to-recovery-control/); assert.match(source, /elementFromPoint/);
+  assert.match(source, /waitForSelector\('\[role=dialog\] input\[type=checkbox\]'/);
+  assert.doesNotMatch(source, /force\s*:\s*true|\.evaluate\([^\n]*\.click\(/);
+});
