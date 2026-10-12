@@ -1,7 +1,7 @@
 import { aiErrorMessage, type AIConnectionIdentity, type ServerAISelection } from '../services/userAI';
 import { create } from 'zustand';
 import Dexie from 'dexie';
-import { api, streamChat, isLoggedIn } from '../services/apiClient';
+import { api, streamChat, isLoggedIn, getSessionGeneration } from '../services/apiClient';
 import { useTodoStore } from './todoStore';
 import { useHabitStore } from './habitStore';
 import { db, getSetting, LOCAL_DATA_EPOCH_KEY } from '../db';
@@ -14,6 +14,7 @@ function getDateDaysAgoStr(days: number): string {
 import { useScheduleStore } from './scheduleStore';
 import { useExpenseStore } from './expenseStore';
 import { toast } from '../services/toastBus';
+import { recordDiagnostic } from '../services/diagnostics';
 
 export interface CoachMessage {
   id: string;
@@ -327,6 +328,51 @@ function updatePushFeedback(id: string, action: 'read' | 'act' | 'dismiss'): Pro
         : state.pushes.map((item) => item.id === id ? { ...item, ...updates } : item) })));
     });
   });
+}
+
+const PUSH_DELETION_SCAN_KEY = 'coachPushDeletionScan:v1';
+type PushDeletionScan = { deleted: Set<string>; nextAfter: string | null };
+
+/** Fair resumable account-scoped lookup; only tombstones prove deletion. */
+async function readCloudPushDeletions(current: () => boolean, owner: string | null, dataEpoch: string): Promise<PushDeletionScan> {
+  // Unsupported legacy IDs stay cached; one unqueryable ID cannot block others.
+  const cloudRows = (await db.coachPushes.toArray()).filter(row => row.origin === 'cloud');
+  const ids = cloudRows.filter(row => typeof row.id === 'string' && row.id.length > 0 && row.id.length <= 256).map(row => row.id).sort();
+  if (ids.length !== cloudRows.length) recordDiagnostic('runtime-error', 'coach'); // No ID or private content in diagnostics.
+  const saved = await getSetting<unknown>(PUSH_DELETION_SCAN_KEY, null);
+  const after = saved && typeof saved === 'object' && 'owner' in saved && saved.owner === owner
+    && 'dataEpoch' in saved && saved.dataEpoch === dataEpoch && 'afterId' in saved && typeof saved.afterId === 'string' ? saved.afterId : null;
+  const ordered = after === null ? ids : [...ids.filter(id => id > after), ...ids.filter(id => id <= after)];
+  const result: PushDeletionScan = { deleted: new Set(), nextAfter: null };
+  // At most 100 sequential requests per load. Persist progress for the next
+  // load/restart; do not repeatedly starve tails beyond the server rate limit.
+  let offset = 0;
+  for (let batch = 0; offset < ordered.length && batch < 100; batch += 1) {
+    if (!current()) return { deleted: new Set(), nextAfter: null };
+    const requested: string[] = [];
+    let bytes = new TextEncoder().encode('{"protocol":1,"ids":[]}').byteLength;
+    while (offset + requested.length < ordered.length && requested.length < 100) {
+      const id = ordered[offset + requested.length];
+      const size = new TextEncoder().encode(JSON.stringify(id)).byteLength + (requested.length ? 1 : 0);
+      // Below the server's minimum configurable 16KiB body limit, including
+      // Unicode/JSON escaping. Do not let a valid historical ID batch starve.
+      if (bytes + size > 12 * 1024) break;
+      requested.push(id); bytes += size;
+    }
+    offset += requested.length;
+    let response: unknown;
+    try { response = await api.post<unknown>('/coach/pushes/deletion-status', { protocol: 1, ids: requested }); }
+    catch { return result; } // Keep the failed batch for the next attempt.
+    if (!current()) return { deleted: new Set(), nextAfter: null };
+    if (!response || typeof response !== 'object' || !('protocol' in response) || response.protocol !== 1
+      || !('deletedIds' in response) || !Array.isArray(response.deletedIds)
+      || response.deletedIds.length > requested.length
+      || response.deletedIds.some(id => typeof id !== 'string' || !requested.includes(id))
+      || new Set(response.deletedIds).size !== response.deletedIds.length) return result;
+    for (const id of response.deletedIds as string[]) result.deleted.add(id);
+    result.nextAfter = requested.at(-1)!;
+  }
+  return result;
 }
 
 async function buildLocalDailyBrief(): Promise<DailyBrief> {
@@ -738,9 +784,14 @@ export const useCoachStore = create<CoachState>((set, get) => ({
     const revision = coachDataRevision;
     const signedIn = isLoggedIn();
     const owner = db.ownerId;
+    const sessionGeneration = getSessionGeneration();
     const dataEpoch = await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial');
     let remote: { insights: CoachInsightRecord[]; pushes: CoachPushRecord[] } | null = null;
+    let deletionScan: PushDeletionScan = { deleted: new Set(), nextAfter: null };
+    const current = () => version === coachLoadVersion && revision === coachDataRevision && owner === db.ownerId && signedIn === isLoggedIn() && sessionGeneration === getSessionGeneration();
     if (signedIn) {
+      // Older servers/offline/malformed responses never authorize deletion.
+      const deletionCheck = readCloudPushDeletions(current, owner, dataEpoch).catch((): PushDeletionScan => ({ deleted: new Set(), nextAfter: null }));
       try {
         const [insightsData, pushesData] = await Promise.all([
           api.get<{ insights: CoachInsightApiRecord[] }>('/coach/insights?limit=50'),
@@ -750,11 +801,25 @@ export const useCoachStore = create<CoachState>((set, get) => ({
       } catch {
         // Keep all previously cached and locally generated evidence when offline.
       }
+      deletionScan = await deletionCheck;
     }
-    if (version !== coachLoadVersion || owner !== db.ownerId || signedIn !== isLoggedIn()) return;
+    if (version !== coachLoadVersion || owner !== db.ownerId || signedIn !== isLoggedIn() || sessionGeneration !== getSessionGeneration()) return;
+    const staleScan = new Error('Coaching load authority changed');
     await db.transaction('rw', db.coachInsights, db.coachPushes, db.settings, async () => {
       if (await getSetting<string>(LOCAL_DATA_EPOCH_KEY, 'initial') !== dataEpoch) return;
-      if (remote && version === coachLoadVersion && revision === coachDataRevision) {
+      if (current()) {
+        for (const id of deletionScan.deleted) {
+          // A newer local reminder or untagged legacy record is never claimed.
+          if ((await db.coachPushes.get(id))?.origin !== 'cloud') continue;
+          await db.coachPushes.delete(id);
+          await db.settings.put({ key: `coachPushDismissed:${id}`, value: true });
+        }
+        // Progress and confirmed cache removals commit together; quota/failure
+        // cannot skip a deletion that was never persisted locally.
+        if (deletionScan.nextAfter !== null) await db.settings.put({ key: PUSH_DELETION_SCAN_KEY,
+          value: { owner, dataEpoch, afterId: deletionScan.nextAfter } });
+      }
+      if (remote && current()) {
         // Both endpoints are limited pages. Absence is not a deletion event.
         for (const record of remote.insights) {
           const existing = await db.coachInsights.get(record.id);
@@ -769,12 +834,15 @@ export const useCoachStore = create<CoachState>((set, get) => ({
         }
       }
       const [insights, pushes] = await Promise.all([db.coachInsights.toArray(), db.coachPushes.toArray()]);
+      // A session/load can change while native IndexedDB requests are pending.
+      // Roll back progress and removals together rather than commit stale work.
+      if (!current()) throw staleScan;
       insights.sort((a, b) => b.createdAt - a.createdAt);
       pushes.sort((a, b) => b.createdAt - a.createdAt);
       afterCoachCommit(() => {
-        if (version === coachLoadVersion && owner === db.ownerId && signedIn === isLoggedIn()) set({ insights, pushes, loaded: true });
+        if (version === coachLoadVersion && owner === db.ownerId && signedIn === isLoggedIn() && sessionGeneration === getSessionGeneration()) set({ insights, pushes, loaded: true });
       });
-    });
+    }).catch(error => { if (error !== staleScan) throw error; });
   },
 
   addInsight: async (insight) => {

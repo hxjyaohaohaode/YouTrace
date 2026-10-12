@@ -207,6 +207,7 @@ test('late cloud page cannot resurrect a dismissed reminder or double-count dism
   let deleted = 0;
   globalThis.fetch = async (input, init) => {
     if (init?.method === 'DELETE') { deleted += 1; return Response.json({ success: true }); }
+    if (String(input).includes('/deletion-status')) return Response.json({ protocol: 1, deletedIds: [] });
     return new Promise<Response>((resolve) => { pending.push(() => resolve(Response.json(String(input).includes('/insights') ? { insights: [cloudInsight] } : { pushes: [cloudPush] }))); });
   };
   const loading = useCoachStore.getState().loadFromDB();
@@ -279,10 +280,13 @@ test('cloud load completing after local clear cannot repopulate cleared coaching
   const pending: Array<() => void> = [];
   let started: () => void = () => undefined;
   const requested = new Promise<void>((resolve) => { started = resolve; });
-  globalThis.fetch = async (input) => new Promise<Response>((resolve) => {
-    pending.push(() => resolve(Response.json(String(input).includes('/insights') ? { insights: [cloudInsight] } : { pushes: [cloudPush] })));
-    if (pending.length === 2) started();
-  });
+  globalThis.fetch = async (input) => {
+    if (String(input).includes('/deletion-status')) return Response.json({ protocol: 1, deletedIds: [] });
+    return new Promise<Response>((resolve) => {
+      pending.push(() => resolve(Response.json(String(input).includes('/insights') ? { insights: [cloudInsight] } : { pushes: [cloudPush] })));
+      if (pending.length === 2) started();
+    });
+  };
   const loading = useCoachStore.getState().loadFromDB();
   await requested;
   await storage.clearAllData();

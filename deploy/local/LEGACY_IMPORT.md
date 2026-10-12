@@ -4,7 +4,7 @@
 
 ## 支持与运行
 
-只支持精确完成履历：`20260731190000_initial_baseline`，或其加 `20260731190001_auth_security`。来源表/索引/外键 SQL、Prisma 履历字段/状态/checksum 必须吻合。无履历、失败/回滚/部分迁移、额外 HabitLog 或其他漂移均拒绝。目标10个迁移的 SHA 固定；改变目标迁移需重新审核工具。
+只支持精确完成履历：`20260731190000_initial_baseline`，或其加 `20260731190001_auth_security`。来源表/索引/外键 SQL、Prisma 履历字段/状态/checksum 必须吻合。无履历、失败/回滚/部分迁移、额外 HabitLog 或其他漂移均拒绝。目标11个迁移的 SHA 固定；改变目标迁移需重新审核工具。
 
 前置为 Python3、Node、按锁文件安装的后端依赖及 Prisma 引擎。输入来自已授权备份流程的封存 SQLite 文件和同名 SHA-256 `.json` 收据，无 WAL/SHM/journal。不能手写假收据通过检查。
 

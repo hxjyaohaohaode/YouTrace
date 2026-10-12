@@ -148,6 +148,36 @@ class LegacyImportTests(unittest.TestCase):
                     if path.is_file(): self.assertEqual(path.stat().st_mode & 0o077, 0, str(path))
                 self.unchanged()
 
+    def test_current_nonempty_database_additive_push_migration_uses_real_prisma(self):
+        directory = self.root / 'current-upgrade'; directory.mkdir()
+        prisma = directory / 'prisma'; prisma.mkdir(); (prisma / 'migrations').mkdir()
+        (prisma / 'schema.prisma').write_text('datasource db {\n provider = "sqlite"\n url = env("DATABASE_URL")\n}\n')
+        shutil.copyfile(importer.MIGRATIONS / 'migration_lock.toml', prisma / 'migrations/migration_lock.toml')
+        names = list(importer.MIGRATION_HASHES)
+        for name in names[:-1]: shutil.copytree(importer.MIGRATIONS / name, prisma / 'migrations' / name)
+        target = directory / 'existing.sqlite3'
+        def migrate():
+            result = subprocess.run(['node', str(SERVER / 'node_modules/prisma/build/index.js'), 'migrate', 'deploy', '--schema', str(prisma / 'schema.prisma')],
+                cwd=directory, env={'PATH': os.environ['PATH'], 'HOME': str(directory), 'DATABASE_URL': 'file:' + str(target),
+                    'CHECKPOINT_DISABLE': '1', 'PRISMA_HIDE_UPDATE_MESSAGE': '1'}, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        migrate()
+        with sqlite3.connect(target) as db:
+            db.execute('INSERT INTO User(id,phone,nickname,createdAt,updatedAt) VALUES(?,?,?,?,?)', ('upgrade-owner', 'synthetic-upgrade', ORIGINAL, STAMP, STAMP))
+            db.execute('INSERT INTO Push(id,userId,type,title,body,actions,createdAt) VALUES(?,?,?,?,?,?,?)', ('upgrade-push', 'upgrade-owner', 'follow_up', ORIGINAL, ORIGINAL, ' [] ', STAMP))
+            originals = db.execute('SELECT * FROM Push').fetchall()
+            old_history = db.execute('SELECT * FROM _prisma_migrations ORDER BY migration_name').fetchall()
+        shutil.copytree(importer.MIGRATIONS / names[-1], prisma / 'migrations' / names[-1]); migrate(); migrate()
+        with sqlite3.connect(target) as db:
+            self.assertEqual(db.execute('SELECT * FROM Push').fetchall(), originals)
+            self.assertEqual(db.execute('SELECT * FROM _prisma_migrations ORDER BY migration_name').fetchall()[:-1], old_history)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM SyncTombstone').fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('sync_Push_delete','sync_Push_no_resurrection','sync_Push_identity_immutable')").fetchone()[0], 3)
+            db.execute("DELETE FROM Push WHERE id='upgrade-push'")
+            self.assertEqual(db.execute("SELECT userId,entity,entityId FROM SyncTombstone").fetchall(), [('upgrade-owner', 'coachPushes', 'upgrade-push')])
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('INSERT INTO Push(id,userId,type,title,body) VALUES(?,?,?,?,?)', ('upgrade-push', 'upgrade-owner', 'follow_up', 'new', 'new'))
+
     def test_duplicate_diaries_include_identical_and_invalid_members_without_winner(self):
         with sqlite3.connect(self.source) as db:
             db.executemany('INSERT INTO Diary(userId,date,content,createdAt,updatedAt) VALUES(?,?,?,?,?)',

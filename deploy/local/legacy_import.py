@@ -34,6 +34,7 @@ MIGRATION_HASHES = {
     '20261004000004_todo_completion_time': 'b894f1384f5107d0cae887037ce7adc7cdb5632ebe073f0484b975d6a6dd3a9e',
     '20261005000000_schedule_exceptions': '6cb1183ddebd36e2cd0dda340e03c3bf632063f926467a618776f0eb8c579dce',
     '20261010040000_user_owned_ai': '61c41bb0262218240a0b7ebaf2e481dd0a7c054fd9515a4c189d420a46c13ef7',
+    '20261012170000_coach_push_tombstones': 'd8998c1b8255977a5ab75097c90ad323a0db793c1300d965e93e8c3a8e581db6',
 }
 AUTH_TABLES = ('AuthChallenge', 'RegistrationTicket')
 TABLES = ('User', 'Schedule', 'Expense', 'Todo', 'Habit', 'HabitCheckin', 'QuickNote',

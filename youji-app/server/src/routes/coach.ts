@@ -268,6 +268,31 @@ coachRoutes.get('/pushes', async (c) => {
   return c.json({ pushes: pushes.map(serializePush) })
 })
 
+// Only explicit durable deletion facts, never absence from the latest page.
+const pushDeletionQuerySchema = z.object({
+  protocol: z.literal(1),
+  ids: z.array(z.string().min(1).max(256)).min(1).max(100)
+    .refine(ids => new Set(ids).size === ids.length),
+}).strict()
+
+coachRoutes.post('/pushes/deletion-status', async (c) => {
+  c.header('Cache-Control', 'no-store')
+  const body: unknown = await c.req.json().catch(() => null)
+  const parsed = pushDeletionQuerySchema.safeParse(body)
+  if (!parsed.success) return c.json({ error: '删除状态查询格式不正确' }, 400)
+  const user = c.get('user') as AuthUser
+  const rate = consumeRateLimit(`coach:deletion-status:${user.id}`, { limit: 120, windowMs: 60_000 })
+  if (!rate.allowed) {
+    c.header('Retry-After', String(rate.retryAfterSeconds))
+    return c.json({ error: '查询过于频繁，请稍后再试' }, 429)
+  }
+  const deleted = await prisma.syncTombstone.findMany({
+    where: { userId: user.id, entity: 'coachPushes', entityId: { in: parsed.data.ids } },
+    select: { entityId: true },
+  })
+  return c.json({ protocol: 1, deletedIds: deleted.map(row => row.entityId) })
+})
+
 coachRoutes.patch('/pushes/:id', async (c) => {
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
@@ -371,7 +396,13 @@ coachRoutes.post('/generate-brief', async (c) => {
   return c.json({ insight: serializeInsight(insight) })
 })
 
+async function hasPushDeletionInfrastructure(): Promise<boolean> {
+  const rows = await prisma.$queryRaw<Array<{ name: string }>>`SELECT name FROM sqlite_master WHERE type='trigger' AND name IN ('sync_Push_delete','sync_Push_no_resurrection','sync_Push_identity_immutable')`
+  return rows.length === 3
+}
+
 coachRoutes.delete('/pushes/:id', async (c) => {
+  if (!await hasPushDeletionInfrastructure()) return c.json({ error: '提醒删除尚未准备完成，原记录已保留' }, 503)
   const user = c.get('user') as AuthUser
   const id = c.req.param('id')
 
@@ -380,7 +411,10 @@ coachRoutes.delete('/pushes/:id', async (c) => {
   })
 
   if (removed.count === 0) {
-    return c.json({ error: '推送不存在' }, 404)
+    const priorDeletion = await prisma.syncTombstone.findUnique({
+      where: { userId_entity_entityId: { userId: user.id, entity: 'coachPushes', entityId: id } },
+    })
+    if (!priorDeletion) return c.json({ error: '推送不存在' }, 404)
   }
 
   return c.json({ success: true })
