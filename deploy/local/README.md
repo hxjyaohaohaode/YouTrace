@@ -78,3 +78,9 @@ python3 -m unittest discover -s deploy/local/tests -v
 `.github/workflows/local-durability.yml` 支持手动 workflow_dispatch，也在 main 推送涉及应用、本包、根 `.dockerignore` 或本工作流时自动验证；它不会部署真实服务。它调用 `test-docker.sh`，以唯一测试 project/卷、合成账户与配置运行真实镜像、Nginx HTTPS、前端与 API 404 路由、UID、容器重建持久化、在线备份/新目录恢复、AI 连接密文与原加密密钥的配对和生产 Cookie 头检查。没有外部短信/模型调用；解密后调用由进程内 fetch 替身代替。证书仅在该次临时 localhost 测试生成，由 curl 的 `--cacert` 显式信任，不跳过证书验证、不改全局信任。
 
 脚本拒绝覆盖已有 `.env` 或 tls 目录；退出时只删除自己唯一项目的测试卷和自己创建的临时配置。手动本机执行需明确设置 `YOU_TRACE_SYNTHETIC_DOCKER_TEST=1`，且本机 8443 未被其他程序占用。没有自动安装 Docker。只有相应精确提交的 CI 运行回执成功后，才能把这些 Docker 验证标为通过；本次未推送或触发远端。
+
+### 历史迁移安全门禁与离线候选
+
+已登记旧库仍先完成并校验 prestart 备份。若待应用旧迁移会修改/删除非空历史风险表，启动器在任何 Prisma 迁移前拒绝，不改原 schema、数据或已发布 checksum。含 Diary/HabitLog 的情况也被覆盖；空新库及已完成迁移的正常重启不受影响。
+
+`legacy_import.py` 可将明确支持的 July baseline 封存备份导入全新离线候选。全部原始记录和ID/所有者映射先保全；重复业务键、缺失打卡创建时间或未知schema等整批阻断。候选始终不自动登记安装，旧客户端outbox/游标与会话失效需要另行批准的切换流程。精确命令及回滚见 [LEGACY_IMPORT.md](LEGACY_IMPORT.md)。

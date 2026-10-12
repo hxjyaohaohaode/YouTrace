@@ -7,13 +7,32 @@ services:
     runtime: static
     branch: main
     autoDeployTrigger: 'off'
-    buildCommand: cd youji-app && npm ci && npm run build
+    buildCommand: cd youji-app && node scripts/validate-static-api.mjs && npm ci && npm run build
     staticPublishPath: youji-app/dist
     envVars:
       - key: NODE_VERSION
         value: '24'
       - key: VITE_API_BASE_URL
         sync: false
+    headers:
+      - path: "/*"
+        name: X-Content-Type-Options
+        value: "nosniff"
+      - path: "/*"
+        name: X-Frame-Options
+        value: "DENY"
+      - path: "/*"
+        name: Referrer-Policy
+        value: "strict-origin-when-cross-origin"
+      - path: "/*"
+        name: Permissions-Policy
+        value: "camera=(), geolocation=(), microphone=(self)"
+      - path: "/*"
+        name: Strict-Transport-Security
+        value: "max-age=63072000; includeSubDomains; preload"
+      - path: "/*"
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     routes:
       - type: rewrite
         source: /*

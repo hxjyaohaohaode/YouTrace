@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import re
 import unittest
 import subprocess
 import sys
@@ -26,6 +28,30 @@ class RenderStorageGateTests(unittest.TestCase):
         self.assertNotIn('runtime: node', free)
         self.assertNotIn('runtime: docker', free)
         self.assertNotIn('DATABASE_URL', free)
+
+    def test_static_blueprints_preserve_all_public_header_policies(self):
+        root = Path(__file__).parents[3]
+        original = (root / 'youji-app/public/_headers').read_text().splitlines()
+        self.assertEqual(original[0], '/*')
+        expected = [tuple(line.strip().split(': ', 1)) for line in original[1:] if line.strip()]
+        self.assertEqual(len(expected), 6)
+        self.assertEqual({name for name, _ in expected}, {
+            'X-Content-Type-Options', 'X-Frame-Options', 'Referrer-Policy',
+            'Permissions-Policy', 'Strict-Transport-Security', 'Content-Security-Policy',
+        })
+        for template in ('render.yaml', 'deploy/render/free-static.yaml'):
+            with self.subTest(template=template):
+                services = re.split(r'(?m)^  - type: ', (root / template).read_text())[1:]
+                static = [service for service in services if '\n    runtime: static\n' in service]
+                self.assertEqual(len(static), 1)
+                block = re.search(r'(?m)^    headers:\n((?:^ {6,}.+\n)+)', static[0])
+                self.assertIsNotNone(block, 'Static security policies must be Render Blueprint headers')
+                # JSON-quoted strings are valid YAML. Keep this regression dependency-free.
+                entries = re.findall(r'      - path: (.+)\n        name: (.+)\n        value: (.+)\n', block[1])
+                self.assertEqual(''.join(f'      - path: {path}\n        name: {name}\n        value: {value}\n'
+                                         for path, name, value in entries), block[1])
+                self.assertEqual([json.loads(path) for path, _, _ in entries], ['/*'] * 6)
+                self.assertEqual([(name, json.loads(value)) for _, name, value in entries], expected)
 
     def test_declared_disk_layout_is_allowed(self):
         runtime.validate_storage(self.env, self.mount)

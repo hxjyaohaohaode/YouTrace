@@ -1,14 +1,16 @@
 """Single-process local production supervisor; Linux container only."""
 import fcntl
+from contextlib import closing
 import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
-from storage import DB_NAME, INSTALL, require_install, snapshot, make_marker
+from storage import DB_NAME, INSTALL, connect_readonly, require_install, snapshot, make_marker
 
 
 def validate_environment(environ):
@@ -53,6 +55,46 @@ def prepare_data(directory, initialize):
     return True
 
 
+def require_safe_pending_migrations(database):
+    """Refuse known destructive legacy upgrades, without modifying source/history.
+
+    An installation marker is enrollment, not proof that legacy migrations ran.
+    Only a finished, non-rolled-back Prisma record establishes completion.
+    Call after the verified prestart snapshot and before starting any Prisma code.
+    """
+    risks = (
+        ('20260731190001_auth_security', ('__youji_auth_security_marker',)),
+        ('20260823000000_sync_foundation',
+         ('Expense', 'QuickNote', 'Habit', 'HabitCheckin', 'Diary', 'HabitLog')),
+    )
+    try:
+        with closing(connect_readonly(database)) as db:
+            tables = {row[0].lower() for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")}
+            completed = set()
+            if '_prisma_migrations' in tables:
+                completed = {row[0] for row in db.execute(
+                    'SELECT migration_name FROM "_prisma_migrations" '
+                    'WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')}
+            blocked = []
+            for migration, affected in risks:
+                if migration in completed:
+                    continue
+                # Identifiers come only from the fixed allowlist above. Never
+                # include row contents or untrusted database text in diagnostics.
+                populated = [table for table in affected if table.lower() in tables
+                             and db.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone()]
+                if populated:
+                    blocked.append(migration + ': ' + ', '.join(populated))
+    except sqlite3.Error:
+        raise ValueError('Cannot verify legacy migration safety. Preserve the original database; '
+                         'restore the verified backup into a new directory for manual review') from None
+    if blocked:
+        raise ValueError('Unsafe pending legacy migration (' + '; '.join(blocked) + '). '
+                         'No migration was started. Preserve the original database; restore the '
+                         'verified backup into a new directory for manual review before upgrading')
+
+
 def main():
     os.umask(0o077)
     directory = validate_environment(os.environ)
@@ -71,6 +113,12 @@ def main():
             if not backups.is_absolute() or backups.is_symlink() or not backups.is_dir():
                 raise ValueError('Missing persistent /backups directory')
             snapshot(directory / DB_NAME, backups / f'prestart-{time.time_ns()}.sqlite3')
+            try:
+                require_safe_pending_migrations(directory / DB_NAME)
+            except ValueError:
+                # Render redacts the exception itself; retain a fixed, nonsecret recovery hint.
+                print('Migration compatibility review required. Verified prestart backup retained in BACKUP_DIR; restore into a new directory and review the legacy import before retrying.', file=sys.stderr)
+                raise
         child = None
         stopped = False
         def stop(signum, _frame):
