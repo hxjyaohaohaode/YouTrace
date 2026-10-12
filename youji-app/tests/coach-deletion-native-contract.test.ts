@@ -113,3 +113,14 @@ test('login entry rejects transient route-only home and waits for visible naviga
     await assert.rejects(finishAuthenticatedEntry({ waitForFunction: async () => { throw new Error('bounded timeout'); } }, () => {}, () => {}), /bounded timeout/);
   } finally { if (doc) Object.defineProperty(globalThis, 'document', doc); else Reflect.deleteProperty(globalThis, 'document'); if (loc) Object.defineProperty(globalThis, 'location', loc); else Reflect.deleteProperty(globalThis, 'location'); }
 });
+
+
+test('peer waits for actual Home rule data before navigation can cancel its effect', async () => {
+  const source = await readFile(new URL('../scripts/audit-coach-deletion.mjs', import.meta.url), 'utf8');
+  const peer = source.slice(source.indexOf('const b = await authenticate(peer'));
+  const pending = peer.indexOf('await waitLocal(peer, b.ownerId');
+  const leaving = peer.indexOf("await navigate(peer, '/insights'");
+  assert.ok(pending >= 0 && pending < leaving);
+  assert.match(peer.slice(pending, leaving), /row\.origin === 'local'/);
+  assert.match(peer.slice(pending, leaving), /rows\.local\.todos\.length === 1 && rows\.local\.outbox\.length === 0/);
+});

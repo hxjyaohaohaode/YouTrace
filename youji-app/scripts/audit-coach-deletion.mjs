@@ -225,6 +225,9 @@ export async function runCoachDeletionOutcomes(h) {
       recorder = await peer.screencast({ path: join(artifacts, 'YPD-owner-B-360.webm'), fps: 12, quality: 35 }); media.push('YPD-owner-B-360.webm');
       activePage = peer;
       const b = await authenticate(peer, phone, '合成删除账号', true); assert.equal(b.ownerId, a.ownerId);
+      // Home's rule effect is cancellable: data completion must precede leaving Home.
+      await waitLocal(peer, b.ownerId, rows => rows.local.coachPushes.some(row => row.origin === 'local') && rows.local.todos.length === 1 && rows.local.outbox.length === 0);
+      actions.push({ kind: 'peer-Home-rule-and-Todo-data-settled-before-navigation', surface: surfaceNames.get(peer) });
       await navigate(peer, '/insights', '教练洞察');
       const beforeB = await waitLocal(peer, b.ownerId, rows => rows.local.coachPushes.some(row => row.id === f.victim) && rows.local.coachPushes.some(row => row.id === f.live) && rows.local.coachPushes.some(row => row.origin === 'local') && rows.local.todos.length === 1 && rows.local.outbox.length === 0);
       const serverBeforeDelete = serverPushFacts(databasePath, a.ownerId);
