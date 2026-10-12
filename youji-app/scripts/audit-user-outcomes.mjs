@@ -9,6 +9,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { runLegacyBackupOutcomes } from './audit-legacy-backup.mjs';
+import { runSharedGoalKeyboardOutcomes } from './audit-shared-goal-keyboard.mjs';
 import { runSharedGoalRecoveryOutcomes } from './audit-shared-goal-recovery.mjs';
 import { runCoachDeletionOutcomes } from './audit-coach-deletion.mjs';
 import { runCoachOutcomes } from './audit-coach-outcomes.mjs';
@@ -31,7 +32,7 @@ import { revealRecordControl } from './audit-record-pointer.mjs';
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
-assert.ok(['records', 'coach', 'coach-deletion', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'legacy-backup', 'shared-goals', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery', 'todo-records', 'keyboard-records', 'capture-return'].includes(taskSet), 'Unknown bounded outcome task set');
+assert.ok(['records', 'coach', 'coach-deletion', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'legacy-backup', 'shared-goals', 'shared-goals-keyboard', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery', 'todo-records', 'keyboard-records', 'capture-return'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
 const scratch = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-'));
 const habitClock = taskSet.startsWith('habits') ? createHabitAuditClock() : null;
@@ -65,6 +66,12 @@ async function buildSnapshot(directory = join(root, 'dist'), prefix = '') {
   return files;
 }
 const metadata = { kind: taskSet === 'planning' ? 'planning-user-outcome-implementation-candidate' : taskSet === 'coach' ? 'coach-user-outcome-implementation-candidate' : 'first-package-scripted-outcomes-await-independent-review', taskSet, scenarioScope: taskSet === 'planning' ? ['native date/time creation and exact day/week/month retrieval', 'recurrence occurrence scope without silently modifying a series', 'canceled and conflicting edits, failed deletion recovery'] : taskSet === 'coach' ? ['zero-data insight reading', 'sparse historical first coach and real input', 'current-record evidence, explicit device choice, exact source correction and optional capture'] : ['capture/correction/history/navigation/receipt-read outage'], planningRedEvidenceCommit: 'fccbb230435b92333a27ecac19e0badac882d067', applicationBaseline: taskSet === 'planning' ? '0c31503695a9dc2d99dadd29aaa7a1b6914909c0' : '4d37ce98faebeb5bdf6053d2e7cda59af4a6ec7c', coachRedEvidenceCommit: 'e020d01d3e2d8fc07673e4d6ad65cb6f03f395d3', redEvidenceCommit, commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'), contentTree: git('rev-parse', 'HEAD^{tree}'), syntheticOnly: true, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT, sourceStart: await sourceSnapshot(), buildFiles: [...await buildSnapshot(join(root, 'dist'), 'frontend/'), ...await buildSnapshot(join(root, 'server/dist'), 'server/')], interactions: 'native pointer and keyboard; DOM reads only; one initial login URL per isolated account; historical API setup explicitly separated', startedAt: new Date().toISOString(), timezone: 'Asia/Shanghai', untested: ['Fresh cross-midnight browser clock transition', 'Fresh two-tab concurrent confirmation', 'Fresh first-package A/B/A account sequence', 'All multi-tab behavior beyond the bounded receipt-reread and schedule-stale-form cases', 'Live SMS/model quality', 'Voice permission and real recognition', 'Full per-component accessibility/reduced-motion/zoom', 'Full Y3 including live conversation, reminder consent and cross-device feedback; remaining Y4–Y9 scenarios', 'Manual human-operated review'] };
+if (taskSet === 'shared-goals-keyboard') {
+  metadata.kind = 'native-shared-goal-keyboard-baseline';
+  metadata.applicationBaseline = '5a13c0b7a6d12d5615ca8fb85f55438838c0a07b';
+  metadata.scenarioScope = ['native30 synthetic 12-row paginated source with40-line original', 'original recovery controls via native Tab/ShiftTab/Enter/Space/Esc only after normal login/settings navigation', 'focus visibility/trap/natural return and cancel-zero-writes; exact one local copy and durable idempotent receipt'];
+  metadata.untested = ['screen readers, OS keyboard/mobile physical devices, all accessibility/reduced motion/zoom', 'all old formats/entities, production data or automatic undo', 'new A/B/A and native failure injection are in the independent shared-goals task, not this task'];
+}
 if (taskSet === 'shared-goals') {
   metadata.kind = 'native-shared-native30-goal-owner-confirmed-local-copy';
   metadata.applicationBaseline = '0bc393e1e71dcaed2162f0326fa7c06dc099e4a1';
@@ -766,8 +773,11 @@ try {
   let executablePath = process.env.AUDIT_BROWSER_PATH;
   if (!executablePath) for (const path of ['/usr/bin/google-chrome', '/usr/bin/chromium']) { try { await access(path); executablePath = path; break; } catch {} }
   assert.ok(executablePath, 'An installed Chromium is required');
-  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') || taskSet.startsWith('diary-') || taskSet === 'todo-records' || taskSet === 'keyboard-records' || taskSet === 'capture-return' || taskSet === 'coach-deletion' || taskSet === 'legacy-backup' || taskSet === 'shared-goals' ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
-  if (taskSet === 'shared-goals') {
+  browser = await puppeteer.launch({ executablePath, headless: true, ...(taskSet.startsWith('preferences-') || taskSet.startsWith('expense-') || taskSet.startsWith('diary-') || taskSet === 'todo-records' || taskSet === 'keyboard-records' || taskSet === 'capture-return' || taskSet === 'coach-deletion' || taskSet === 'legacy-backup' || taskSet === 'shared-goals' || taskSet === 'shared-goals-keyboard' ? { protocolTimeout: 30000 } : {}), args: process.env.CI ? ['--no-sandbox'] : [] }); metadata.browser = await browser.version();
+  if (taskSet === 'shared-goals-keyboard') {
+    const { media } = await runSharedGoalKeyboardOutcomes({ isolated, pointer, fill, waitPath, apiFor, capture, observe, actions, artifacts, writeFile, join, origin });
+    for (const name of media) for (const suffix of ['.webm', '-trace.json', '-final.json']) assert.ok((await stat(join(artifacts, name + suffix))).size > 0, `Missing ${name}${suffix} evidence`);
+  } else if (taskSet === 'shared-goals') {
     const { media } = await runSharedGoalRecoveryOutcomes({ isolated, pointer, fill, waitPath, apiFor, capture, observe, actions, artifacts, writeFile, join, origin });
     for (const name of media) for (const suffix of ['.webm', '-trace.json', '-final.json']) assert.ok((await stat(join(artifacts, name + suffix))).size > 0, `Missing ${name}${suffix} evidence`);
   } else if (taskSet === 'legacy-backup') {

@@ -38,6 +38,6 @@ IndexedDB 的 structured clone 还可能支持 Error、DOMException、CryptoKey�
 
 原设置说明与确认控件触发浏览器真实下载（Browser.downloadWillBegin/Progress和落盘文件），下载JSON经严格解码，再用独立语义图/二进制SHA256与原生源库前后比较，核所有读取事务为readonly。第二阶段仅向合成旧源加入明确不支持的Error，通过原控件获得明确错误提示；核原下载事件数和实际文件列表都没增加、原共享源连该Error保持。该拒绝证据包含肯定错误状态，不能仅以下载超时推断拒绝。页面不导入/认领/修改原数据。
 
-本地附加契约：`node --import tsx --test tests/legacy-backup-native-contract.test.ts`。独立语义oracle的key/原文/buffer/别名/schema损坏反例必须被识别；浏览器任务前的真实前置原命令校验24任务明确集合（包含后续shared-goals）、runner和工件入口。公开0bc393e在CI [38296208512](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/38296208512) 已完成这套指定合成原生链，并经独立原文件/28成员/截图核验。该结论属于0bc的native20备份链；后续shared-goals候选仍需独立执行，不继承用户恢复通过。
+本地附加契约：`node --import tsx --test tests/legacy-backup-native-contract.test.ts`。独立语义oracle的key/原文/buffer/别名/schema损坏反例必须被识别；浏览器任务前的真实前置原命令校验25任务明确集合（包含shared-goals与shared-goals-keyboard）、runner和工件入口。公开0bc393e在CI [38296208512](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/38296208512) 已完成这套指定合成原生链，并经独立原文件/28成员/截图核验。该结论属于0bc的native20备份链；后续shared-goals候选仍需独立执行，不继承用户恢复通过。
 
 原生成功和失败两阶段另分别捕获当前已核实owner的完整IDB结构/表/key/value前后快照并严格逐值相等，不豁免整个settings/业务类。正常偏好核对和网络空闲后才捕获基线；这不是停止同步或改设置。若发生后台合法变化，测试应失败并保留事实，不能因此给全表豁免。事务账本同时观测共享源与该owner库；unsupported准备写入完成后明确重置分相账本，失败控件期间同样逐事务要求readonly。

@@ -184,7 +184,7 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(set(tasks), {
             'records', 'coach', 'coach-deletion', 'planning', 'habits', 'habits-frequency',
             'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session',
-            'startup-recovery', 'legacy-backup', 'shared-goals', 'preferences-normal', 'preferences-write', 'preferences-read',
+            'startup-recovery', 'legacy-backup', 'shared-goals', 'shared-goals-keyboard', 'preferences-normal', 'preferences-write', 'preferences-read',
             'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records',
             'diary-recovery', 'todo-records', 'keyboard-records', 'capture-return',
         })
@@ -197,6 +197,8 @@ class BundleTests(unittest.TestCase):
         self.assertIn('audit-legacy-backup.mjs', runner)
         self.assertIn("taskSet === 'shared-goals'", runner)
         self.assertIn('audit-shared-goal-recovery.mjs', runner)
+        self.assertIn("taskSet === 'shared-goals-keyboard'", runner)
+        self.assertIn('audit-shared-goal-keyboard.mjs', runner)
         self.assertIn('youtrace-outcome-summary-${{ matrix.task_set }}-${{ github.sha }}', workflow)
         self.assertIn('node scripts/package-outcome-evidence.mjs', workflow)
 
