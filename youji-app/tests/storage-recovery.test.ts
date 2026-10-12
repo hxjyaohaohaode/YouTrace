@@ -81,9 +81,11 @@ test('fake IndexedDB: old v2 autoincrement records and unknown note fields remai
   await legacy.table('quickNotes').add({ id: 'old-note', timestamp: 1, content: 'no rawInput field' });
   legacy.close();
   const backup = await exportLegacyData();
-  assert.equal(backup.schemaVersion, 2);
-  assert.equal(backup.tables.diary.length, 2);
-  assert.equal((backup.tables.quickNotes[0] as { content: string }).content, 'no rawInput field');
+  assert.equal(backup.idbVersion, 20);
+  const { decodeLegacyGraph } = await import('../src/db/legacySnapshotCodec.ts');
+  const snapshot = decodeLegacyGraph(backup.rawSnapshot) as import('../src/db/legacySnapshot.ts').LegacySnapshot;
+  assert.equal(snapshot.tables.find(table => table.name === 'diary')!.rows.length, 2);
+  assert.equal((snapshot.tables.find(table => table.name === 'quickNotes')!.rows[0].value as { content: string }).content, 'no rawInput field');
   assert.equal(await current.diary.count(), 0, 'unknown-ownership source not claimed');
   const reopened = new Dexie('youtrace');
   await reopened.open();

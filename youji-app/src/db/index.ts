@@ -274,22 +274,7 @@ export async function hasLegacyDatabase(): Promise<boolean> {
   return Dexie.exists('youtrace');
 }
 
-export async function exportLegacyData() {
-  if (!await hasLegacyDatabase()) throw new Error('没有找到旧版本地数据');
-  // Dynamic schema: read the actual existing version without a versionchange.
-  const legacy = new Dexie('youtrace');
-  try {
-    await legacy.open();
-    return await legacy.transaction('r', legacy.tables, async () => {
-      const tables: Record<string, unknown[]> = {};
-      for (const table of legacy.tables) tables[table.name] = await table.toArray();
-      return {
-        format: 'youtrace-legacy-quarantine', schemaVersion: legacy.verno,
-        exportedAt: new Date().toISOString(), ownership: 'unverified', tables,
-      };
-    });
-  } finally { legacy.close(); }
-}
+export { exportLegacySnapshot as exportLegacyData } from './legacySnapshot';
 
 export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
   const record = await db.settings.get(key);

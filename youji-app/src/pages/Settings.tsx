@@ -225,9 +225,9 @@ export default function Settings() {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       setShowLegacyConfirm(false);
-      toast.success('备份已生成，包含本地记录、草稿和未确认的修改；请妥善保存');
-    } catch {
-      toast.error('导出失败，请重试');
+      toast.success(legacy === true ? '旧版记录与结构备份已生成并自验；未确认归属、未包含隐藏自增计数，请妥善保存' : '备份已生成，包含本地记录、草稿和未确认的修改；请妥善保存');
+    } catch (cause) {
+      toast.error(legacy === true && cause instanceof Error ? cause.message : '导出失败，请重试');
     }
   };
 
@@ -516,7 +516,7 @@ export default function Settings() {
                 {generationRecovery.cleared && <p className="mt-2 text-sm text-[var(--text-2)]">当前本地数据已清除，保留资料不会重新自动导入</p>}
                 <div className="mt-2 flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => void handleExport('generation')}>导出升级前保留资料</Button><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>检查旧窗口修改</Button></div>
               </div>}
-              {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-sm text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出完整原始备份；不会触碰原数据库。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
+              {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-sm text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出记录与结构备份；保留原始主键和支持的数据类型，不修改原库。隐藏自增计数无法只读取得，未包含在备份中。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
               <div className="flex gap-2 border-t border-[var(--border-light)] pt-4">
                 <Button variant="ghost" size="sm" icon={Download} onClick={() => void handleExport()} className="flex-1">
                   导出数据
@@ -529,8 +529,8 @@ export default function Settings() {
           </section>
         </div>
 
-        <Modal open={showLegacyConfirm} onClose={() => setShowLegacyConfirm(false)} title="导出旧版本地资料" footer={<><Button variant="ghost" onClick={() => setShowLegacyConfirm(false)}>取消</Button><Button onClick={() => void handleExport(true)}>导出原始备份</Button></>}>
-          <p className="text-sm text-[var(--text-2)]">旧版本使用共享数据库，资料可能来自多个账号，归属尚未确认。导出会保留原始字段与旧版草稿，不会删除原库，也不会上传或自动归入当前账号。请仅在你有权访问这台设备资料时继续，并妥善保管备份。</p>
+        <Modal open={showLegacyConfirm} onClose={() => setShowLegacyConfirm(false)} title="导出旧版本地资料" footer={<><Button variant="ghost" onClick={() => setShowLegacyConfirm(false)}>取消</Button><Button onClick={() => void handleExport(true)}>导出记录与结构备份</Button></>}>
+          <p className="text-sm text-[var(--text-2)]">旧版本使用共享数据库，资料可能来自多个账号，归属尚未确认。备份保留原始主键、字段、支持的数据类型、表和索引结构，并执行编码解码自验。隐藏自增计数未捕获；不支持的类型或容量超限会阻止整个导出。此新版本文件没有本产品导入入口，可供后续人工核对恢复；不代表已完成恢复或归属确认。不会修改原库、上传或自动归入当前账号。请仅在你有权访问这台设备资料时继续，并妥善保管备份。</p>
         </Modal>
         <Modal open={showClearConfirm} onClose={() => setShowClearConfirm(false)} title="确认清除所有本地数据" footer={<><Button variant="ghost" size="sm" onClick={() => setShowClearConfirm(false)}>取消</Button><Button variant="danger" size="sm" onClick={() => void handleClear()}>确认清除</Button></>}>
           <div className="flex items-start gap-3">
