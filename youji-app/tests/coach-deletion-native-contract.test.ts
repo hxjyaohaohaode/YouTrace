@@ -98,15 +98,16 @@ test('all original insights/settings retained except exact bounded cursor and to
 
 test('login entry rejects transient route-only home and waits for visible navigation or native onboarding', async () => {
   const doc = Object.getOwnPropertyDescriptor(globalThis, 'document'), loc = Object.getOwnPropertyDescriptor(globalThis, 'location');
-  let path = '/', shown = ''; const button = { textContent: '跳过', getBoundingClientRect: () => ({ width: 60, height: 44 }) };
+  let path = '/', shown = '', homeVisible = false; const button = { textContent: '跳过', getBoundingClientRect: () => ({ width: 60, height: 44 }) };
   Object.defineProperty(globalThis, 'location', { configurable: true, value: { get pathname() { return path; } } });
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: { querySelectorAll: (selector: string) => shown === 'onboarding' && selector === 'button' ? [button] : shown === 'home' && selector.includes('主导航') ? [button] : [] } });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { querySelector: (selector: string) => selector === '#home-capture-title' && homeVisible ? button : null, querySelectorAll: (selector: string) => shown === 'onboarding' && selector === 'button' ? [button] : shown === 'home' && selector.includes('主导航') ? [button] : [] } });
   try {
     assert.equal(readAuthenticatedEntry(), false, 'transient / without ready nav is not authenticated entry');
+    shown = 'home'; assert.equal(readAuthenticatedEntry(), false, 'AppLayout navigation can exist before FirstVisitGate renders Home');
     path = '/onboarding'; shown = 'onboarding'; assert.equal(readAuthenticatedEntry(), 'onboarding');
     const calls: string[] = [];
-    const target = { waitForFunction: async (fn: () => unknown, options: { timeout: number }) => { assert.equal(options.timeout, 15000); const value = fn(); assert.ok(value); return { jsonValue: async () => value }; } };
-    await finishAuthenticatedEntry(target, async (_: unknown, selector: string, text: string) => { assert.equal(selector, 'button'); assert.equal(text, '跳过'); calls.push('native-skip'); path = '/'; shown = 'home'; }, async (_: unknown, expected: string) => { assert.equal(expected, path); calls.push('route'); });
+    const target = { waitForSelector: async (selector: string, options: { visible: boolean; timeout: number }) => { assert.equal(selector, '#home-capture-title'); assert.equal(options.visible, true); assert.equal(options.timeout, 15000); assert.ok(homeVisible); }, waitForFunction: async (fn: () => unknown, options: { timeout: number }) => { assert.equal(options.timeout, 15000); const value = fn(); assert.ok(value); return { jsonValue: async () => value }; } };
+    await finishAuthenticatedEntry(target, async (_: unknown, selector: string, text: string) => { assert.equal(selector, 'button'); assert.equal(text, '跳过'); calls.push('native-skip'); path = '/'; shown = 'home'; homeVisible = true; }, async (_: unknown, expected: string) => { assert.equal(expected, path); calls.push('route'); });
     assert.deepEqual(calls, ['native-skip', 'route']); assert.equal(readAuthenticatedEntry(), 'home');
     calls.length = 0; await finishAuthenticatedEntry(target, async () => { throw new Error('must not skip twice'); }, async () => { calls.push('route'); }); assert.deepEqual(calls, ['route']);
     await assert.rejects(finishAuthenticatedEntry({ waitForFunction: async () => { throw new Error('bounded timeout'); } }, () => {}, () => {}), /bounded timeout/);

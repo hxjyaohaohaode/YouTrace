@@ -124,14 +124,16 @@ export function installLostDeleteAck(id) {
 export function readAuthenticatedEntry() {
   const visible = element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
   if (location.pathname === '/onboarding' && [...document.querySelectorAll('button')].some(button => button.textContent.trim() === '跳过' && visible(button))) return 'onboarding';
-  if (location.pathname === '/' && [...document.querySelectorAll('nav[aria-label="主导航"]')].some(visible)) return 'home';
+  const home = document.querySelector('#home-capture-title');
+  if (location.pathname === '/' && home && visible(home) && [...document.querySelectorAll('nav[aria-label="主导航"]')].some(visible)) return 'home';
   return false;
 }
 export async function finishAuthenticatedEntry(target, pointer, waitPath) {
   const state = await target.waitForFunction(readAuthenticatedEntry, { timeout: 15000 });
   if (await state.jsonValue() === 'onboarding') await pointer(target, 'button', '跳过');
   await waitPath(target, '/');
-  await target.waitForFunction(() => location.pathname === '/' && [...document.querySelectorAll('nav[aria-label="主导航"]')].some(element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0; }), { timeout: 15000 });
+  await target.waitForSelector('#home-capture-title', { visible: true, timeout: 15000 });
+  assert.equal(await (await target.waitForFunction(readAuthenticatedEntry, { timeout: 15000 })).jsonValue(), 'home');
 }
 
 export async function runCoachDeletionOutcomes(h) {
@@ -177,6 +179,7 @@ export async function runCoachDeletionOutcomes(h) {
       await pointer(target, 'button', '验证'); assert.equal((await verified).status(), 200);
       await target.waitForFunction(() => Boolean(document.querySelector('#login-nickname')) || location.pathname !== '/login');
       if (await target.$('#login-nickname')) { await fill(target, '#login-nickname', nickname); await pointer(target, 'button', '开始使用'); }
+      actions.push({ kind: 'authentication-await-rendered-home-or-onboarding', surface: surfaceNames.get(target) });
       await finishAuthenticatedEntry(target, pointer, waitPath);
       await target.waitForSelector('main'); return apiFor(target);
     };
@@ -220,6 +223,7 @@ export async function runCoachDeletionOutcomes(h) {
       await save('media-targets', { targets, trace: 'YPD-owner-A-1280-trace.json', videos: ['YPD-owner-A-1280.webm', 'YPD-owner-B-360.webm'], scope: 'One continuous browser-global trace, separate profile videos; no second simultaneous tracing session' });
       peer.on('pageerror', error => h.infrastructure.push({ scenario: 'YPD-owner-B-360', pageError: error.name }));
       recorder = await peer.screencast({ path: join(artifacts, 'YPD-owner-B-360.webm'), fps: 12, quality: 35 }); media.push('YPD-owner-B-360.webm');
+      activePage = peer;
       const b = await authenticate(peer, phone, '合成删除账号', true); assert.equal(b.ownerId, a.ownerId);
       await navigate(peer, '/insights', '教练洞察');
       const beforeB = await waitLocal(peer, b.ownerId, rows => rows.local.coachPushes.some(row => row.id === f.victim) && rows.local.coachPushes.some(row => row.id === f.live) && rows.local.coachPushes.some(row => row.origin === 'local') && rows.local.todos.length === 1 && rows.local.outbox.length === 0);
@@ -276,7 +280,7 @@ export async function runCoachDeletionOutcomes(h) {
       await pass(peer, 'A-B-A-keeps-owner-tombstone-and-originals', deletionConverged(beforeB, returned, serverPushFacts(databasePath, a.ownerId), expectedBefore), 'Original account reopens its retained data; deleted cloud target remains absent and all unrelated original rows survive');
       await save('final', { local: returned, server: serverPushFacts(databasePath, a.ownerId), boundary: 'Two Chromium storage profiles, not two physical devices. Page reload and A/B/A; not browser-process restart, all delayed account windows, live SMS/model, complete inbox delivery or historical hard-delete inference.' });
       await capture(page, 'YPD-A-final'); await capture(peer, 'YPD-B-final');
-    } catch (error) { if (activePage && !activePage.isClosed()) await capture(activePage, 'YPD-first-failure').catch(() => undefined); throw error; }
+    } catch (error) { await save('first-error', { name: error.name, message: error.message, stack: error.stack, surface: activePage && surfaceNames.get(activePage) }); if (activePage && !activePage.isClosed()) await capture(activePage, 'YPD-first-failure').catch(() => undefined); throw error; }
     finally { await Promise.all(responseReads); await save('coach-wire', { requests, responses }); if (peer && !peer.isClosed()) { await capture(peer, 'YPD-peer-final').catch(() => undefined); if (recorder) await recorder.stop(); } if (peerContext) await peerContext.close(); }
   });
   return { media };
