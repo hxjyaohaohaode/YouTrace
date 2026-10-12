@@ -119,6 +119,21 @@ export function installLostDeleteAck(id) {
   };
 }
 
+// A pathname-only check can see transient / before RequireOnboarding finishes.
+// Read the real rendered entry state; do not skip onboarding via storage/API writes.
+export function readAuthenticatedEntry() {
+  const visible = element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0; };
+  if (location.pathname === '/onboarding' && [...document.querySelectorAll('button')].some(button => button.textContent.trim() === '跳过' && visible(button))) return 'onboarding';
+  if (location.pathname === '/' && [...document.querySelectorAll('nav[aria-label="主导航"]')].some(visible)) return 'home';
+  return false;
+}
+export async function finishAuthenticatedEntry(target, pointer, waitPath) {
+  const state = await target.waitForFunction(readAuthenticatedEntry, { timeout: 15000 });
+  if (await state.jsonValue() === 'onboarding') await pointer(target, 'button', '跳过');
+  await waitPath(target, '/');
+  await target.waitForFunction(() => location.pathname === '/' && [...document.querySelectorAll('nav[aria-label="主导航"]')].some(element => { const box = element.getBoundingClientRect(); return box.width > 0 && box.height > 0; }), { timeout: 15000 });
+}
+
 export async function runCoachDeletionOutcomes(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Native diagnostic is hosted CI only; no local restriction bypass');
   const { isolated, pointer, fill, waitPath, apiFor, capture, observe, sleep, actions, artifacts, writeFile, join, origin, surfaceNames, databasePath } = h;
@@ -148,6 +163,9 @@ export async function runCoachDeletionOutcomes(h) {
         else { await pointer(target, 'nav[aria-label="主导航"] button[aria-label="全部功能"]'); await waitPath(target, '/more'); await pointer(target, `nav[aria-label="全部功能"] a[href="${path}"]`); }
       } else await pointer(target, 'aside nav button', label);
       await waitPath(target, path);
+      const ready = { '/': '#home-capture-title', '/todo': '[aria-label="新建待办"]', '/settings': 'section[aria-label="账号"]', '/insights': '[data-component="historical-observations"]' }[path];
+      assert.ok(ready, 'Every task navigation has an explicit rendered-page landmark');
+      await target.waitForSelector(ready, { visible: true, timeout: 15000 });
     };
     const authenticate = async (target, number, nickname, initial) => {
       if (initial) { await target.goto(origin + '/login', { waitUntil: 'networkidle0' }); actions.push({ kind: 'initial-login-entry', surface: surfaceNames.get(target), path: '/login' }); }
@@ -159,19 +177,18 @@ export async function runCoachDeletionOutcomes(h) {
       await pointer(target, 'button', '验证'); assert.equal((await verified).status(), 200);
       await target.waitForFunction(() => Boolean(document.querySelector('#login-nickname')) || location.pathname !== '/login');
       if (await target.$('#login-nickname')) { await fill(target, '#login-nickname', nickname); await pointer(target, 'button', '开始使用'); }
-      await target.waitForFunction(() => location.pathname !== '/login');
-      if (new URL(target.url()).pathname === '/onboarding') { await pointer(target, 'button', '跳过'); }
-      await waitPath(target, '/'); await target.waitForSelector('main'); return apiFor(target);
+      await finishAuthenticatedEntry(target, pointer, waitPath);
+      await target.waitForSelector('main'); return apiFor(target);
     };
     const logout = async target => {
       await navigate(target, '/settings', '设置'); const response = target.waitForResponse(r => new URL(r.url()).pathname === '/api/auth/logout' && r.request().method() === 'POST');
       await pointer(target, 'section[aria-label="账号"] button', '退出登录'); assert.equal((await response).status(), 200); await waitPath(target, '/login');
     };
-    const reload = async target => { await target.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'native-browser-reload', surface: surfaceNames.get(target) }); await waitPath(target, '/insights'); };
+    const reload = async target => { await target.reload({ waitUntil: 'networkidle0' }); actions.push({ kind: 'native-browser-reload', surface: surfaceNames.get(target) }); await waitPath(target, '/insights'); await target.waitForSelector('[data-component="historical-observations"]', { visible: true, timeout: 15000 }); };
     try {
       const a = await authenticate(page, phone, '合成删除账号', true);
       // Create a real business counterexample using the existing Todo UI.
-      await navigate(page, '/todo', '待办'); await pointer(page, '[aria-label="新建待办"]'); await fill(page, '[role=dialog] input', '合成须保留的待办原文'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
+      await navigate(page, '/todo', '待办'); await pointer(page, '[aria-label="新建待办"]'); await fill(page, '[role=dialog] #todo-text', '合成须保留的待办原文'); await pointer(page, '[role=dialog] button', '保存'); await page.waitForSelector('[role=dialog]', { hidden: true });
       await waitLocal(page, a.ownerId, rows => rows.local.todos.length === 1 && rows.local.outbox.length === 0);
       // Native preference controls cause the ordinary Home rule to create a local reminder.
       await navigate(page, '/settings', '设置');

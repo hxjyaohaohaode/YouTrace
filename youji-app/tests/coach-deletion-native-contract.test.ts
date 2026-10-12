@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 const require = createRequire(import.meta.url);
-const { deletionFixture: f, fixtureDatabase, addHistoricalPushes, serverPushFacts, preservedBusiness, preservedInsightsAndSettings, separateOwner, deletionConverged, installLostDeleteAck } = await import('../scripts/audit-coach-deletion.mjs');
+const { deletionFixture: f, fixtureDatabase, addHistoricalPushes, serverPushFacts, preservedBusiness, preservedInsightsAndSettings, separateOwner, deletionConverged, installLostDeleteAck, readAuthenticatedEntry, finishAuthenticatedEntry } = await import('../scripts/audit-coach-deletion.mjs');
 
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'youtrace-outcomes-')), path = join(dir, 'synthetic.db');
@@ -93,4 +93,22 @@ test('all original insights/settings retained except exact bounded cursor and to
   const modified = structuredClone(x.after); modified.local.settings.find(row => row.key === 'coachPushEnabled').value = false; assert.equal(preservedInsightsAndSettings(x.before, modified), false);
   const lost = structuredClone(x.after); lost.local.settings = lost.local.settings.filter(row => row.key !== 'coachPushEnabled'); assert.equal(preservedInsightsAndSettings(x.before, lost), false);
   const wrong = structuredClone(x.after); wrong.local.settings.find(row => row.key === 'coachPushDeletionScan:v1').value.owner = 'other'; assert.equal(preservedInsightsAndSettings(x.before, wrong), false);
+});
+
+
+test('login entry rejects transient route-only home and waits for visible navigation or native onboarding', async () => {
+  const doc = Object.getOwnPropertyDescriptor(globalThis, 'document'), loc = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  let path = '/', shown = ''; const button = { textContent: '跳过', getBoundingClientRect: () => ({ width: 60, height: 44 }) };
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { get pathname() { return path; } } });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { querySelectorAll: (selector: string) => shown === 'onboarding' && selector === 'button' ? [button] : shown === 'home' && selector.includes('主导航') ? [button] : [] } });
+  try {
+    assert.equal(readAuthenticatedEntry(), false, 'transient / without ready nav is not authenticated entry');
+    path = '/onboarding'; shown = 'onboarding'; assert.equal(readAuthenticatedEntry(), 'onboarding');
+    const calls: string[] = [];
+    const target = { waitForFunction: async (fn: () => unknown, options: { timeout: number }) => { assert.equal(options.timeout, 15000); const value = fn(); assert.ok(value); return { jsonValue: async () => value }; } };
+    await finishAuthenticatedEntry(target, async (_: unknown, selector: string, text: string) => { assert.equal(selector, 'button'); assert.equal(text, '跳过'); calls.push('native-skip'); path = '/'; shown = 'home'; }, async (_: unknown, expected: string) => { assert.equal(expected, path); calls.push('route'); });
+    assert.deepEqual(calls, ['native-skip', 'route']); assert.equal(readAuthenticatedEntry(), 'home');
+    calls.length = 0; await finishAuthenticatedEntry(target, async () => { throw new Error('must not skip twice'); }, async () => { calls.push('route'); }); assert.deepEqual(calls, ['route']);
+    await assert.rejects(finishAuthenticatedEntry({ waitForFunction: async () => { throw new Error('bounded timeout'); } }, () => {}, () => {}), /bounded timeout/);
+  } finally { if (doc) Object.defineProperty(globalThis, 'document', doc); else Reflect.deleteProperty(globalThis, 'document'); if (loc) Object.defineProperty(globalThis, 'location', loc); else Reflect.deleteProperty(globalThis, 'location'); }
 });
