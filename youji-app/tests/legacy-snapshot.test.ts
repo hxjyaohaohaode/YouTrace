@@ -159,3 +159,13 @@ test('standalone decoder enforces graph depth, node bound and reachability', () 
   assert.throws(() => decodeLegacyGraph({ ...make(1), root: null }));
   assert.throws(() => decodeLegacyGraph({ ...make(1), nodes: new Array(LEGACY_LIMITS.nodes + 1) }));
 });
+
+
+test('live JS decoder arrays reject accessors, extra methods and holes without executing payload code', () => {
+  let executed = false; const nodes: unknown[] = [];
+  Object.defineProperty(nodes, '0', { enumerable: true, get() { executed = true; return { id: 0, type: 'Object', nullPrototype: false, entries: [] }; } });
+  assert.throws(() => decodeLegacyGraph({ encoding: LEGACY_GRAPH_FORMAT, root: { tag: 'ref', id: 0 }, nodes }));
+  assert.equal(executed, false);
+  for (const invalid of [new Array(1), Object.assign([], { map() { executed = true; return []; } })]) assert.throws(() => decodeLegacyGraph({ encoding: LEGACY_GRAPH_FORMAT, root: null, nodes: invalid }));
+  assert.equal(executed, false);
+});

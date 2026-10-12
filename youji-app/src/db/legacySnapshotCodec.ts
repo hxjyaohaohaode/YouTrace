@@ -8,6 +8,7 @@ const failure = () => new Error('旧版记录与结构备份未生成：格式�
 function fail(): never { throw failure(); }
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) fail();
+  if (Reflect.ownKeys(value).length !== Object.keys(value).length) fail();
   for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) if (!('value' in descriptor)) fail();
   return value as Record<string, unknown>;
 }
@@ -21,7 +22,15 @@ function integer(value: unknown, maximum = Number.MAX_SAFE_INTEGER): number {
   return value;
 }
 function string(value: unknown): string { if (typeof value !== 'string') fail(); return value; }
-function list(value: unknown): unknown[] { if (!Array.isArray(value)) fail(); return value; }
+function list(value: unknown): unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > LEGACY_LIMITS.entries) fail();
+  if (Reflect.ownKeys(value).length !== value.length + 1) fail();
+  for (let i = 0; i < value.length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) fail();
+  }
+  return value;
+}
 function toBase64(bytes: Uint8Array): string {
   let result = '';
   for (let offset = 0; offset < bytes.length; offset += 16384) result += String.fromCharCode(...bytes.subarray(offset, offset + 16384));
