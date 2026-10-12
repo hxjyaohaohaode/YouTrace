@@ -342,3 +342,55 @@ jobs:
           path: ${{ runner.temp }}/render-no-disk.log
           if-no-files-found: warn
           retention-days: 14
+
+  startup_navigation_diagnostic:
+    name: Startup navigation diagnostic (not product acceptance)
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[startup diagnostic]')
+    needs: prepare_prerequisites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: youji-app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            youji-app/package-lock.json
+            youji-app/server/package-lock.json
+      - run: npm ci && npm --prefix server ci && npm --prefix server run db:generate
+      - name: Verify diagnostic contracts and unchanged brand
+        run: node --import tsx --test tests/startup-navigation-diagnostic.test.ts && node scripts/verify-brand-integrity.mjs
+      - run: npm run build && npm --prefix server run build
+      - name: Download this run's authenticated prerequisites
+        uses: actions/download-artifact@v4
+        with:
+          name: youtrace-prerequisites-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/youtrace-prerequisites
+      - name: Verify and install prerequisites offline
+        timeout-minutes: 3
+        run: python3 scripts/ci-prerequisites.py install --bundle "$RUNNER_TEMP/youtrace-prerequisites" --manifest-sha256 "$PREREQ_MANIFEST_SHA256"
+        env:
+          PREREQ_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          PREREQ_MANIFEST_SHA256: ${{ needs.prepare_prerequisites.outputs.manifest_sha256 }}
+      - name: Check recording, Chinese font and browser prerequisites
+        run: timeout --signal=TERM --kill-after=2s 45s bash scripts/recording-prereq-probe.sh
+      - name: Observe four once-only synthetic startup arms
+        timeout-minutes: 8
+        run: node scripts/diagnose-startup-navigation.mjs
+        env:
+          AUDIT_BROWSER_PATH: /usr/bin/google-chrome
+      - name: Preserve independent diagnostic, including incomplete or failed arms
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtrace-startup-navigation-diagnostic-${{ github.sha }}
+          path: youji-app/test-artifacts/startup-navigation-diagnostic/
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 14

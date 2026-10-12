@@ -39,3 +39,7 @@ The Python suite covers manifest/run/workflow/architecture mismatches, corrupt/m
 Actual Ubuntu signed download, shared artifact transport, offline installation duration and all 25 matrix outcome tasks and the verify consumer must still be demonstrated by CI at the final reviewed commit. Local green checks do not establish that result.
 
 References: [APT command semantics](https://manpages.ubuntu.com/manpages/jammy/man8/apt-get.8.html), [GitHub artifact job-to-job transfer](https://docs.github.com/en/actions/tutorials/store-and-share-data).
+
+## Optional isolated startup diagnosis
+
+A push commit explicitly marked `[startup diagnostic]` adds one independent `startup_navigation_diagnostic` consumer; it does not add a formal outcome task. It reuses the same run/attempt/SHA-bound prerequisites and original 45-second probe, with a 15-minute job and 8-minute native step. The formal matrix remains 25. Thus an enabled run has 27 prerequisite consumers (verify + 25 outcomes + this diagnostic); other runs retain 26. See [the diagnostic contract](STARTUP_NAVIGATION_DIAGNOSTIC.md) for once-only cases and the `observed-failure` / `not-reproduced` / `infra-blocked` meanings. This job never emits an acceptance result.
