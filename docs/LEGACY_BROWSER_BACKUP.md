@@ -8,7 +8,7 @@
 
 ## 文件契约
 
-- 新标识 `format: youtrace-legacy-quarantine-v2`，`exportVersion: 2`。不保留旧 `tables` 数据入口，也不插入可被误当原始记录的占位对象。本产品目前没有导入入口；不得按旧格式处理新文件，不能保证第三方未知 reader 的行为。
+- 新标识 `format: youtrace-legacy-quarantine-v2`，`exportVersion: 2`。不保留旧 `tables` 数据入口，也不插入可被误当原始记录的占位对象。此备份文件目前没有本产品导入入口；不得按旧格式处理新文件，不能保证第三方未知 reader 的行为。
 - `ownership: unverified`；`scope: records-and-structure`；`restoreStatus: no-product-import-or-ownership-assignment`。编码解码自验只验证导出表示，不代表已经实现用户恢复或归属确认。
 - `rawSnapshot` 使用明确 `youtrace-structured-clone-v2` 编码；保存原生 IDB version、每表名/keyPath/autoIncrement、每索引 name/keyPath/unique/multiEntry、每条原主键与值。Dexie 的 version 2 在原生 IndexedDB 中是 20，文件直接记录原生值，不能混用。
 - 同一原生只读事务读取全部表，捕获完成后再异步读取 Blob 字节，避免不同表时点混杂和异步二进制编码导致事务自动关闭。
@@ -30,7 +30,7 @@ IndexedDB 的 structured clone 还可能支持 Error、DOMException、CryptoKey�
 
 `cd youji-app && node --import tsx --test tests/legacy-snapshot.test.ts tests/storage-recovery.test.ts`
 
-还需前端 lint/build/全量测试、后端既有门禁及 CI 前置原命令。严格解码器是技术自验组件；暂无界面恢复工具。不得因导出成功删除原共享库、清除浏览器数据或自动认领。回退代码不需要任何源库迁移；已生成v2文件须保留原版本解码说明，旧版本代码不具备完整导出能力。
+还需前端 lint/build/全量测试、后端既有门禁及 CI 前置原命令。严格解码器是技术自验组件；此文件仍无界面导入工具。另有仅针对已知native30原浏览器Goal的逐项确认候选，范围见SHARED_GOAL_RECOVERY，不能将它当作通用文件恢复。不得因导出成功删除原共享库、清除浏览器数据或自动认领。回退代码不需要任何源库迁移；已生成v2文件须保留原版本解码说明，旧版本代码不具备完整导出能力。
 
 ## 原生下载验收候选
 
@@ -38,6 +38,6 @@ IndexedDB 的 structured clone 还可能支持 Error、DOMException、CryptoKey�
 
 原设置说明与确认控件触发浏览器真实下载（Browser.downloadWillBegin/Progress和落盘文件），下载JSON经严格解码，再用独立语义图/二进制SHA256与原生源库前后比较，核所有读取事务为readonly。第二阶段仅向合成旧源加入明确不支持的Error，通过原控件获得明确错误提示；核原下载事件数和实际文件列表都没增加、原共享源连该Error保持。该拒绝证据包含肯定错误状态，不能仅以下载超时推断拒绝。页面不导入/认领/修改原数据。
 
-本地附加契约：`node --import tsx --test tests/legacy-backup-native-contract.test.ts`。独立语义oracle的key/原文/buffer/别名/schema损坏反例必须被识别；浏览器任务前的真实前置原命令校验23任务明确集合、runner和工件入口。当前尚未执行这套原生下载，不把准备脚本当作浏览器通过；先等待提醒修复链终态再发布合并候选。
+本地附加契约：`node --import tsx --test tests/legacy-backup-native-contract.test.ts`。独立语义oracle的key/原文/buffer/别名/schema损坏反例必须被识别；浏览器任务前的真实前置原命令校验24任务明确集合（包含后续shared-goals）、runner和工件入口。公开0bc393e在CI [38296208512](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/38296208512) 已完成这套指定合成原生链，并经独立原文件/28成员/截图核验。该结论属于0bc的native20备份链；后续shared-goals候选仍需独立执行，不继承用户恢复通过。
 
 原生成功和失败两阶段另分别捕获当前已核实owner的完整IDB结构/表/key/value前后快照并严格逐值相等，不豁免整个settings/业务类。正常偏好核对和网络空闲后才捕获基线；这不是停止同步或改设置。若发生后台合法变化，测试应失败并保留事实，不能因此给全表豁免。事务账本同时观测共享源与该owner库；unsupported准备写入完成后明确重置分相账本，失败控件期间同样逐事务要求readonly。

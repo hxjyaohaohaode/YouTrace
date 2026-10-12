@@ -104,7 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task_set: [records, coach, coach-deletion, planning, habits, habits-frequency, goals, legacy-goals-enrollment, legacy-goals-source, initial-session, startup-recovery, legacy-backup, preferences-normal, preferences-write, preferences-read, preferences-conflict, expense-records, expense-budget, diary-records, diary-recovery, todo-records, keyboard-records, capture-return]
+        task_set: [records, coach, coach-deletion, planning, habits, habits-frequency, goals, legacy-goals-enrollment, legacy-goals-source, initial-session, startup-recovery, legacy-backup, shared-goals, preferences-normal, preferences-write, preferences-read, preferences-conflict, expense-records, expense-budget, diary-records, diary-recovery, todo-records, keyboard-records, capture-return]
     # Independent evidence must still run when another browser regression fails.
     runs-on: ubuntu-24.04
     timeout-minutes: 20

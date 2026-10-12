@@ -7,6 +7,7 @@ import { TimeSettingInput } from '../components/settings/TimeSettingInput';
 import { readPreferenceTime } from '../services/readPreferenceTime';
 import { PreferenceSyncPanel } from '../components/settings/PreferenceSyncPanel';
 import { SyncConflictPanel } from '../components/settings/SyncConflictPanel';
+import { SharedGoalRecoveryPanel } from '../components/settings/SharedGoalRecoveryPanel';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Download, Trash2, Shield, Clock, Moon, Sun, Monitor, Sparkles, Bell, AlertTriangle, LogOut, Wallet, UserX, RefreshCw, Database } from 'lucide-react';
 import { useSettingsStore, stopPreferenceSync, type CoachStyle, type ThemeMode, type AppSettings } from '../stores/settingsStore';
@@ -517,6 +518,7 @@ export default function Settings() {
                 <div className="mt-2 flex flex-wrap gap-2"><Button variant="ghost" size="sm" onClick={() => void handleExport('generation')}>导出升级前保留资料</Button><Button variant="ghost" size="sm" onClick={refreshGenerationRecovery}>检查旧窗口修改</Button></div>
               </div>}
               {hasLegacy && <div className="rounded-xl border border-[var(--warning)]/30 p-3"><p className="text-sm font-semibold">旧版资料已隔离保留</p><p className="mt-1 text-sm text-[var(--text-2)]">为避免串账号，没有自动导入。可先导出记录与结构备份；保留原始主键和支持的数据类型，不修改原库。隐藏自增计数无法只读取得，未包含在备份中。</p><Button variant="ghost" size="sm" onClick={() => setShowLegacyConfirm(true)}>查看导出说明</Button></div>}
+              {isAuthenticated && <SharedGoalRecoveryPanel />}
               <div className="flex gap-2 border-t border-[var(--border-light)] pt-4">
                 <Button variant="ghost" size="sm" icon={Download} onClick={() => void handleExport()} className="flex-1">
                   导出数据
