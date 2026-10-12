@@ -14,6 +14,19 @@ export const sharedGoalKeyboardFixture = Array.from({ length: 12 }, (_, index) =
   description: index === 11 ? Array.from({ length: 40 }, (_, i) => `  第${i + 1}行原始计划：空白与换行保留。  `).join('\n') : `合成第${index}份未选择资料`,
 }));
 
+// Puppeteer accepts physical key names, not Playwright-style chord strings.
+// Always attempt modifier release, including uncertain dispatch failures. Any
+// failure still aborts the case; a release error is never hidden or retried.
+export async function pressSharedGoalKey(keyboard, key) {
+  if (key !== 'Shift+Tab') return keyboard.press(key);
+  try {
+    await keyboard.down('Shift');
+    await keyboard.press('Tab');
+  } finally {
+    await keyboard.up('Shift');
+  }
+}
+
 // Browser-side read only: capture native focus and its complete clipping bounds.
 // Center/edge hits catch a fixed bar covering a keyboard-focused control. Rounded
 // corners are deliberately not sampled; the actual rectangle must still fit.
@@ -40,7 +53,7 @@ export function sharedGoalKeyboardFocus(expected) {
   return { matched: el.matches(expected.selector) && (expected.text === undefined || text === expected.text) && (expected.sourceKey === undefined || sourceKey === expected.sourceKey),
     connected: el.isConnected, enabled: !el.matches(':disabled'), tag: el.tagName, type: el.getAttribute('type'), text, label, sourceKey,
     checked: el instanceof HTMLInputElement && el.type === 'checkbox' ? el.checked : null,
-    focusedVisible: el.matches(':focus-visible'), outlineWidth: parseFloat(style.outlineWidth), outlineStyle: style.outlineStyle, outlineColor: style.outlineColor, outlineOffset: style.outlineOffset, boxShadow: style.boxShadow, backgroundColor: style.backgroundColor, textColor: style.color,
+    focusedVisible: el.matches(':focus-visible'), outlineWidth: parseFloat(style.outlineWidth), outlineStyle: style.outlineStyle, outlineColor: style.outlineColor, outlineOffset: style.outlineOffset, boxShadow: style.boxShadow, backgroundColor: style.backgroundColor, textColor: style.color, scrollMarginBottom: style.scrollMarginBottom,
     hidden, rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }, clip, hits,
     dialogTitle: el.closest('[role=dialog]')?.querySelector('h3')?.textContent ?? null,
   };
@@ -117,7 +130,7 @@ export async function runSharedGoalKeyboardOutcomes(h) {
         await save('focus-progress', { states }); assertSharedGoalKeyboardFocus(state); return state;
       };
       const key = async (value, expected, label) => {
-        actions.push({ kind: 'native-recovery-key', key: value, label, width }); await page.keyboard.press(value);
+        actions.push({ kind: 'native-recovery-key', key: value, label, width }); await pressSharedGoalKey(page.keyboard, value);
         return expected ? focus(expected, label) : undefined;
       };
       const tabTo = async (expected, backwards = false) => {

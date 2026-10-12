@@ -59,7 +59,7 @@ export function SharedGoalRecoveryPanel() {
     }, '复制结果尚未确认，请查看恢复收据或重试同一项；不会因重试重复创建。');
   };
   const item = preview?.items.find(value => value.key === selected && value.original);
-  return <section className="space-y-3 rounded-xl border border-[var(--warning)]/30 p-3" aria-label="逐项恢复旧版目标">
+  return <section className="shared-goal-recovery space-y-3 rounded-xl border border-[var(--warning)]/30 p-3" aria-label="逐项恢复旧版目标">
     <h3 className="text-sm font-semibold">逐项恢复旧版目标</h3>
     <p className="text-sm text-[var(--text-2)]">只支持已核对结构的一种旧版目标。资料可能属于不同账号，请先备份，再逐项确认。确认后新增仅本机副本，原库不改动、不自动上传。当前无法证明所有旧窗口后续写入，因此不提供自动撤销删除。</p>
     <div className="flex flex-wrap gap-2"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void load()}>预览旧版目标</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadReceipts()}>查看恢复收据</Button></div>

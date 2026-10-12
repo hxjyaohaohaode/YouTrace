@@ -2,12 +2,52 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { sharedGoalKeyboardFixture, assertSharedGoalKeyboardFocus, assertOnlySharedGoalCopy, sharedGoalKeyboardFocus, hasDeclaredKeyboardOutline } from '../scripts/audit-shared-goal-keyboard.mjs';
+import { sharedGoalKeyboardFixture, assertSharedGoalKeyboardFocus, assertOnlySharedGoalCopy, sharedGoalKeyboardFocus, hasDeclaredKeyboardOutline, pressSharedGoalKey } from '../scripts/audit-shared-goal-keyboard.mjs';
 import { seedSharedGoalFixture } from '../scripts/audit-shared-goal-recovery.mjs';
 import { readExistingAccount } from '../scripts/audit-initial-session-outcomes.mjs';
 import { runInNewContext } from 'node:vm';
 const request = <T>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
 after(async () => { await request(indexedDB.deleteDatabase('youtrace')); });
+
+test('actual installed Puppeteer sends real Shift/Tab key names and releases modifier before the next plain key', async () => {
+  const { CdpKeyboard } = await import('puppeteer-core/internal/cdp/Input.js');
+  const events: Array<{ type: string; key: string; modifiers: number }> = [];
+  const keyboard = new CdpKeyboard({ send: async (method: string, event: typeof events[number]) => { assert.equal(method, 'Input.dispatchKeyEvent'); events.push(event); } } as never);
+  await assert.rejects(keyboard.press('Shift+Tab' as never), /Unknown key/);
+  assert.equal(events.length, 0);
+  await pressSharedGoalKey(keyboard, 'Shift+Tab'); await pressSharedGoalKey(keyboard, 'Tab');
+  assert.deepEqual(events.map(({ type, key, modifiers }) => ({ type, key, modifiers })), [
+    { type: 'rawKeyDown', key: 'Shift', modifiers: 8 },
+    { type: 'rawKeyDown', key: 'Tab', modifiers: 8 },
+    { type: 'keyUp', key: 'Tab', modifiers: 8 },
+    { type: 'keyUp', key: 'Shift', modifiers: 0 },
+    { type: 'rawKeyDown', key: 'Tab', modifiers: 0 },
+    { type: 'keyUp', key: 'Tab', modifiers: 0 },
+  ]);
+  for (const key of ['Enter', 'Space', 'Escape']) await pressSharedGoalKey(keyboard, key);
+  assert.ok(events.every(event => event.key !== 'Shift+Tab'));
+});
+
+test('Shift cleanup is attempted after down/Tab failures, and release failure aborts without a retry or following key', async () => {
+  for (const failure of ['down', 'press', 'up']) {
+    const calls: string[] = [], error = Error(`synthetic ${failure} failure`);
+    const invoke = async (method: string, key: string) => { calls.push(`${method}:${key}`); if (method === failure) throw error; };
+    const keyboard = { down: (key: string) => invoke('down', key), press: (key: string) => invoke('press', key), up: (key: string) => invoke('up', key) };
+    await assert.rejects(async () => { await pressSharedGoalKey(keyboard, 'Shift+Tab'); await pressSharedGoalKey(keyboard, 'Enter'); }, value => value === error);
+    assert.deepEqual(calls, failure === 'down' ? ['down:Shift', 'up:Shift'] : ['down:Shift', 'press:Tab', 'up:Shift']);
+  }
+});
+
+test('shared Goal native-focus safety space is scoped, accounts for the raised mobile bar and does not move focus through JS', async () => {
+  const component = await readFile(new URL('../src/components/settings/SharedGoalRecoveryPanel.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/styles/home-coach.css', import.meta.url), 'utf8');
+  assert.match(component, /className="shared-goal-recovery /);
+  assert.match(css, /\.shared-goal-recovery :is\(button, a, input\) \{ scroll-margin-block:8px; \}/);
+  assert.match(css, /@media\(max-width:768px\) \{\s*\.shared-goal-recovery :is\(button, a, input\) \{ scroll-margin-bottom:calc\(104px \+ env\(safe-area-inset-bottom\)\); \}/);
+  assert.match(css, /\.shared-goal-recovery \[role="dialog"\] :is\(button, a, input\) \{ scroll-margin-bottom:8px; \}/);
+  assert.doesNotMatch(component, /scrollIntoView|\.focus\(|scrollTo|onFocus/);
+  // CSS contract only. Actual native Tab scrolling/occlusion is a hosted check.
+});
 
 test('keyboard fixture has12 original rows/two pages, long safe primitive text and exact native30 schema accepted by production', async () => {
   await seedSharedGoalFixture(sharedGoalKeyboardFixture);

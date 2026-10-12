@@ -1,6 +1,6 @@
 # 旧共享目标恢复：键盘与焦点原生基线
 
-应用基线为公开 `5a13c0b7a6d12d5615ca8fb85f55438838c0a07b`。此前 `shared-goals` 的两宽18项pointer任务及实际下载、数据保全已经通过并单独封存；不把它当作键盘验证。当前只新增测试/文档，生产 Modal、恢复服务、归属/同步/自动撤销边界未改。本页尚无新原生结果，不预设产品有缺陷，也不把测试合同负例称作产品红。
+应用基线为公开 `5a13c0b7a6d12d5615ca8fb85f55438838c0a07b`。此前 `shared-goals` 的两宽18项pointer任务及实际下载、数据保全已经通过并单独封存；不把它当作键盘验证。首轮 `31b2e2e076a05754fcc79127550471cd44046099` 只新增测试/文档，实际原生红结果如下。当前最小候选仅增加恢复面板原生焦点滚动安全区与修正测试键API；生产 Modal、恢复服务、归属/同步/自动撤销边界未改。候选尚未获得新原生通过。
 
 ## 原控件范围
 
@@ -34,3 +34,13 @@ python3 -m unittest discover -s youji-app/scripts/tests -p test_ci_prerequisites
 CI矩阵新增为25，生产者/消费者、runner允许集合、原件打包与摘要入口同步核对；原24任务不替换，预算不放宽。本地原生受限，不重试、不伪造GITHUB_ACTIONS；实际两宽结果须等待批准的精确提交hosted CI，并独立阅读原始PNG/视频/账本。原生出现真实缺陷后再最小修，旧失败原件继续保留。
 
 此范围不等于读屏、移动设备实体键盘、全局WCAG、全部zoom/reduced-motion、其它旧实体或真实用户恢复。自动撤销仍未实现；普通删除不是撤销。新任务不重复授权任何真实账户操作或部署。
+
+## 31b 首轮原生红与最小候选
+
+[CI 38313042329](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/38313042329)：27个job成功，仅新键盘job失败；独立durable-local成功。新链两个profile都在确认之前受阻，不能算任何取消/确认用例通过。23个原始成员按运行manifest逐个SHA/bytes核验，原archive 13,785,359字节，SHA256 `57deb1ed5cecfcf884786d94d07fa54f4057b59fcf3ce1295d3495bb50445d0a`。各profile已有账号及共享源前后逐值相等。
+
+- 桌面：实际Puppeteer 25.8.0拒绝 `keyboard.press('Shift+Tab')`，报 `Unknown key`。这是验收脚本API缺陷；修为实际Shift down→Tab press→finally Shift up，并用已安装的真实CdpKeyboard加合成传输核键名、modifier位、释放后下一Tab不带Shift。down/press/up失败均使本例终止，释放失败不吞掉、不自动重试。
+- 360：原生Tab使“下一页目标”实际聚焦，rect x160..254/y807.09375..851.09375，视口360×900；中心207/829.09375与左/下采样被DIV覆盖。004原PNG实际显示底部导航凸起“速记”覆盖按钮；此刻无动画、未打开Modal、测试无额外滚轮/focus。因此是此面板键盘焦点可见性产品缺口，与桌面API错误分开。
+- 候选：只给 `shared-goal-recovery` 面板控件声明8px上下scroll-margin；mobile宽度≤768px时下方保留104px加safe-area，以避开64px固定栏及上凸28px并留焦点间距。其Modal在导航之上、独立滚动，恢复为8px。没有新增JS滚动/抢焦点、改Tab顺序、关动画、滚轮旁路或放松五点命中断言。原生滚动是否已闭合须看下一精确提交的实际图/几何，不由CSS字符串合同推断。
+
+[CSSOM View](https://www.w3.org/TR/cssom-view/#dom-element-scrollintoview)说明scroll-margin参与滚入视区；本产品自然键盘focus滚动仍以Chromium实证为准。样式不添加滚动动画，因此不引入reduced-motion分支；其它平台、真实移动外接键盘和全站可达性仍不在此次限定结论内。

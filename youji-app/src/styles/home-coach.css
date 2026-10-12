@@ -36,6 +36,14 @@
 .coach-starters button { text-align:left; min-height:56px; padding:16px 0; font-size:16px; border-bottom:1px solid var(--border); color:var(--text-1); }
 .coach-boundary { font-size:12px!important; line-height:1.8; color:var(--text-2); }
 .settings-page section { scroll-margin-top:24px; }
+/* Native keyboard focus needs room for its outline and the elevated mobile
+   capture control. Keep this local to shared-Goal recovery; modal controls use
+   their own scrollport above navigation, so they only need outline clearance. */
+.shared-goal-recovery :is(button, a, input) { scroll-margin-block:8px; }
+@media(max-width:768px) {
+  .shared-goal-recovery :is(button, a, input) { scroll-margin-bottom:calc(104px + env(safe-area-inset-bottom)); }
+  .shared-goal-recovery [role="dialog"] :is(button, a, input) { scroll-margin-bottom:8px; }
+}
 .settings-page .settings-section-title { font-size:18px; font-weight:600; letter-spacing:0; color:var(--text-1); }
 .feature-directory nav>section { border-top:1px solid var(--border); padding-top:24px; }
 .feature-directory nav>section>div { gap:0 32px; }
