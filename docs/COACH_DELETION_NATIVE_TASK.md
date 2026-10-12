@@ -18,6 +18,8 @@
 
 ## 本地可运行检查
 
+仓库根先运行 CI 的同一前置门禁：`python3 -m unittest discover -s youji-app/scripts/tests -p 'test_ci_prerequisites.py' -v`。它校验全部22个任务的明确集合、唯一性、runner白名单及证据上传入口，不能仅运行新增脚本测试后发布。
+
 `cd youji-app && node --import tsx --test tests/coach-deletion-native-contract.test.ts`
 
 这会真实执行全部11条SQLite migration、隔离fixture边界/原子失败、删错原文/漏墓碑/错账号等反例，以及一次真实Response对象后的ACK丢失钩子，不启动浏览器。还需前后端完整既有门禁。新增脚本语法可用 `node --check scripts/audit-coach-deletion.mjs` 核验。
@@ -25,6 +27,8 @@
 原生入口由现有CI matrix执行 `AUDIT_TASK_SET=coach-deletion node scripts/audit-user-outcomes.mjs`；不得在本地伪造GITHUB_ACTIONS变量绕过环境限制。CI工件对应精确SHA并需独立审阅，运行前本文件仅是验收候选。
 
 ## 未覆盖
+
+首次发布 `225f1f0a3382e31be7cd9db1b97f5843948c5d26` 的 CI `38289379259` 在旧前置测试硬编码21个任务处失败（实际22），原生任务被跳过，不能算已执行。后续修正仅补全任务枚举契约，未放松数据、所有者、录像或完整性断言；结果须按修正后的提交重新核实。
 
 不是两台物理设备、浏览器进程持久profile重启、所有迟到账号响应时间窗、完整收件箱同步/后台投递、真实短信/模型或协议前无墓碑硬删恢复。12001公平扫描与异常257字符ID等继续由已有协议/IndexedDB替身定向回归提供限定证据，不以本任务授予整个提醒系统通过。未来若原生任务暴露真实缺陷，另保留红证据、最小修复、同链复测。
 
