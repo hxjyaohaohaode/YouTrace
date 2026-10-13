@@ -1,19 +1,25 @@
 // Test preparation only. Native execution belongs to the existing hosted CI
 // driver; no listener, browser launcher, business API writes or app imports here.
 import assert from 'node:assert/strict';
+import { randomInt } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { createHabitAuditClock, installAuditDate } from './audit-clock.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
 import { preparePreferencePointer } from './audit-preference-pointer.mjs';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
 import { runCaptureSpeechTail } from './audit-capture-speech.mjs';
+import { captureForkInputs } from './audit-capture-continuation-oracle.mjs';
+import { runCaptureContinuationNative } from './audit-capture-continuation.mjs';
 import { runCaptureCatalogReadOnly, runCaptureCatalogLongOriginal } from './audit-capture-catalog.mjs';
 
 const BASELINE = '786c76eac3c6c02b59f44f85194d9e48657e7b0e';
 const RAW = '明天要交报销单；午饭15；地铁3；后天要取快递；合成原文尾记';
 const RAW_CHANGED = '明天要交报销单；午饭18；地铁3；后天要取快递；合成原文尾记';
 const DECLARED = { raw: RAW, name: '合成退餐', amount: '16.25', date: '2026-10-05', direction: 'income', category: 'food', todo: '合成：交蓝色报销单', dueDate: '2026-10-09' };
-const PROFILES = [{ width: 1280, height: 900, phone: '13900008891', nickname: 'Synthetic YC1280' }, { width: 360, height: 800, phone: '13900008892', nickname: 'Synthetic YC360' }];
+// Runtime-only synthetic login identifiers; the existing CI server uses its
+// console SMS adapter. No fixed personal-looking contact data is published.
+const syntheticPhoneBase = randomInt(10000000, 99999998);
+const PROFILES = [{ width: 1280, height: 900, phone: `139${syntheticPhoneBase}`, nickname: 'Synthetic YC1280' }, { width: 360, height: 800, phone: `139${syntheticPhoneBase + 1}`, nickname: 'Synthetic YC360' }];
 const COMPOSER = '[data-component="capture-composer"]', REVIEW = '[data-component="capture-review"]';
 const field = label => `${REVIEW} [aria-label="${label}"]`;
 const sameRows = (a, b) => equal([...a].sort((x, y) => String(x.id ?? x.key).localeCompare(String(y.id ?? y.key))), [...b].sort((x, y) => String(x.id ?? x.key).localeCompare(String(y.id ?? y.key))));
@@ -212,7 +218,7 @@ export async function runCaptureReturnOutcomes(h) {
   const { isolated, login, waitPath, capture, observe, sleep, actions, artifacts, writeFile, join, surfaceNames, origin } = h;
   assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/, 'Existing disposable hosted-CI origin only');
   const media = [];
-  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-and-changed-input-outcomes', changedInputExtension: { statusAtAuthoring: 'prepared-only; O/R/D native execution not yet performed', startingPoint: 'accepted blank next-note/input-pointer endpoint', branches: ['O original raw with amount correction', 'R raw-only 15→18; original context', 'D date-only 2026-10-07→2026-10-06; raw18/capturedAt/timeZone unchanged', 'Actual D composer Return and unchanged primary re-entry'], end: 'D uncommitted; O/R physically retained; no old-draft visible rediscovery claim' }, readonlyCatalogExtension: { statusAtAuthoring: 'prepared-only; native not yet run', sourceCandidate: '4243d41e1a9643d10aeb884dea76cf4f6a659e42', boundary: 'Original composer/review readonly Modal, O/R full original/corrections, return/close/native Escape and focus, all source keys/settings and pointers exact with zero native write attempts', longOriginal: 'After the unchanged original speech tail, one native-control-created uncommitted 40-line L; all original O/R/D and speech snapshots remain; every original line is measured via readonly DOM Range and native wheel', noResume: true }, speechCompletionExtension: { applicationBaseline: 'af6c353fad0b476d7bf11b6d0deaf80be0157224', boundary: 'Actual D Return, current input, one explicitly synthetic recognition start/stop/final/end, new uncommitted review only', provider: 'SpeechRecognition constructor double; no microphone, audio, real recognition or paid service', end: 'Full A+B raw and declared rule candidates; original D/O/R, records, receipt and ledger preserved; no business Save' }, syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden review URL, browser history substitute, business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
+  await writeFile(join(artifacts, 'YQ-return-scope.json'), JSON.stringify({ applicationBaseline: BASELINE, profiles: PROFILES, declared: DECLARED, kind: 'uncommitted-capture-return-and-changed-input-outcomes', changedInputExtension: { statusAtAuthoring: 'prepared-only; O/R/D native execution not yet performed', startingPoint: 'accepted blank next-note/input-pointer endpoint', branches: ['O original raw with amount correction', 'R raw-only 15→18; original context', 'D date-only 2026-10-07→2026-10-06; raw18/capturedAt/timeZone unchanged', 'Actual D composer Return and unchanged primary re-entry'], end: 'D uncommitted; O/R physically retained; no old-draft visible rediscovery claim' }, readonlyCatalogExtension: { statusAtAuthoring: 'prepared-only; native not yet run', sourceCandidate: '4243d41e1a9643d10aeb884dea76cf4f6a659e42', boundary: 'Original composer/review readonly Modal, O/R full original/corrections, return/close/native Escape and focus, all source keys/settings and pointers exact with zero native write attempts', longOriginal: 'After the unchanged original speech tail, one native-control-created uncommitted 40-line L; all original O/R/D and speech snapshots remain; every original line is measured via readonly DOM Range and native wheel', noResume: true, note: 'This segment remains readonly; the separate appended continuation segment is explicitly writable.' }, speechCompletionExtension: { applicationBaseline: 'af6c353fad0b476d7bf11b6d0deaf80be0157224', boundary: 'Actual D Return, current input, one explicitly synthetic recognition start/stop/final/end, new uncommitted review only', provider: 'SpeechRecognition constructor double; no microphone, audio, real recognition or paid service', end: 'Full A+B raw and declared rule candidates; original D/O/R, records, receipt and ledger preserved; no business Save' }, sameIdContinuationExtension: { statusAtAuthoring: 'prepared-only; native not yet run', parent: 'Original L review then composer remain resident', controls: 'Original catalog -> O -> explicit Continue -> original Save -> strict isolated result -> Return', technicalHistory: 'After the real control chain only: known committed O receipt URL full-document re-entry. Technical route source, not proof of UI discovery.', proof: 'Independent Node typed SHA, exact source/result/index/head and actual same-owner HTTP ACK', noFunctionCounterClaim: 'No new draft/business mutation is observed; parse/create call counts are only actual component evidence' }, syntheticOnly: true, clock: 'Browser-only advancing 2026-10-07 in Asia/Shanghai; real server audit timestamps', boundaries: ['One capture-return matrix task, existing 8-minute evidence and 20-minute job limits', 'A return-continuity RED remains RED even when separately corrected current draft B saves', 'No hidden uncommitted review URL or history substitute; appended known committed-ID receipt URL is separately labelled technical re-entry. No business API seeding, auth/owner/session/generation changes, live SMS/model or production', 'No preference authority/clear-generation/publication tests or dependent postcommit receipt-read repair', 'Not deletion, full disk exhaustion, reload recovery, simultaneous tabs, two devices, OS or complete accessibility coverage'] }, null, 2));
   for (const profile of PROFILES) {
     const label = `YQ-return-${profile.width}`; media.push(label);
     await isolated(label, { width: profile.width, height: profile.height }, async page => {
@@ -226,7 +232,8 @@ export async function runCaptureReturnOutcomes(h) {
       };
       const local = async () => {
         const snapshot = await page.evaluate(readExistingAccount, owner);
-        return { snapshot, databaseName: snapshot.databaseName, version: snapshot.version, schema: snapshot.schema, local: Object.fromEntries(snapshot.tables.map(table => [table.name, decodeCaptureEvidence(table.losslessRows)])) };
+        const pointers = await page.evaluate(owner => ({ input: sessionStorage.getItem(`youtrace:input:${owner}`), review: sessionStorage.getItem(`youtrace:active-review:${owner}`) }), owner);
+        return { snapshot, pointers, clockMillis: await page.evaluate(() => Date.now()), databaseName: snapshot.databaseName, version: snapshot.version, schema: snapshot.schema, local: Object.fromEntries(snapshot.tables.map(table => [table.name, decodeCaptureEvidence(table.losslessRows)])) };
       };
       const readLedger = async () => {
         const allEvents = [], pages = []; let cursor = '0', finished = false;
@@ -244,7 +251,7 @@ export async function runCaptureReturnOutcomes(h) {
         if (settle) for (let i = 0; i < 60 && source.local.outbox.length; i++) { await sleep(250); source = await local(); }
         if (settle) assert.equal(source.local.outbox.length, 0, 'Whole outbox must ACK before the next task segment');
         const { allEvents, pages } = await readLedger();
-        const result = { ...source, allEvents };
+        const result = { ...source, allEvents, pages };
         await save(`${name}-full-source`, { syntheticOnly: true, observedByDriverAt: new Date().toISOString(), browserClock: await page.evaluate(() => ({ instant: new Date().toISOString(), fixture: globalThis.__youtraceAuditClock })), serverAuditClock: 'real, never aligned to browser business date', ...result, pages, ...extra });
         lastFacts = result; return result;
       };
@@ -319,12 +326,7 @@ export async function runCaptureReturnOutcomes(h) {
         else await tap('aside nav button', title);
         await waitPath(page, path);
       };
-      const inputsAdded = (before, after, raw, context) => {
-        const added = after.local.settings.filter(row => row.key.startsWith('capture-input:') && !setting(before, row.key)), textRows = added.filter(row => !row.key.endsWith(':context'));
-        assert.equal(textRows.length, 1); assert.equal(added.length, 2); const key = textRows[0].key, basis = setting(after, `${key}:context`)?.value;
-        assert.equal(textRows[0].value, raw); assert.equal(basis?.timeZone, 'Asia/Shanghai'); assert.ok(Number.isSafeInteger(basis?.capturedAt)); if (context) assert.deepEqual(basis, context); else assert.equal(basis?.date, '2026-10-07');
-        return { key, context: basis, writes: { [key]: raw, [`${key}:context`]: basis } };
-      };
+      const inputsAdded = (before, after, raw, context) => captureForkInputs(before, after, raw, context, owner);
       const inventory = async (name, note = 'DOM inventory is discovery, not proof of reading. Composer top Return exists and can traverse its existing navigation history; this task does not exercise it or claim every route to A is unavailable. Each review-specific continuation below receives a painted geometry observation.') => {
         const controls = await page.$$eval(`${COMPOSER} button, ${COMPOSER} a, ${COMPOSER} summary`, rows => rows.map(el => ({ label: el.getAttribute('aria-label') || el.textContent.trim(), tag: el.tagName, href: el.getAttribute('href'), disabled: el.matches(':disabled'), rendered: el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0 })));
         const continuation = controls.filter(row => row.rendered && /确认稿|继续|恢复|重试/.test(row.label));
@@ -598,7 +600,8 @@ export async function runCaptureReturnOutcomes(h) {
         await save('changed-branches-outcome', { ids: reviewed.map(value => value.id), currentInputKey, expectedKey: current.inputKey, oldDraftsPhysicallyRetained: true, currentDraftUncommitted: true, note: discovery });
         const catalog = await runCaptureCatalogReadOnly({ page, label, current, reviewed, before: end, returnComposer, facts, readLedger, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions, sleep });
         const speech = await runCaptureSpeechTail({ page, label, current, before: catalog.facts, returnComposer, facts, preserve, read, readValue, tap, input, retained, save, observe, mark, waitPath, capture });
-        await runCaptureCatalogLongOriginal({ page, label, current: speech.draft, before: speech.facts, reviewed, returnComposer, input, facts, preserve, tap, retained, waitPath, save, mark, show: catalog.show });
+        const long = await runCaptureCatalogLongOriginal({ page, label, current: speech.draft, before: speech.facts, reviewed, returnComposer, input, facts, preserve, tap, retained, waitPath, save, mark, show: catalog.show });
+        await runCaptureContinuationNative({ page, label, owner, origin, current: long.draft, selected: reviewed[0], before: long.facts, returnComposer, facts, readLedger, preserve, read, tap, input, save, observe, mark, waitPath, capture, actions });
       }
     });
   }
