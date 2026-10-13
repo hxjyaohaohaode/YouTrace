@@ -90,3 +90,29 @@
 纯净 c3cb 全 FE 发现旧 `late-recovery` fixture 仍将未发布的旧 Goal 事务 complete 当 initial success。原红与实际 App 双臂取证已封存；追加三臂区分：未发布旧 Goal＋恢复 Expense 失败锁门、恢复 Expense 成功后的完整恢复开放、真实已发布可信旧快照的完整成功后晚失败不撤回。实际 actor／generation／epoch 和完整原 Goal 同步断言。生产 Goal guard 没有为旧测试增加等待或放宽可信快照要求。
 
 既有 startup-recovery 四个双宽 profile 的现行验收准备因此重订为 recovery-success／both-fail，并通过原控件增加一个真实 Goal 与原 Todo；完整边界见 [STARTUP_RECOVERY_TASK_BASELINE.md](STARTUP_RECOVERY_TASK_BASELINE.md#2026-10-13-必需-goal-快照后的合同重订本地候选原生待验)。该组与独立 Goal 首读 25%／50% 两次 Retry 草稿是不同验收，均未本机执行原生，不能互相转授。旧缓存晚失败保持场景目前明确为受控 actual App 模块证据。
+
+## 首读原生验收准备：沿用 goals 双宽，尚未执行
+
+以 `1dc5fe5ff143dcf89f93df67dca7d3082ea847cd` 为本轮准备基线；不修改 c3cb 生产 guard 或已封存的 startup 合同。新增 `audit-goal-initial-read.mjs` 只接既有 `goals` 的 1280／360 两个 profile，在原控件创建并确认同步的两个同名目标达到 25%／50% 后运行，后续原 quota／编辑／删除继续使用同一 pair。没有新增矩阵、账号种子、依赖、能力查询、服务或部署。
+
+未来官方 GitHub CI 必须同时满足以下合同，当前本地检查不替代原生通过：
+
+1. 直接访问 `/goal` 产生新文档，Goal 内存从模块初始状态读取。故障只命中已验证合成 owner 的现有账号 DB、readonly 模式、无视顺序但精确等于 `goalRecords/goals/outbox/settings` 的四表集合，以及其中真实 `goalRecords.getAll` 请求；先发原请求，再让该真实事务自然 abort。不阻断 settings-only、其他 owner、全表证据事务或任何写事务，不使用 keepalive、伪造成功事件、store/ready 注入或替换业务 promise。
+2. 首文档与第一次原“重试”后的新文档均须真实命中该故障；initial 和 recovery 的完整必需尝试都记录 error，且至少有真实 goal/error。普通过期 Goal 读取可能 resolve，不能把它当作初始化成功。两次均显示全局“加载遇到问题／重试”，业务 workspace/card 不开放，没有原目标内容、空列表成功态或 0 进度统计。只在原控件真实点击，第一次 Retry 必须保留故障。
+3. 明确移除后续新文档脚本并恢复当前文档拦截方法，核对原方法身份和无过期／预算异常后，才允许第二次原 Retry。三份文档的有限、正数 timeOrigin 必须各异；新文档不再安装故障。恰好两次 Retry，不加第三次。第二次后须恢复原两个 ID、完整原始本机行以及可见标题、说明、类型、领域、优先级、计划日期、25%／50% 手动进度和 `0/2 完成 · 平均进度 38%`。
+4. 准备完成的当前账号每张物理表、主键、原完整值、旧 goals 表、outbox、settings、所有收据，与服务器完整 GET-only 事件 ledger 均冻结比较。跨文档普通 bootstrap 仅允许原 `settings.lastPullAt` 同一 key 的合法时间值前进，逐项保存前后差值；不豁免整张 settings，也不重写原值。全局失败稳定窗口的两次全表／ledger 快照必须完全相等，object-store put/add/delete/clear 和 cursor update/delete 的当前 owner 写入尝试增量必须为 0，包括同值写入和最终 abort 的写请求。准备／bootstrap 操作单独记录，不宣称整个启动 0 写。
+5. 实际目录中存在的其他 owner／共享来源也完整比较；本组不另造它们的 fixture。目录没有旧来源时，不能把缺少 fixture 记作“旧来源 0 写已验”。任一首读断言失败直接终止该 profile 后续业务链，先保存 first-failure 故障事实、全账号／全 ledger、截图与初始化时序，再解除；原 quota／编辑／删除不能修复或掩盖这一结果。
+
+故障每文档最多记录 16 个命中，45 秒安全上限只会判失败并恢复拦截，不授权成功；观察写入和诊断也有上限。未更改 App 原 12 秒初始化预算、既有 runner／CI 总时限或重试次数。既有 runner 本来就录制常规 trace，本组没有新增 tracing/capability 接线。
+
+首轮本地新增合同 15/15：纯负向 oracle、真实 fake-indexeddb 精确事务边界、实际 Goal store／required loader 两次失败后原方法恢复、写请求观察，以及模拟浏览器 driver 的编排与五种失败中止反例。编排 mock 不是真浏览器；实际模块的两次 abort 也不等于两次浏览器 reload。原生获准后仍需实际页面、原控件与记录授证。四表 abort 只检验 App 必需门禁和真实 reload 恢复，不证明窄 catch 的第二次 epoch 失败或受控重叠读取矩阵在原生发生；普通单次门禁本来已有效，也不能据此声称 fcec 初始化队列问题已修复。
+
+首轮冻结前定向运行全部 Goal、初始化、首次会话与 startup 相邻合同，366/366 通过；三个修改脚本 `node --check`、两个新测试文件定向 eslint、`git diff --check` 通过。c3cb 的 Goal store／useAppInit 及原 Goal 页面内容 hash 未变。完整 FE/BE/build 与原生验收仍分别由干净候选门禁和以后获准的 CI 接续，本节没有将本地脚本合同记作浏览器成功。
+
+### 独审追加：保全操作失败不得遮蔽原异常
+
+独立反例发现首个 `FIRST-FAILURE.json` 写失败会跳过后续原故障／截图／全表证据直接 cleanup；`fault()`／账号快照在 save 参数中的拒绝也会截断，而最终 chronology 写失败可能覆盖原业务错误。旧六文件、独审三个原红和扩展合同的 21 绿／6 红已另行封存。
+
+本轮仅纠正验收 runner 的异常收尾：每项保全整体独立 try，包括 await 参数求值；全表取证失败仍单独尝试可用的 GET ledger。所有这些尝试都先于 cleanup。移除后续文档脚本失败仍尝试恢复当前方法，cleanup／最终 chronology 失败不能覆盖原业务异常；若此前没有错误，最终保全失败仍拒绝，不能授予成功。可保存的 chronology 记录各保全失败步骤；这是尽力保全，不保证磁盘或浏览器不可用时生成全部文件。没有更改 Goal 数据断言、四表故障范围、两个 Retry 或任何生产文件。
+
+新增逐文件写失败、截图、故障／账号读取、ledger 兜底、自身 cleanup 与最终 chronology 失败反例；合同现 29/29，独审原三个探针原样复跑 3/3，全部 Goal／初始化／首次会话／startup 相邻回归 380/380，定向 eslint／脚本语法／diff 检查通过。此前首轮完整门禁不自动覆盖本修订，须按新冻结内容重新接续。

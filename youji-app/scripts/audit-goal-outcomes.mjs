@@ -4,6 +4,7 @@
 // put/delete fault injection never seeds a record or touches an app/auth store.
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
+import { runGoalInitialReadRecovery } from './audit-goal-initial-read.mjs';
 
 const NAME = 'Synthetic 自主方向';
 const WORKSPACE = '[data-component="goal-workspace"]';
@@ -54,6 +55,8 @@ export async function runGoalOutcomes(h) {
     'No legacy migration/enrollment/recovery fixture: a fresh account is not evidence of old-user recovery',
     'No native second-tab stale-dialog race: supplied isolated helper records one page only; module actor/race contracts remain separate',
     'Postcommit display read failure is a bounded exact-account/exact-target committed-put then four-table readonly fixture; native legacy enrollment/copy read-failure recovery is not covered',
+    'First-read global Retry uses an exact four-table readonly abort and two real reloads; the new error-publication catch itself remains module/component-only evidence',
+    'No new foreign-owner/shared-source fixture in the first-read chain: exact preservation covers only existing catalog entries; no absent fixture is awarded a pass',
     'No signout/clear/account-generation race, arbitrary scale, real mobile OS, screen reader, live model/provider or production claim',
     '100% is only a reversible user-entered progress value; a future plan date is not proof of work performed',
   ];
@@ -560,6 +563,27 @@ export async function runGoalOutcomes(h) {
     await segment(page, `${label}-create-distinct-same-name-neighbor`, async () => { neighbor = await create(page, api, `${label}-neighbor`, neighborValues); });
     await segment(page, `${label}-target-25`, async () => { requirePair(); await progress(page, api, target, neighbor, 25, `${label}-target25`); });
     await segment(page, `${label}-neighbor-50`, async () => { requirePair(); await progress(page, api, neighbor, target, 50, `${label}-neighbor50`); });
+    // Unlike independent CRUD segments, a failed first-read chain must stop
+    // this profile before any later edit/quota/deletion can change its sources.
+    requirePair();
+    await runGoalInitialReadRecovery({ page, owner: api.ownerId, target, neighbor, label: `${label}-initial-read`, tap, read, exactSelector,
+      readLedger: () => ledger(api), verifyPair: async originals => {
+        await card(page, target); await card(page, neighbor);
+        const current = await facts(page, api, `${label}-initial-read-returned`, [target.id, neighbor.id]);
+        assert.equal(current.local.goalRecords.find(row => row.id === target.id)?.progress, 25);
+        assert.equal(current.local.goalRecords.find(row => row.id === neighbor.id)?.progress, 50);
+        const header = await exactSelector(page, 'p', '0/2 完成 · 平均进度 38%'); assert.ok((await read(page, header)).visible);
+        for (const goal of originals) {
+          const selector = await card(page, goal), content = await page.$eval(selector, el => el.innerText);
+          assert.ok(content.includes(goal.title) && content.includes(goal.description) && content.includes(goal.domain) && content.includes(`${goal.progress}%`) && content.includes(goal.targetDate));
+          const labels = await page.$$eval(`${selector} span`, elements => elements.map(el => el.innerText));
+          assert.ok(labels.includes(`手动确认的进度 · ${({ short: '短期', medium: '中期', long: '长期' })[goal.level]}`));
+          assert.ok(labels.includes(({ high: '高', medium: '中', low: '低' })[goal.priority]));
+          assert.equal(await page.$eval(`${selector} [role=progressbar]`, el => Number(el.getAttribute('aria-valuenow'))), goal.progress);
+        }
+      }, capture, actions, writeFile, join, artifacts });
+    await observe(page, `${label}-initial-read-global-Retry-exact-pair`, true, 'Exact four-table readonly abort in two new documents stayed globally failed; only explicit release plus second original Retry restored the full original 25%/50% pair and 0/2, 38% statistics. Full source/queue/ledger and exact bootstrap metadata deltas are saved separately; no narrow-catch native claim.');
+
     await segment(page, `${label}-mixed-denominator-and-filter`, async () => { requirePair(); await summary(page, api, `${label}-25-and50`); await summary(page, api, `${label}-short-filter-25-and50`, '短期'); });
     await segment(page, `${label}-target-manual-100`, async () => { requirePair(); await progress(page, api, target, neighbor, 100, `${label}-target100`); await summary(page, api, `${label}-100-and50`); });
     await segment(page, `${label}-target-reverse-to25`, async () => { requirePair(); await progress(page, api, target, neighbor, 25, `${label}-target25-reversed`); await summary(page, api, `${label}-reversed25-and50`); });
