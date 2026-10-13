@@ -262,6 +262,7 @@ export async function runCaptureReturnOutcomes(h) {
         for (let i = 0; i < 16; i++) {
           const box = await page.evaluate(initialSessionGeometry, resolved); assert.ok(box.unique);
           if (box.visible) return { ...box, resolved };
+          if (i === 15) actions.push({ kind: 'capture-return-final-unreadable-geometry', surface: label, selector, text, geometry: box });
           const x = Math.max(box.clip.left + 8, Math.min(box.rect.x + box.rect.width / 2, box.clip.right - 8)), y = Math.max(20, Math.min((box.clip.top + box.clip.bottom) / 2, profile.height - 20)), deltaY = box.rect.y + box.rect.height / 2 - y;
           if (Math.abs(deltaY) > 1) { await page.mouse.move(x, y); await page.mouse.wheel({ deltaY }); actions.push({ kind: 'native-wheel-capture-return', surface: label, selector, x, y, deltaY, clip: box.clip }); }
           await sleep(125);

@@ -59,3 +59,18 @@
 原语音链仍单独执行。随后从原控件明确输入一份40行合成长原文L，只有这段准备允许精确input及新增未提交review写入，没有业务确认Save；原O/R/D、语音稿、已提交业务和完整ledger保全。再用只读Modal、DOM Range原行坐标/遮挡、实际滚轮、原PNG核所有长原文行可见，Escape后焦点必须自然回原入口且无遮挡，不用focus/scrollIntoView/脚本点击救场。
 
 运行代码内的source/显示字段独立parser、范围与零写负向合同只是准备证据；真实两宽结果及截图审阅尚待CI。没有据此修订既有历史工件或宣称真实无障碍/生产验收。
+
+
+## 388eb9c 首次原生红与几何修订候选
+
+公开 388eb9c8e251fd57b345beb92b6d0c05d6bbebea / tree aebb40ac 的 CI 38344760935：27 jobs success、capture-return failure、条件诊断 skipped；独立 durability success。此处没有将旧原生通过改标签。Capture 两宽尚未完成目录返回、Escape 和新长原文流程，不能称只读 UI 已实际验收。
+
+原始 97,699,020-byte 档案 SHA256 `1760639b46f3a6fbe4e02fe8db0fccdbe1a47b13279385be2e151b8f94d3ff9b` 的 1330 成员已逐字节/摘要核验。原264/533 PNG中标题/summary清晰；原脚本错误把 fixed Modal 外的背景原页滚动框用于裁剪：桌面动作记录标题中心 y81，却套 top110.984375；手机 summary 的完整原盒 y651.1875..687.1875、自身命中，却套 bottom671。该证据定位了旧几何判断的错误边界，不证明所有后续布局均正确。
+
+本次仅修验收脚本：只有 dialog 的直接 fixed 包装层且所有外祖先完整 computed CSS 均排除 transform/独立 translate/rotate/scale、filter/backdrop-filter、perspective、contain、will-change、container-type、content-visibility、旧 clip、clip-path/mask 等潜在包含/裁剪条件，才忽略其外部背景滚动框。未知值保守不豁免；Modal 自身与内部 overflow、外祖先可见性/透明度/display、真实中心 hit、完整文字宽度仍检查。pointer 共用原严格几何；长文 Range 同样限定，真实滚轮和既有超时不变。
+
+宿主合同使用原手机完整盒及桌面已记录中心/背景 clip；桌面未记录的标题宽高明确为宿主重建值，不冒充完整原始 DOM 采样。新增包含块、非 fixed、内部 overflow、外祖先不可见及实际遮挡负例。模型通过不能替代新 Chromium 实证。
+
+388 失败窗口两宽全部14物理表、原key/原文/settings与GET ledger一致，写观察器 writes=[]/dropped=0，恢复成功；但旧失败路径未保存编辑表单和 sessionStorage 双指针前后，因此仅证持久原稿不变，不能授予编辑态完整比较。新候选在操作前保存原编辑状态，失败时分别尝试保存原快照和重新读取后的表单/双指针，某一采集失败不跳过其他原件、不覆盖首错。正常成功路径仍要求全部精确相等，没有宽免。
+
+判定依据：[W3C 定位包含块](https://www.w3.org/TR/css-position-3/#def-cb)与[W3C overflow/clip 边界](https://www.w3.org/TR/CSS22/visufx.html#overflow-clipping)。这些规则仅支持采样器的限定修正，实际浏览器结果仍须另验。

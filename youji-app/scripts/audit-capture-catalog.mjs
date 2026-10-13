@@ -102,12 +102,25 @@ export function captureCatalogRawLines(expected) {
   if (nodes.length !== 1 || nodes[0].textContent !== expected) throw Error('Exact complete readonly original is absent');
   const el = nodes[0], text = el.firstChild;
   if (!text || text.nodeType !== Node.TEXT_NODE || el.childNodes.length !== 1) throw Error('Unexpected raw text structure');
+  // A fixed Modal wrapper is viewport-relative only when every external
+  // ancestor has complete, non-containing CSS. Keep its own panel overflow,
+  // all paint checks and actual hit testing. Unknown CSS fails closed.
+  const dialog = el.closest('[role=dialog]'), dialogFixed = dialog?.parentElement, dialogAncestors = [];
+  if (dialogFixed && getComputedStyle(dialogFixed).position === 'fixed') for (let parent = dialogFixed.parentElement; parent; parent = parent.parentElement) {
+    const css = getComputedStyle(parent);
+    dialogAncestors.push(Object.fromEntries(['transform', 'translate', 'rotate', 'scale', 'perspective', 'filter', 'backdropFilter', 'contain', 'willChange', 'containerType', 'contentVisibility', 'clip', 'clipPath', 'maskImage'].map(key => [key, css[key]])));
+  }
+  const viewportFixedDialog = Boolean(dialogFixed && getComputedStyle(dialogFixed).position === 'fixed') && dialogAncestors.every(css =>
+    Object.values(css).every(value => typeof value === 'string' && value.length > 0) &&
+    ['transform', 'translate', 'rotate', 'scale', 'perspective', 'filter', 'backdropFilter', 'clipPath', 'maskImage'].every(key => css[key] === 'none') &&
+    css.clip === 'auto' && css.contain === 'none' && css.willChange === 'auto' && css.containerType === 'normal' && css.contentVisibility === 'visible');
   let clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight }, painted = true;
   for (let p = el; p; p = p.parentElement) {
     const style = getComputedStyle(p), rect = p.getBoundingClientRect();
     painted &&= style.visibility === 'visible' && style.display !== 'none' && Number(style.opacity) >= .99;
-    if (p !== el && /auto|scroll|hidden|clip/.test(style.overflowY)) { clip.top = Math.max(clip.top, rect.top); clip.bottom = Math.min(clip.bottom, rect.bottom); }
-    if (p !== el && /auto|scroll|hidden|clip/.test(style.overflowX)) { clip.left = Math.max(clip.left, rect.left); clip.right = Math.min(clip.right, rect.right); }
+    const clipsThisTarget = !viewportFixedDialog || p === dialogFixed || dialogFixed.contains(p);
+    if (p !== el && clipsThisTarget && /auto|scroll|hidden|clip/.test(style.overflowY)) { clip.top = Math.max(clip.top, rect.top); clip.bottom = Math.min(clip.bottom, rect.bottom); }
+    if (p !== el && clipsThisTarget && /auto|scroll|hidden|clip/.test(style.overflowX)) { clip.left = Math.max(clip.left, rect.left); clip.right = Math.min(clip.right, rect.right); }
   }
   let offset = 0;
   const lines = expected.split('\n').map((value, index) => {
@@ -116,7 +129,7 @@ export function captureCatalogRawLines(expected) {
     return { index, value, rects, visible: painted && rects.length > 0 && rects.every(r => r.hit && r.left >= clip.left - .5 && r.right <= clip.right + .5 && r.top >= clip.top - .5 && r.bottom <= clip.bottom + .5) };
   });
   const modal = el.closest('[role=dialog]');
-  return { raw: el.textContent, clip, painted, whiteSpace: getComputedStyle(el).whiteSpace, horizontalFits: el.scrollWidth <= el.clientWidth + 1, scrollTop: modal.scrollTop, scrollHeight: modal.scrollHeight, clientHeight: modal.clientHeight, lines };
+  return { raw: el.textContent, clip, painted, viewportFixedDialog, dialogAncestors, whiteSpace: getComputedStyle(el).whiteSpace, horizontalFits: el.scrollWidth <= el.clientWidth + 1, scrollTop: modal.scrollTop, scrollHeight: modal.scrollHeight, clientHeight: modal.clientHeight, lines };
 }
 export function assertCaptureCatalogLines(states, expected) {
   assert.ok(states.length > 0 && states.length <= 61);
@@ -145,12 +158,13 @@ export async function runCaptureCatalogReadOnly(h) {
     const tryCollect = async (part, fn) => { try { await fn(); } catch (error) { collectionFailures.push({ part, message: String(error?.message ?? error) }); } };
     await page.evaluate(installCaptureCatalogWriteAudit);
     try {
+      await save(`${name}-editor-before`, editorBefore);
       mark(name); await tap(opener, CAPTURE_CATALOG_ENTRY);
       await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog] h3')].some(el => el.textContent === '查看本机未提交稿（只读）'), { timeout: 7000 });
       await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('本次读取的主键顺序'), { timeout: 7000 });
       const modal = await page.$(MODAL); assert.ok(modal);
       try { await save(`${name}-modal-settled`, await modal.evaluate(waitSharedGoalTargetSettled)); } finally { await modal.dispose(); }
-      await read(`${MODAL} h3`, '查看本机未提交稿（只读）'); await capture(page, `${label}-${name}-directory`);
+      await save(`${name}-title-reading`, await read(`${MODAL} h3`, '查看本机未提交稿（只读）')); await capture(page, `${label}-${name}-directory`);
       for (const [index, entry] of entries.entries()) {
         const selector = `${MODAL} button[aria-label=${JSON.stringify(`查看原稿 ${entry.id}`)}]`;
         await tap(selector); await page.waitForSelector(`${MODAL} [aria-label="只读完整原文"]`, { visible: true, timeout: 7000 });
@@ -210,6 +224,8 @@ export async function runCaptureCatalogReadOnly(h) {
     } catch (error) {
       firstError = error;
       await tryCollect('first-error', () => save(`${name}-FIRST-FAILURE`, { name: error.name, message: error.message }));
+      await tryCollect('editor-before', () => save(`${name}-failure-editor-before`, editorBefore));
+      await tryCollect('editor-after', async () => { editorAfter = await page.evaluate(captureCatalogEditorState, current.ownerId); await save(`${name}-failure-editor-after`, editorAfter); });
       await tryCollect('audit', async () => { audit = await page.evaluate(() => globalThis.__captureCatalogAudit.snapshot()); await save(`${name}-failure-audit`, audit); });
       await tryCollect('screenshot', () => capture(page, `${label}-${name}-FIRST-FAILURE`));
       await tryCollect('source', async () => { after = await facts(`${name}-failure`, { settle: false }); });
