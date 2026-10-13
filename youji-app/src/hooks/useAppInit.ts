@@ -9,7 +9,7 @@ import { useScheduleStore } from '../stores/scheduleStore';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useCoachStore } from '../stores/coachStore';
 import { bootstrapSync } from '../services/syncEngine';
-import { useGoalStore } from '../stores/goalStore';
+import { loadRequiredGoals, useGoalStore } from '../stores/goalStore';
 import { recordDiagnostic } from '../services/diagnostics';
 import { beginInitializationTrace, type InitializationTrace } from '../services/initializationDiagnostics';
 import { db, getDatabaseRecoveryError, isDatabaseUpgradeBlocked } from '../db';
@@ -46,7 +46,7 @@ export function loadAllStores(trace?: InitializationTrace): Promise<void> {
     run('schedule', () => useScheduleStore.getState().loadFromDB()),
     run('diary', () => useDiaryStore.getState().loadFromDB()),
     run('coach', () => useCoachStore.getState().loadFromDB()),
-    run('goal', () => useGoalStore.getState().loadFromDB()),
+    loadRequiredGoals(() => run('goal', () => useGoalStore.getState().loadFromDB())),
   ]).then(() => undefined));
 }
 
@@ -139,7 +139,7 @@ export function useAppInit(enabled: boolean) {
         trace.run('quick-note', () => useQuickNoteStore.getState().loadFromDB()),
         trace.run('schedule', () => useScheduleStore.getState().loadFromDB()),
         trace.run('diary', () => useDiaryStore.getState().loadFromDB()),
-        trace.run('goal', () => useGoalStore.getState().loadFromDB()),
+        loadRequiredGoals(() => trace.run('goal', () => useGoalStore.getState().loadFromDB())),
       ]));
       void trace.run('coach', () => useCoachStore.getState().loadFromDB(), true);
     }

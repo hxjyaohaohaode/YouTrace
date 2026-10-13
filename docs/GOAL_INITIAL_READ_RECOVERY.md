@@ -1,10 +1,10 @@
-# Goal 首次读取失败的有限恢复候选（2026-10-12）
+# Goal 首次读取失败的有限恢复候选（2026-10-12／13）
 
 ## 范围与结论
 
-基线为公开 `8545ea62fc5f2231f7e1242def8212e2967211f5`，tree `ba86c27d5a648e4b362dc4efcba41deb55a05a37`。本包仅修复 `goalStore.loadFromDB` 在首次 epoch 读取成功、后续存储持续不可读时，没有结束 loading / 暴露通用读取错误的窄状态缺陷。
+基线为公开 `8545ea62fc5f2231f7e1242def8212e2967211f5`，tree `ba86c27d5a648e4b362dc4efcba41deb55a05a37`。首阶段修复 `goalStore.loadFromDB` 在首次 epoch 读取成功、后续存储持续不可读时，没有结束 loading / 暴露通用读取错误的窄状态缺陷，已封存为 `23377dabfb87be9aac1df892000b157c6cb19711`。随后独审发现同范围的必需读取竞态，当前另补 Goal 专用的可信快照可用性验证；233 不是最终可发布候选。
 
-没有修改 Goal 页面、品牌、Logo、业务字段、数据库 schema、业务归属、同步、旧来源恢复或自动撤销。没有新建目标、推断归属、恢复未知实体或写入任何错误处理记录。没有更改 App 初始化队列、导航、原全局重试按钮及其 reload 行为。不能称为此前普通启动／fcec 初始化队列问题的修复。
+没有修改 Goal 页面、品牌、Logo、业务字段、数据库 schema、业务归属、同步、旧来源恢复或自动撤销。没有新建目标、推断归属、恢复未知实体或写入任何错误处理记录。只在 useAppInit 两处必需 Goal 入口验证真实发布的快照；没有更改其他 store、初始化队列顺序／12 秒超时、导航、原全局重试按钮及其 reload 行为。不能称为此前普通启动／fcec 初始化队列问题的修复。
 
 状态：本地候选；真实原生链 `BLOCKED_EXTERNAL`，未推送、未部署，未访问真实用户资料。
 
@@ -16,7 +16,7 @@
 - 首次 epoch 成功，随后的快照与错误发布 epoch 读均失败：停在 `loaded=false/loading=true/readError=null`。真实组件树显示“正在读取目标统计…”和“正在读取目标…”，没有“刷新核对”按钮；没有伪造空列表，也没有业务写入。
 - 错误发布事务的拒绝迟到到换 owner／同 owner 重登录之后：原实现同样留下 loading；没有发现旧内容泄漏。本包同时使这两条过期尝试安全结束。
 
-最小修复仅在原空 catch 中执行同步 actor 检查：DB 实例、owner、已验证会话、session generation、session revision、signed-out 状态均须仍匹配，并要求原 loadSequence 未过期，才设置 `loading=false/readError=READ_FAILED`。不使用默认 epoch，不发布 items、状态、旧来源列表或零统计，也不增加 DB 写。同步 actor 已变化时仅清理过期内存视图。原异常仍向调用者抛出；合法当前读取失败不会被转换为初始化成功。
+最小修复仅在原空 catch 中执行同步 actor 检查：DB 实例、owner、已验证会话、session generation、session revision、signed-out 状态均须仍匹配，并要求原 loadSequence 未过期，才设置 `loading=false/readError=READ_FAILED`。不使用默认 epoch，不发布 items、状态、旧来源列表或零统计，也不增加 DB 写。同步 actor 已变化时仅清理过期内存视图。普通 loadFromDB 的原异常仍向调用者抛出，既有过期读取 return 语义保持不变；下述必需入口另外判断是否已有可用的可信快照。
 
 ## 两类证据不能混为一条原生用户链
 
@@ -38,7 +38,7 @@
 
 ### 当前 App 的真实入口控制流
 
-`useAppInit.ts` 的初始必需 Promise.all 包括 Goal，离线分支的 loadAllStores 也包括 Goal；失败仍 reject。`App.tsx` 的 ReadyRoutes 仅在 ready 后开放已认证业务路由。故当前 App 的持续首次无缓存 Goal 故障会停在全局“加载遇到问题／重试”界面，通常无法到达 Goal 页面原“刷新核对”。独立组件合同不证明该页面入口在全 App 可达。
+`useAppInit.ts` 的初始必需 Promise.all 包括 Goal，离线分支的 loadAllStores 也包括 Goal；失败仍 reject。`App.tsx` 的 ReadyRoutes 仅在 ready 后开放已认证业务路由。普通单次必需 Goal 失败原已停在全局“加载遇到问题／重试”界面，通常无法到达 Goal 页面原“刷新核对”；下面的并发双失败反例说明不能把这一普通门禁结论外推到所有竞态。独立组件合同不证明该页面入口在全 App 可达。
 
 在已有 `tests/helpers/initial-session-scenario.ts` driver 增加 4 个小场景，执行实际 App、useAppInit、ReadyRoutes、RequireAuth、auth/API、DB 与八个 store。替身仅为 React 调度、router／presentation、合成 HTTP 和 IndexedDB：
 
@@ -49,15 +49,38 @@
 
 入口测试保全当前 Goal／旧来源／outbox／恢复收据和 B／共享源。全 App 初始化本身包含合法偏好／同步元数据操作；本包不把该完整过程表述为 0 写。driver 只验证原 reload 回调触发，未模拟真实浏览器跨文档重载。
 
+## 2026-10-13：必需 Goal 读取竞态的追加红／绿
+
+独审在实际 App driver 复现：初始化的 Goal 快照拒绝迟到；`youtrace:data-updated` 较新 Goal 也失败；旧 loadFromDB 因 sequence 过期 return，Promise resolve 被误当初始化成功。233 的实际状态是 `ready=true`、protected route 已开，但 Goal 为 `loaded=false/publishedRevision=0`。故障仅 Goal.toArray，自始没有让 settings 或其他 store 失败。
+
+四格同一合同先在 233 运行，结果 2 通过／2 失败，再在候选运行全部通过：
+
+| 旧必需读取／较新读取 | 233 | 候选必需入口 |
+| --- | --- | --- |
+| 旧失败迟到／新失败 | 错开路由，无可信快照 | 拒绝，持续故障后仍锁门 |
+| 旧事务成功但未发布／新失败 | 错开路由，无可信快照 | 拒绝，不把已读事务当发布 |
+| 旧快照已实际发布／新失败 | 可用缓存，失败提示保留 | 可用缓存，原 ID／全文／进度精确保留 |
+| 旧失败迟到／新成功已发布 | 可用较新真实快照 | 可用较新真实快照 |
+
+新增 `loadRequiredGoals` 只用于 Goal 必需读取入口：在任何 await 前同步 capture 当前 actor，先执行原读取，之后才验证内部 publishedActor／publishedRevision。最终增加一次 settings readonly 事务核对该 publication 的真实 epoch；每个最终 await 后同步复核捕获 actor、publication actor 和实际 store.loaded／publishedRevision。没有内部真实 publication、当前 epoch 不可读／已变化、actor／generation 已变化、public loaded／revision 不匹配，都拒绝。最终等待期间同 actor／epoch 的较新实际发布可以满足可用性，跨 epoch／owner／generation 的发布不能授权旧调用。
+
+“缓存可用”不等于“刷新成功”：useAppInit 以 callback 将 trace 包在原 loadFromDB 外，实际 reject 仍留下 goal/error，已有的 readError 仍可见；只有更外层 stores／initialization 表示必需快照已可用。没有更改全局诊断协议。普通过期 loadFromDB 的 return 保持原样；没有全局重试、循环等待或延长 12 秒。
+
+`tests/goal-required-read.test.ts` 的 13 项真实 store 合同补验：默认真实加载、伪造 public flags 无效、loaded／revision 不匹配、失败后可信缓存、旧 epoch 拒绝、额外只读验证失败、read 等待与最终事务 promise 迟到期间 owner／同 owner generation 变化，以及同 epoch／不同 epoch publication 替换。当前 DB 按既有规则只绑定一次，换 owner 必须 reload；owner case 验旧文档失败关闭，不虚构同文档改绑成功。纯 React 调度 helper 仍只替代 store collaborator，不作为这项内部授权证据。
+
+四格 actual App 合同在 settings／bootstrap 和非 Goal 初始读取结束后才划定失败窗口；完整当前 owner 所有物理表的主键和值（包含 settings、outbox、收据、旧源）前后相等，窗口 creating/updating/deleting 为 0。合成 B owner 与真实创建的 shared native30 来源也完整保留。准备／bootstrap 的合法元数据动作不混入“0 写”，没有整表豁免。附加 helper 的身份／epoch变化本身为明确测试准备动作，不能算成整个测试 0 写。
+
+本轮定向验证：13 helper + 11 actual App／相邻模块通过；全 Goal 与初始化／首次会话相邻共 334/334（其中 8 项为保留但暂停的 native 脚本负向合同，只是 fake-indexeddb／脚本检查，不能记原生执行）。修改文件 eslint、app TypeScript、git diff --check 通过。最终生产源码／测试绝对路径与 SHA 另有回执。233 下文完整门禁是历史阶段结果，不自动覆盖本轮新增代码；本轮完整门禁与最终独审待父任务冻结后接续。
+
 ## 本地验证与后续原生门槛
 
 - 新组件合同：16/16。
 - 全部 `tests/*goal*.test.ts`：213/213。
 - 初始化模块与首次会话相邻合同：22/22（含上述 4 个入口场景）。
 - 前端 app TypeScript 检查、修改文件定向 eslint、git diff --check：通过。
-- 后续完整门禁：前端 1287/1287、后端 109/109、本地持久化 56/56、Render 9/9、CI 前置合同 22/22，以及两端 lint/build、品牌完整性通过。独立只读审查重跑组件与入口相邻 23/23，无阻塞；真实原生仍未执行。
+- 233 阶段完整门禁（不覆盖上述追加竞态修复）：前端 1287/1287、后端 109/109、本地持久化 56/56、Render 9/9、CI 前置合同 22/22，以及两端 lint/build、品牌完整性通过。独立只读审查重跑组件与入口相邻 23/23，无阻塞；真实原生仍未执行。
 - 第一次全前端运行因新树没有挂载后端依赖而有 4 个 suite 加载失败（hono／Prisma 缺失），原日志保留。进程结束后核对两端 lockfile 与 Prisma schema 相同，再只读复用既有安装；完整重跑 1287/1287。不是全新 npm ci 证据。
 
 以后原生应走真实 App 的“全局加载失败屏 → 原重试 → 精确 Goal 恢复”，不得设置 ready／setState 来绕过初始化门禁。证据须包含原 ID、完整内容、统计、重载边界与源／队列保全。Goal 原“刷新核对”目前仅有独立组件合同，不能冒充真实首次启动链。本机原生权限此前被拒绝，本包没有重试或绕过；未来真实原生仍需获准的官方 GitHub CI。没有添加新 CI 接线。
 
-回退只需回退本包内存错误处理与测试／文档，不涉及 schema、用户数据或存储迁移；不会改变已有写入语义。
+回退只需回退本包内存错误处理、Goal 必需快照 guard 与测试／文档，不涉及 schema、用户数据或存储迁移；不会改变已有写入语义。

@@ -8,6 +8,8 @@ import Dexie from 'dexie';
 import ts from 'typescript';
 
 const scenario = process.argv[2];
+const goalRequired = scenario.startsWith('goal-required-');
+const goalScenario = scenario.startsWith('goal-initial-') || goalRequired;
 const memory = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key), clear: () => values.clear() }; };
 const events = Object.assign(new EventTarget(), { matchMedia: () => Object.assign(new EventTarget(), { matches: false }) });
 Object.assign(globalThis, { localStorage: memory(), sessionStorage: memory(), window: events, document: { documentElement: { setAttribute: () => undefined } } });
@@ -27,6 +29,8 @@ const requests: string[] = [], loads: string[] = [];
 const heldRecovery = deferred<void>();
 let raceExpenseReads = 0, goalReadFailures = 0, goalFaultArmed = true, goalReadStarted = false, reloadRequests = 0;
 const heldGoalFailure = deferred<void>();
+const requiredEntered = deferred<void>(), releaseRequired = deferred<void>();
+let requiredGoalCalls = 0;
 const extraDatabases: Dexie[] = [];
 Object.assign(events, { location: { reload() { reloadRequests++; } } });
 const imports: Record<string, unknown> = {
@@ -43,9 +47,13 @@ for (const name of ['Expense', 'Todo', 'Habit', 'QuickNote', 'Schedule', 'Diary'
     loads.push(name);
     if (scenario.startsWith('initial-race-') && name === 'Expense' && ++raceExpenseReads === 1) await heldRecovery.promise;
     if (scenario === 'store-failure' && name === 'Habit') throw Object.assign(new Error('Synthetic retained storage failure'), { name: 'DatabaseClosedError' });
-    if (scenario.startsWith('goal-initial-') && name === 'Goal') goalReadStarted = true;
-    try { await original(); } catch (error) {
-      if (scenario.startsWith('goal-initial-') && name === 'Goal') {
+    if (goalScenario && name === 'Goal') goalReadStarted = true;
+    const firstPublished = scenario === 'goal-required-published-success-new-failure' && name === 'Goal' && ++requiredGoalCalls === 1;
+    try {
+      await original();
+      if (firstPublished) { requiredEntered.resolve(); await releaseRequired.promise; }
+    } catch (error) {
+      if (goalScenario && name === 'Goal') {
         goalReadFailures++;
         if (scenario === 'goal-initial-recovers') goalFaultArmed = false;
         if (goalReadFailures === 1 && ['goal-initial-new-owner', 'goal-initial-newer-read'].includes(scenario)) await heldGoalFailure.promise;
@@ -68,7 +76,7 @@ globalThis.fetch = async input => {
     if (scenario === 'offline-unverified') throw new TypeError('Synthetic offline identity');
     return Response.json({ user });
   }
-  if (scenario === 'offline-verified' || scenario.startsWith('goal-initial-') && path.startsWith('/api/sync/')) throw new TypeError('Synthetic offline after identity verification');
+  if (scenario === 'offline-verified' || goalScenario && path.startsWith('/api/sync/')) throw new TypeError('Synthetic offline after identity verification');
   if (path === '/api/user/settings') return Response.json({ protocol: 1, revision: '0', settings: { coachStyle: 'gentle', coachPushEnabled: false, pushLimit: 2, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', eveningReviewEnabled: false, eveningReviewTime: '21:00' } });
   if (path.startsWith('/api/sync/pull?')) return Response.json({ protocol: 2, features: ['goals-v1'], events: [], nextCursor: '0', hasMore: false });
   if (path.startsWith('/api/coach/insights')) return Response.json({ insights: [] });
@@ -120,7 +128,7 @@ function driver() {
   }
   const common = { react: hooks, 'react/jsx-runtime': jsx };
   const placeholder = () => null;
-  const router = { BrowserRouter: placeholder, Routes: placeholder, Route: placeholder, Navigate: 'SyntheticNavigate', useLocation: () => ({ pathname: scenario.startsWith('goal-initial-') ? '/goal' : '/todo', search: '?view=all' }), useNavigate: () => placeholder };
+  const router = { BrowserRouter: placeholder, Routes: placeholder, Route: placeholder, Navigate: 'SyntheticNavigate', useLocation: () => ({ pathname: goalScenario ? '/goal' : '/todo', search: '?view=all' }), useNavigate: () => placeholder };
   async function setup() {
     const hook = compile(await readFile(new URL('../../src/hooks/useAppInit.ts', import.meta.url), 'utf8'), { ...common, ...imports, '../stores/authStore': authShim });
     let initializationState = { ready: false, failed: false };
@@ -226,12 +234,14 @@ try {
     const exactGoal = { id: 'synthetic-initial-goal-exact-id', title: 'Synthetic original goal', description: 'Exact multiline\nretained description', level: 'medium' as const, domain: '学习', priority: 'high' as const, progress: 75, targetDate: '2027-03-14', createdAt: 17, updatedAt: 29, syncScope: 'local' as const, unknown: new Map([['keep', 'exact original']]) };
     const sourceGoal = { ...exactGoal, description: 'Exact old source, no automatic recovery' };
     let retainedOthers: unknown;
-    const rawSnapshot = async (database: Dexie) => Object.fromEntries(await Promise.all(database.tables.map(async table => [table.name, { keys: await table.toCollection().primaryKeys(), values: await table.toArray() }])));
-    if (scenario.startsWith('goal-initial-')) {
+    const rawSnapshot = async (database: Dexie) => Object.fromEntries(await Promise.all(database.tables.map(async table => [table.name, { keys: await table.toCollection().primaryKeys(), values: await table.toCollection().toArray() }])));
+    if (goalScenario) {
       await storage.db.goalRecords.put(exactGoal); await storage.db.table('goals').put(sourceGoal);
       const other = new storage.YoujiDatabase(newerOwner); await other.open(); await other.goalRecords.put({ ...exactGoal, id: 'synthetic-owner-b-goal' });
       const shared = new Dexie('youtrace'); shared.version(30).stores({ goals: 'id' }); await shared.open(); await shared.table('goals').put({ ...sourceGoal, id: 17 });
       extraDatabases.push(other, shared); retainedOthers = await Promise.all(extraDatabases.map(rawSnapshot));
+    }
+    if (scenario.startsWith('goal-initial-')) {
       const get = storage.db.settings.get;
       storage.db.settings.get = function (...args: Parameters<typeof get>) {
         const tables = Dexie.currentTransaction?.storeNames ?? [];
@@ -242,9 +252,72 @@ try {
         return get.apply(this, args);
       } as typeof get;
     }
+    if (goalRequired) {
+      const originalRead = storage.db.goalRecords.toArray;
+      let reads = 0;
+      storage.db.goalRecords.toArray = function () {
+        const first = ++reads === 1;
+        const fail = scenario === 'goal-required-double-failure'
+          || (scenario === 'goal-required-old-failure-new-success' ? first : !first);
+        return fail ? Promise.reject(new DOMException('Synthetic Goal-only snapshot failure', 'AbortError')) : originalRead.call(this);
+      };
+      if (scenario !== 'goal-required-published-success-new-failure') {
+        const transaction = storage.db.transaction;
+        let held = false;
+        storage.db.transaction = function (...args: Parameters<typeof transaction>) {
+          const result = transaction.apply(this, args);
+          if (!held && args[0] === 'r' && Array.isArray(args[1]) && args[1].some(table => typeof table !== 'string' && table.name === 'goalRecords')) {
+            held = true;
+            // Delay delivery only after the real transaction has settled. A
+            // successful but superseded snapshot has never been published.
+            return result.then(value => Dexie.ignoreTransaction(async () => {
+              requiredEntered.resolve(); await releaseRequired.promise; return value;
+            }), error => Dexie.ignoreTransaction(async () => {
+              requiredEntered.resolve(); await releaseRequired.promise; throw error;
+            }));
+          }
+          return result;
+        } as typeof transaction;
+      }
+    }
     if (scenario === 'initialization-closed-db') storage.db.close();
     app.render();
-    if (scenario.startsWith('goal-initial-')) {
+    if (goalRequired) {
+      await requiredEntered.promise;
+      await until(() => ['expense', 'todo', 'habit', 'quick-note', 'schedule', 'diary', 'coach'].every(stage => initialization.initializationSnapshot().some(row => row.phase === 'initial' && row.stage === stage && row.outcome === 'success')));
+      const before = await rawSnapshot(storage.db);
+      const writes: string[] = [];
+      for (const table of storage.db.tables) {
+        table.hook('creating', () => { writes.push(`${table.name}:create`); });
+        table.hook('updating', () => { writes.push(`${table.name}:update`); });
+        table.hook('deleting', () => { writes.push(`${table.name}:delete`); });
+      }
+      const hadPublished = scenario === 'goal-required-published-success-new-failure';
+      assert.equal(goals.useGoalStore.getState().loaded, hadPublished);
+      assert.equal(goals.useGoalStore.getState().publishedRevision > 0, hadPublished);
+      window.dispatchEvent(new Event('youtrace:data-updated'));
+      await until(() => initialization.initializationSnapshot().some(row => row.phase === 'data-updated' && row.stage === 'initialization' && ['success', 'error'].includes(row.outcome)));
+      const usable = hadPublished || scenario === 'goal-required-old-failure-new-success';
+      assert.equal(goals.useGoalStore.getState().loaded, usable);
+      releaseRequired.resolve();
+      await until(() => app!.state().ready || app!.state().failed);
+      console.log('REQUIRED_GOAL_RESULT', JSON.stringify({ scenario, state: app.state(), gate: app.route().gate, loaded: goals.useGoalStore.getState().loaded, publishedRevision: goals.useGoalStore.getState().publishedRevision }));
+      assert.equal(app.state().ready, usable, 'Required initialization needs a truly published current Goal snapshot');
+      assert.equal(app.route().gate, usable ? 'protected' : 'loading-or-error');
+      if (usable) {
+        assert.deepEqual(goals.useGoalStore.getState().items, [exactGoal]);
+        assert.equal(Boolean(goals.useGoalStore.getState().readError), hadPublished, 'A failed refresh stays a failed refresh even when trusted cached data allows entry');
+      } else {
+        await until(() => initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === 'error'));
+        assert.deepEqual(app.state(), { ready: false, failed: true });
+        assert.deepEqual(goals.useGoalStore.getState().items, []);
+        assert.ok(goals.useGoalStore.getState().readError);
+      }
+      if (scenario !== 'goal-required-old-failure-new-success') assert.ok(initialization.initializationSnapshot().some(row => row.phase === 'data-updated' && row.stage === 'goal' && row.outcome === 'error'), 'Real rejected refresh remains an error diagnostic even when a cache is available');
+      assert.ok(await sameGoalSource(await rawSnapshot(storage.db), before), 'All current-owner physical keys/values, including settings/outbox/receipts, stay unchanged after bootstrap');
+      assert.deepEqual(writes, [], 'Required-read window makes zero writes to any current-owner table');
+      assert.ok(await sameGoalSource(await Promise.all(extraDatabases.map(rawSnapshot)), retainedOthers), 'Other owner and shared source remain exact');
+    } else if (scenario.startsWith('goal-initial-')) {
       await until(() => goalReadFailures > 0);
       assert.equal(goals.useGoalStore.getState().loading, false, 'Failed Goal read must stop loading even when its error-publication epoch read fails');
       assert.ok(goals.useGoalStore.getState().readError);

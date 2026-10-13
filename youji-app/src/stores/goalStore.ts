@@ -205,6 +205,32 @@ async function refresh(actor: LocalActor, sequence: number): Promise<boolean> {
 function publicationCovers(actor: LocalActor, sequence: number, coverage: CommitCoverage): boolean {
   return Boolean(publishedActor && (publishedRevision >= sequence || coverage.revision !== undefined && publishedCommitRevision >= coverage.revision) && publishedActor.database === actor.database && publishedActor.owner === actor.owner && publishedActor.session === actor.session && publishedActor.sessionGeneration === actor.sessionGeneration && publishedActor.epoch === actor.epoch);
 }
+/** Required initialization needs a trusted published snapshot, not merely a
+ * resolved (possibly superseded) read. A failed refresh may leave a usable cache;
+ * callers can trace the real read separately so its rejection stays visible. */
+export async function loadRequiredGoals(read = () => useGoalStore.getState().loadFromDB()): Promise<void> {
+  const captured = captureLocalActor();
+  let readError: unknown;
+  try { await read(); } catch (error) { readError = error; }
+  assertLocalActorNow(captured);
+  const publication = publishedActor;
+  if (!publication) throw readError ?? new Error(READ_FAILED);
+  const assertPublication = () => {
+    assertLocalActorNow(captured);
+    assertLocalActorNow(publication);
+    const state = useGoalStore.getState();
+    // A later actual publication is usable only in this same actor/epoch. Never
+    // combine an obsolete publication with unrelated public loaded/revision flags.
+    if (!publicationCovers(publication, 0, {}) || publishedRevision <= 0 || !state.loaded || state.publishedRevision !== publishedRevision) {
+      throw readError ?? new Error(READ_FAILED);
+    }
+  };
+  await captured.database.transaction('r', captured.database.settings, async () => {
+    await assertLocalActor(publication);
+    assertPublication();
+  });
+  assertPublication();
+}
 function newerReadPending(actor: LocalActor, sequence: number): boolean {
   return [...activeReads].some(([revision, reader]) => revision > sequence && reader.database === actor.database && reader.owner === actor.owner && reader.session === actor.session && reader.sessionGeneration === actor.sessionGeneration);
 }

@@ -21,3 +21,11 @@ for (const scenario of ['goal-initial-persistent', 'goal-initial-recovers', 'goa
   });
   assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
 });
+
+// Required-read semantics must distinguish a transaction from a publication.
+for (const scenario of ['goal-required-double-failure', 'goal-required-unpublished-success-new-failure', 'goal-required-published-success-new-failure', 'goal-required-old-failure-new-success']) test(`actual required Goal snapshot: ${scenario}`, () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'tests/helpers/initial-session-scenario.ts', scenario], {
+    cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 20_000,
+  });
+  assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
+});

@@ -75,7 +75,7 @@ export function initializationHookDriver(offline = false) {
   };
   imports['../services/localActor'] = evaluate(actorSource);
   for (const [module, name] of [['Expense', 'expense'], ['Todo', 'todo'], ['Habit', 'habit'], ['QuickNote', 'quick-note'], ['Schedule', 'schedule'], ['Diary', 'diary'], ['Coach', 'coach'], ['Goal', 'goal']]) {
-    imports[`../stores/${module[0].toLowerCase()}${module.slice(1)}Store`] = { [`use${module}Store`]: { getState: () => ({ loadFromDB: () => load(name) }) } };
+    imports[`../stores/${module[0].toLowerCase()}${module.slice(1)}Store`] = { ...(module === 'Goal' ? { loadRequiredGoals: (read: () => Promise<void>) => read() } : {}), [`use${module}Store`]: { getState: () => ({ loadFromDB: () => load(name) }) } };
   }
   const exports = evaluate(hookSource) as { useAppInit: (enabled: boolean) => { ready: boolean; failed: boolean } };
   const render = (nextEnabled = enabled) => {
