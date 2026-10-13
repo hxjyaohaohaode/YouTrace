@@ -71,7 +71,7 @@ export function installCaptureCatalogWriteAudit() {
     };
     Object.defineProperty(prototype, method, { ...descriptor, value: wrapped }); originals.push({ prototype, method, descriptor, wrapped });
   };
-  const key = event => { if (event.key === 'Escape') push('keys', { key: event.key, trusted: event.isTrusted, tag: event.target?.tagName ?? null, time: performance.now() }); };
+  const key = event => { if (event.key === 'Escape' || event.key === 'Tab') push('keys', { key: event.key, shift: event.shiftKey === true, trusted: event.isTrusted, tag: event.target?.tagName ?? null, time: performance.now() }); };
   try {
     for (const method of ['put', 'add', 'delete', 'clear']) wrap(IDBObjectStore.prototype, method, false);
     for (const method of ['update', 'delete']) wrap(IDBCursor.prototype, method, true);
@@ -89,6 +89,35 @@ export function captureCatalogEditorState(owner) {
   return { href: location.href, input: sessionStorage.getItem(`youtrace:input:${owner}`), review: sessionStorage.getItem(`youtrace:active-review:${owner}`),
     fields: [...editor.querySelectorAll('input,textarea,select')].filter(el => !el.closest('[role=dialog]')).map(el => ({ tag: el.tagName, type: el.getAttribute('type'), label: el.getAttribute('aria-label'), value: el.value, checked: 'checked' in el ? el.checked : null, disabled: el.disabled })) };
 }
+// Read-only active focus snapshot. CSS geometry is sampled independently by
+// initialSessionGeometry; no focus/scroll rescue is permitted after native Tab.
+export function captureCatalogKeyboardState(id) {
+  const dialogs = [...document.querySelectorAll('[role="dialog"]')], dialog = dialogs.length === 1 ? dialogs[0] : null;
+  const active = document.activeElement, identity = dialog?.querySelector('[aria-label="已核验原稿只读详情"] > p')?.textContent ?? null;
+  const style = active instanceof HTMLElement ? getComputedStyle(active) : null;
+  const parts = []; for (let el = active; el && el !== document.body; el = el.parentElement) { const parent = el.parentElement; if (!parent) break; const siblings = [...parent.children].filter(node => node.tagName === el.tagName); parts.unshift(`${el.tagName.toLowerCase()}:nth-of-type(${siblings.indexOf(el) + 1})`); }
+  return { dialogs: dialogs.length, identity, expectedIdentity: `原编号：${id} · 已核验的本机只读快照`, withinDialog: Boolean(dialog && active && dialog.contains(active)), connected: active?.isConnected === true,
+    tag: active?.tagName ?? null, text: active?.textContent?.trim() ?? null, label: active?.getAttribute('aria-label') ?? null,
+    enabled: Boolean(active && !active.matches(':disabled')), selector: parts.length ? 'body > ' + parts.join(' > ') : 'body', focusedVisible: active?.matches(':focus-visible') === true,
+    outlineWidth: style ? parseFloat(style.outlineWidth) : null, outlineStyle: style?.outlineStyle ?? null, outlineColor: style?.outlineColor ?? null, outlineOffset: style?.outlineOffset ?? null, boxShadow: style?.boxShadow ?? null, backgroundColor: style?.backgroundColor ?? null, timeOrigin: performance.timeOrigin };
+}
+function captureCatalogKeyboardOutline(state) {
+  if (state.focusedVisible !== true || !Number.isFinite(state.outlineWidth) || state.outlineWidth <= 0 || !['auto', 'solid', 'dotted', 'dashed', 'double', 'groove', 'ridge', 'inset', 'outset'].includes(state.outlineStyle)) return false;
+  const color = typeof state.outlineColor === 'string' ? /^rgba?\(([^()]*)\)$/.exec(state.outlineColor.trim()) : null;
+  if (!color) return false;
+  const pieces = color[1].replace(/,/g, ' ').replace(/\//g, ' ').trim().split(/\s+/);
+  if (pieces.length !== 3 && pieces.length !== 4) return false;
+  const numeric = (value, max) => { const percent = value.endsWith('%'); const number = Number(percent ? value.slice(0, -1) : value); return Number.isFinite(number) && number >= 0 && number <= (percent ? 100 : max) ? number / (percent ? 100 : max) : NaN; };
+  if (pieces.slice(0, 3).some(value => !Number.isFinite(numeric(value, 255)))) return false;
+  return pieces.length === 3 || numeric(pieces[3], 1) > 0;
+}
+export function assertCaptureCatalogKeyboardState(state, geometry, detached) {
+  assert.equal(detached, true, 'The original clicked list button must really be replaced by detail');
+  assert.equal(state.dialogs, 1); assert.equal(state.identity, state.expectedIdentity); assert.ok(state.withinDialog && state.connected && state.enabled, 'Native Tab must remain within the current detail Modal');
+  assert.equal(geometry.unique, true); assert.equal(geometry.visible, true, 'Focused native target must already be painted, unclipped and unobscured');
+  assert.ok(captureCatalogKeyboardOutline(state), 'A nontransparent outline is necessary; actual contrast still requires original screenshot review');
+}
+
 export function assertCaptureCatalogUnchanged(before, after, editorBefore, editorAfter, audit) {
   assert.deepEqual(after.snapshot, before.snapshot, 'Every physical key, lossless row and schema stays exact; no settings exclusion');
   assert.deepEqual(after.local, before.local); assert.deepEqual(after.allEvents, before.allEvents);
@@ -150,7 +179,7 @@ export async function runCaptureCatalogReadOnly(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Hosted CI only');
   const { page, label, current, reviewed, before, returnComposer, facts, readLedger, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions } = h;
   let latest = before;
-  const show = async (pageKind, entries, { escape = false, long = false } = {}) => {
+  const show = async (pageKind, entries, { escape = false, long = false, keyboard = false } = {}) => {
     const name = `catalog-${pageKind}`, root = pageKind.startsWith('composer') ? COMPOSER : REVIEW;
     const opener = `${root} button`, baseline = await facts(`${name}-before`), editorBefore = await page.evaluate(captureCatalogEditorState, current.ownerId);
     let firstError = null, audit = null, after = null, editorAfter = null;
@@ -206,7 +235,23 @@ export async function runCaptureCatalogReadOnly(h) {
         for (const row of entry.todos) assert.ok(displayed.text.includes(`待办 ${row.id}：${row.confirmed ? '已选' : '未选'} · ${row.text}`));
         assert.ok(displayed.text.includes(entry.diary ?? '未选择日记正文'));
         await save(`${name}-detail-${index}`, { identity, expected: entry, displayed, choiceReadings, fullFieldsEvidence: 'Expanded original disclosure; whole typed text independently decoded. No claim that every full-field line was separately read or screenshot-reviewed.' }); await capture(page, `${label}-${name}-detail-${index}`);
-        if (index < entries.length - 1 || !escape) { await tap(`${MODAL} button`, '返回目录'); await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('本次读取的主键顺序') && !document.querySelector('[aria-label="只读完整原文"]'), { timeout: 7000 }); }
+        if (keyboard && index === entries.length - 1) {
+          // Reuse this same zero-write window after its original full-detail checks.
+          await tap(`${MODAL} button`, '返回目录');
+          await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('本次读取的主键顺序') && !document.querySelector('[aria-label="只读完整原文"]'), { timeout: 7000 });
+          const oldControl = await page.$(selector); assert.ok(oldControl);
+          let detached;
+          try { await tap(selector); await page.waitForSelector(`${MODAL} [aria-label="只读完整原文"]`, { visible: true, timeout: 7000 }); detached = await oldControl.evaluate(el => !el.isConnected); }
+          finally { await oldControl.dispose(); }
+          assert.equal(await page.$eval(`${MODAL} [aria-label="只读完整原文"]`, el => el.textContent), entry.input);
+          const beforeKey = await page.evaluate(captureCatalogKeyboardState, entry.id); await save(`${name}-keyboard-before-Tab`, { beforeKey, detached });
+          actions.push({ kind: 'native-catalog-key', surface: label, key: 'Tab', pageKind }); await page.keyboard.press('Tab');
+          const target = await page.$(':focus'); assert.ok(target, 'Native Tab left no focus target');
+          try { await save(`${name}-keyboard-Tab-settled`, await target.evaluate(waitSharedGoalTargetSettled)); } finally { await target.dispose(); }
+          const focus = await page.evaluate(captureCatalogKeyboardState, entry.id), geometry = await page.evaluate(initialSessionGeometry, focus.selector);
+          await save(`${name}-keyboard-after-Tab`, { focus, geometry, detached }); await capture(page, `${label}-${name}-keyboard-after-Tab`);
+          assertCaptureCatalogKeyboardState(focus, geometry, detached);
+        } else if (index < entries.length - 1 || !escape) { await tap(`${MODAL} button`, '返回目录'); await page.waitForFunction(() => document.querySelector('[role=dialog]')?.textContent.includes('本次读取的主键顺序') && !document.querySelector('[aria-label="只读完整原文"]'), { timeout: 7000 }); }
       }
       if (escape) { actions.push({ kind: 'native-catalog-key', surface: label, key: 'Escape', pageKind }); await page.keyboard.press('Escape'); }
       else await tap(`${MODAL} button`, '关闭查看');
@@ -218,6 +263,7 @@ export async function runCaptureCatalogReadOnly(h) {
       after = await facts(`${name}-after`); editorAfter = await page.evaluate(captureCatalogEditorState, current.ownerId); audit = await page.evaluate(() => globalThis.__captureCatalogAudit.snapshot());
       assertCaptureCatalogUnchanged(baseline, after, editorBefore, editorAfter, audit);
       if (escape) assert.equal(audit.keys.filter(row => row.key === 'Escape' && row.trusted).length, 1);
+      if (keyboard) assert.deepEqual(audit.keys.map(({ key, trusted, shift }) => ({ key, trusted, shift })), [{ key: 'Tab', trusted: true, shift: false }, { key: 'Escape', trusted: true, shift: false }]);
       await save(`${name}-readonly-result`, { editorBefore, editorAfter, audit, exactSourceAndLedger: true });
       await observe(page, `${label}-${name}-readonly-existing-draft-view`, true, 'Original Modal controls and exact selected originals/corrections; full account lossless keys/rows/schema and GET ledger equal, original editor/pointers unchanged, no native write attempts; close focus observed');
       latest = after;
@@ -239,7 +285,7 @@ export async function runCaptureCatalogReadOnly(h) {
     if (firstError) throw firstError;
     assert.deepEqual(collectionFailures, [], 'Successful UI cannot conceal incomplete evidence or observer restoration');
   };
-  await show('review', reviewed.slice(0, 2));
+  await show('review', reviewed.slice(0, 2), { escape: true, keyboard: true });
   const returned = await returnComposer(latest, current, 'catalog-return-to-composer'); latest = returned.frozen;
   await show('composer', reviewed.slice(0, 2), { escape: true });
   await tap(`${COMPOSER} button`, '查看确认稿'); await waitPath(page, '/quick-note/result'); await retained();

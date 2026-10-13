@@ -69,7 +69,7 @@ export function Modal({ open, onClose, title, children, footer, className = '', 
       if (event.shiftKey && (active === first || !panel.contains(active))) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && active === last) {
+      } else if (!event.shiftKey && (active === last || !panel.contains(active))) {
         event.preventDefault();
         first.focus();
       }

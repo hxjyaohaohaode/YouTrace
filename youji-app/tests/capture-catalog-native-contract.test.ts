@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { CAPTURE_CATALOG_ENTRY, CAPTURE_CATALOG_LONG_RAW, CAPTURE_CATALOG_LONG_LINES, expectedCatalogLongDraft, parseCaptureReadonlyFields, installCaptureCatalogWriteAudit, assertCaptureCatalogUnchanged, assertCaptureCatalogLines, runCaptureCatalogReadOnly, runCaptureCatalogLongOriginal } from '../scripts/audit-capture-catalog.mjs';
+import { CAPTURE_CATALOG_ENTRY, CAPTURE_CATALOG_LONG_RAW, CAPTURE_CATALOG_LONG_LINES, expectedCatalogLongDraft, parseCaptureReadonlyFields, installCaptureCatalogWriteAudit, assertCaptureCatalogUnchanged, assertCaptureCatalogLines, captureCatalogKeyboardState, assertCaptureCatalogKeyboardState, runCaptureCatalogReadOnly, runCaptureCatalogLongOriginal } from '../scripts/audit-capture-catalog.mjs';
 import { parseQuickNote } from '../src/services/parser.ts';
 
 const basis = { capturedAt: 1791360000000, date: '2026-10-06', timeZone: 'Asia/Shanghai' }, actor = { ownerId: 'synthetic-catalog-native', dataEpoch: 'initial', sessionRevision: 'synthetic-revision', sessionActive: true };
@@ -113,4 +113,35 @@ test('failure editor read or write cannot skip independent source/ledger/screens
   assert.deepEqual(saved['catalog-review-editor-before'],editor);assert.deepEqual(saved['catalog-review-failure-editor-before'],editor);assert.equal(saved['catalog-review-failure-editor-after'],undefined);assert.ok(order.includes('ledger')&&order.includes('screenshot'));assert.ok(order.lastIndexOf('source')<order.indexOf('release')&&order.indexOf('ledger')<order.indexOf('release'));
   assert.deepEqual((saved['catalog-review-collection-results']as{collectionFailures:Array<{part:string}>}).collectionFailures.map(x=>x.part),['editor-after']);
  }}finally{if(previous===undefined)delete process.env.GITHUB_ACTIONS;else process.env.GITHUB_ACTIONS=previous;}
+});
+
+function goodKeyboard() { return { dialogs:1,identity:'原编号：O · 已核验的本机只读快照',expectedIdentity:'原编号：O · 已核验的本机只读快照',withinDialog:true,connected:true,enabled:true,focusedVisible:true,outlineWidth:2,outlineStyle:'solid',outlineColor:'rgb(232, 148, 30)' }; }
+test('native detail Tab evidence refuses outside/wrong detail, lost target, clipping and transparent focus; never promotes a boolean to WCAG certification',()=>{
+ const good=goodKeyboard(),geometry={unique:true,visible:true};assertCaptureCatalogKeyboardState(good,geometry,true);
+ for(const mutate of [(s:ReturnType<typeof goodKeyboard>)=>{s.dialogs=2;},(s:ReturnType<typeof goodKeyboard>)=>{s.identity='different original';},(s:ReturnType<typeof goodKeyboard>)=>{s.withinDialog=false;},(s:ReturnType<typeof goodKeyboard>)=>{s.connected=false;},(s:ReturnType<typeof goodKeyboard>)=>{s.enabled=false;},(s:ReturnType<typeof goodKeyboard>)=>{s.focusedVisible=false;},(s:ReturnType<typeof goodKeyboard>)=>{s.outlineColor='rgba(0,0,0,0)';},(s:ReturnType<typeof goodKeyboard>)=>{s.outlineWidth=0;}]){const s=structuredClone(good);mutate(s);assert.throws(()=>assertCaptureCatalogKeyboardState(s,geometry,true));}
+ assert.throws(()=>assertCaptureCatalogKeyboardState(good,geometry,false));assert.throws(()=>assertCaptureCatalogKeyboardState(good,{unique:false,visible:true},true));assert.throws(()=>assertCaptureCatalogKeyboardState(good,{unique:true,visible:false},true));
+});
+
+test('native active-focus sampler only reads actual current Modal/detail and active element',()=>{
+ class Element {
+  parentElement: Element|null=null;children:Element[]=[];isConnected=true;tagName='BUTTON';textContent='关闭';
+  getAttribute(name:string){return name==='aria-label'?'关闭':null;}
+  matches(selector:string){return selector===':focus-visible';}
+ }
+ const body=new Element(),panel=new Element(),button=new Element();body.tagName='BODY';panel.tagName='DIV';body.children=[panel];panel.children=[button];panel.parentElement=body;button.parentElement=panel;
+ const dialog=Object.assign(panel,{contains:(el:unknown)=>el===button,querySelector:()=>({textContent:'原编号：O · 已核验的本机只读快照'})});
+ const doc={activeElement:button as Element,body,querySelectorAll:()=>[dialog]},style={outlineWidth:'2px',outlineStyle:'solid',outlineColor:'rgb(232,148,30)',outlineOffset:'2px',boxShadow:'none',backgroundColor:'rgb(255,255,255)'};
+ const sample=runInNewContext(`(${captureCatalogKeyboardState.toString()})`,{document:doc,HTMLElement:Element,getComputedStyle:()=>style,performance:{timeOrigin:123}});
+ const good=sample('O');assert.equal(good.withinDialog,true);assert.equal(good.label,'关闭');assert.equal(good.selector,'body > div:nth-of-type(1) > button:nth-of-type(1)');assert.equal(good.timeOrigin,123);assertCaptureCatalogKeyboardState(good,{unique:true,visible:true},true);
+ doc.activeElement=body;const bad=sample('O');assert.equal(bad.withinDialog,false);assert.equal(bad.selector,'body');assert.throws(()=>assertCaptureCatalogKeyboardState(bad,{unique:true,visible:true},true));
+});
+
+test('only first existing readonly window reselects through original control then native Tab and Escape; full Save keyboard and forced focus are absent',()=>{
+ const source=readFileSync(new URL('../scripts/audit-capture-catalog.mjs',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/from ['"]\.\/audit-shared-goal-keyboard\.mjs['"]/, 'Do not import a whole task suite for the pure outline check');
+ assert.match(source,/await show\('review', reviewed\.slice\(0, 2\), \{ escape: true, keyboard: true \}\)/);assert.equal((source.match(/keyboard: true/g)??[]).length,1);
+ const start=source.indexOf('if (keyboard && index === entries.length - 1)'),end=source.indexOf('} else if (index < entries.length',start),block=source.slice(start,end);
+ for(const token of ["'返回目录'",'await tap(selector)','oldControl.evaluate(el => !el.isConnected)',"page.keyboard.press('Tab')",'keyboard-before-Tab','keyboard-after-Tab','assertCaptureCatalogKeyboardState'])assert.ok(block.includes(token),token);
+ assert.ok(block.indexOf('keyboard-after-Tab')<block.indexOf('assertCaptureCatalogKeyboardState'));assert.doesNotMatch(block,/\.focus\(|\.click\(|scrollIntoView|keyboard\.press\('Enter'\)|force\s*:\s*true/);
+ assert.match(source,/key: 'Tab', trusted: true, shift: false/);assert.match(source,/key: 'Escape', trusted: true, shift: false/);assert.match(source,/assertCaptureCatalogUnchanged\(baseline, after, editorBefore, editorAfter, audit\)/);assert.match(source,/timeout: 7000/);
 });
