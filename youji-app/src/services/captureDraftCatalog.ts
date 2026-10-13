@@ -2,6 +2,7 @@ import { LOCAL_DATA_EPOCH_KEY } from '../db';
 import { assertLocalActorNow, captureLocalActor, type LocalActor } from './localActor';
 import { isCaptureDate, MOOD_LEVELS } from './parser';
 import type { CaptureDraft } from './quickNoteIntegration';
+import { hasPendingEditorForRecord } from './pendingEditorMemory';
 
 /** Read-only preview, not an authorization to reopen, save, claim or apply. */
 export interface CaptureCatalogEntry { id: string; draft: CaptureDraft }
@@ -22,7 +23,7 @@ type RecordValue = Record<string, unknown>;
 function record(value: unknown, allowed: string[], required = allowed): value is RecordValue {
   if (!value || typeof value !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  return Reflect.ownKeys(value).every(key => typeof key === 'string' && allowed.includes(key) && 'value' in descriptors[key])
+  return Reflect.ownKeys(value).every(key => typeof key === 'string' && allowed.includes(key) && descriptors[key].enumerable === true && 'value' in descriptors[key])
     && required.every(key => Object.hasOwn(value, key));
 }
 const text = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;
@@ -32,6 +33,11 @@ const optional = (row: RecordValue, key: string, check: (value: unknown) => bool
 const boolean = (value: unknown) => typeof value === 'boolean';
 function rows(value: unknown, check: (row: unknown) => boolean): boolean {
   if (!Array.isArray(value) || value.length > 100 || Object.keys(value).length !== value.length) return false;
+  if (Reflect.ownKeys(value).some(key => {
+    if (typeof key !== 'string') return true;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    return !('value' in descriptor) || key !== 'length' && (!descriptor.enumerable || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length);
+  })) return false;
   const ids = new Set<string>();
   for (let index = 0; index < value.length; index++) {
     if (!Object.hasOwn(value, index) || !check(value[index]) || ids.has(value[index].id)) return false;
@@ -179,4 +185,97 @@ export async function readCaptureCatalogEntry(entry: CaptureCatalogEntry): Promi
   });
   await assertCatalogActor(actor);
   return draft;
+}
+
+/** Internal first-stage capability. No UI entry or business apply is enabled by
+ * this API. Looking at a catalog entry never creates one of these grants. */
+export interface CaptureContinuation {
+  readonly kind: 'capture-continuation';
+  readonly draft: CaptureDraft;
+}
+interface ContinuationState {
+  actor: LocalActor; expected: CaptureDraft; initial: CaptureDraft; busy: boolean; closed: boolean;
+  uncertain?: { expected: CaptureDraft; desired: CaptureDraft };
+}
+const continuations = new WeakMap<CaptureContinuation, ContinuationState>();
+const exact = (left: unknown, right: unknown) => JSON.stringify(versionValue(left)) === JSON.stringify(versionValue(right));
+function continuationView(source: CaptureDraft, actor: LocalActor): CaptureDraft {
+  return { ...source, ownerId: actor.owner, dataEpoch: actor.epoch ?? 'initial', sessionRevision: actor.session, sessionActive: true } as CaptureDraft;
+}
+function assertNoPending(actor: LocalActor, id: string): void {
+  if (hasPendingEditorForRecord(actor.database, actor.owner, `${PREFIX}${id}`)) throw new Error('这份原稿还有未处理的本机编辑，请先返回原编辑核对；没有覆盖或丢弃修改');
+}
+async function uncommitted(actor: LocalActor, id: string): Promise<void> {
+  const database = actor.database;
+  const [receipt, source, note] = await Promise.all([
+    database.settings.get(`capture-applied:${id}`), database.settings.get(`capture-source:${id}`), database.quickNotes.get(id),
+  ]);
+  if (receipt !== undefined || source !== undefined || note !== undefined) throw new Error('这份原稿已有保存标记，请核对原记录；没有继续写入');
+}
+
+/** Called only by an eventual separate explicit continuation action. The whole
+ * handoff is RO: no actor rebinding, current row, input or session pointer write. */
+export async function prepareCaptureContinuation(entry: CaptureCatalogEntry): Promise<CaptureContinuation> {
+  const actor = scopes.get(entry), expected = versions.get(entry);
+  if (!actor || !expected) throw failure();
+  assertLocalActorNow(actor); assertNoPending(actor, expected.id);
+  const source = await readCaptureCatalogEntry(entry);
+  assertLocalActorNow(actor); assertNoPending(actor, expected.id);
+  const projected = continuationView(source, actor);
+  const grant: CaptureContinuation = Object.freeze({ kind: 'capture-continuation', draft: structuredClone(projected) });
+  continuations.set(grant, { actor, expected: structuredClone(source), initial: structuredClone(projected), busy: false, closed: false });
+  return grant;
+}
+
+/** Cancels only this document's capability; never rolls back a committed edit. */
+export function cancelCaptureContinuation(grant: CaptureContinuation): void {
+  const state = continuations.get(grant);
+  if (state) state.closed = true;
+}
+
+/** Explicit local correction only. Typed full-row CAS, never an apply/commit or
+ * a lifetime-revision claim: indistinguishable same-value ABA remains unknown. */
+export async function saveCaptureContinuation(grant: CaptureContinuation, value: CaptureDraft): Promise<CaptureDraft> {
+  const state = continuations.get(grant);
+  if (!state || state.busy || state.closed) throw failure();
+  const { actor, initial } = state, database = actor.database, key = `${PREFIX}${initial.id}`;
+  assertLocalActorNow(actor); assertNoPending(actor, initial.id);
+  // Only bounded, accessor-free known records reach the canonical comparison.
+  if (!knownDraft(value, key, actor)) throw failure();
+  for (const field of ['id', 'input', 'inputKey', 'context', 'ownerId', 'dataEpoch', 'sessionRevision', 'sessionActive'] as const) {
+    if (Object.hasOwn(value, field) !== Object.hasOwn(initial, field) || !exact(value[field], initial[field])) throw failure();
+  }
+  const next = structuredClone(value), expected = structuredClone(state.expected);
+  const retry = state.uncertain;
+  let bodyFinished = false;
+  state.busy = true;
+  const active = () => { assertLocalActorNow(actor); if (state.closed) throw failure(); };
+  try {
+    const persisted = await database.transaction('rw', [database.settings, database.quickNotes], async () => {
+      await assertCatalogActor(actor); active(); assertNoPending(actor, initial.id);
+      const row = await database.settings.get(key);
+      if (!record(row, ['key', 'value']) || row.key !== key || !knownDraft(row.value, key, actor)) throw failure();
+      await uncommitted(actor, initial.id);
+      // An identical intended value can be observed after a lost local result;
+      // no write is repeated and this does not claim who wrote that value.
+      const sameUncertainIntent = retry && exact(retry.expected, expected) && exact(retry.desired, next) && exact(row.value, next);
+      if (!exact(row.value, expected) && !sameUncertainIntent) throw new Error('原稿内容已变化，未覆盖较新版本；本次修改仍需保留并重新核对');
+      // No actual correction means no session-only rebinding write, even if an
+      // eventual caller mistakenly invokes save with the initial visible value.
+      const unchanged = exact(continuationView(row.value, actor), next);
+      if (!unchanged && !exact(row.value, next)) await database.settings.put({ key, value: next });
+      await assertCatalogActor(actor); active(); assertNoPending(actor, initial.id);
+      bodyFinished = true;
+      return structuredClone(unchanged ? row.value : next);
+    });
+    state.expected = persisted;
+    state.uncertain = undefined;
+    await assertCatalogActor(actor); active();
+    return structuredClone(next);
+  } catch (error) {
+    // A failed precondition must not mint replay authority. Only an operation
+    // whose complete transaction body ran can have an uncertain result.
+    state.uncertain = bodyFinished ? { expected, desired: next } : undefined;
+    throw error;
+  } finally { state.busy = false; }
 }

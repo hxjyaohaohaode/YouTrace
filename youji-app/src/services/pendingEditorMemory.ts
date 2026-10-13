@@ -11,4 +11,10 @@ export function readPendingEditor<T>(scope: EditorMemoryScope): T | null {
   if (!sameScope(entry.scope, scope)) { pending.delete(key); return null; }
   return structuredClone(entry.value) as T;
 }
+/** Presence only. A new editor must not discard another scope's failed input
+ * merely by checking whether this record already has a pending editor. */
+export function hasPendingEditorForRecord(database: object, owner: string | null, key: string): boolean {
+  const entry = pending.get(`${owner}:${key}`);
+  return Boolean(entry && entry.scope.database === database && entry.scope.owner === owner);
+}
 export function releasePendingEditor(scope: EditorMemoryScope, token: number): void { const key = `${scope.owner}:${scope.key}`, entry = pending.get(key); if (entry && entry.token === token && sameScope(entry.scope, scope)) pending.delete(key); }
