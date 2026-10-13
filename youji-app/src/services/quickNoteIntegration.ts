@@ -193,3 +193,6 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
   void flush().catch(() => recordDiagnostic('runtime-error', 'sync'));
   return result;
 }
+
+// Read-only catalog; explicit reopen/apply retain their separate authority checks.
+export { listCaptureDraftPage } from "./captureDraftCatalog";
