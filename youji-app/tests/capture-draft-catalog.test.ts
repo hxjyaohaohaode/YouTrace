@@ -230,3 +230,74 @@ test('fake IDB: absent epoch becoming a malformed existing row before delivery r
     } finally { release(); database.transaction = original; }
   }
 });
+
+const readEntry = async (entry: Page['entries'][number]): Promise<Draft> => {
+  const fn = (capture as unknown as Record<string, unknown>).readCaptureCatalogEntry;
+  assert.equal(typeof fn, 'function', 'readonly selection must revalidate an issued catalog entry');
+  return (fn as (entry: Page['entries'][number]) => Promise<Draft>)(entry);
+};
+test('fake IDB: choosing an issued entry rereads its exact raw version without writing or rebinding', async () => {
+  const good = await draft('original'); const listed = await page(), before = await facts();
+  assert.deepEqual(await readEntry(listed.entries[0]), good); assert.deepEqual(await facts(), before);
+  await assert.rejects(readEntry(structuredClone(listed.entries[0])));
+});
+test('fake IDB: selection rejects a changed original and a commit; source bytes are preserved', async () => {
+  const good = await draft('original'); const listed = await page();
+  await storage.db.settings.put({ key: `capture-review:${good.id}`, value: { ...good, input: '同ID更新后的原文' } });
+  const before = await facts(); await assert.rejects(readEntry(listed.entries[0])); assert.deepEqual(await facts(), before);
+  const fresh = await page(); await storage.db.settings.put({ key: `capture-applied:${good.id}`, value: undefined });
+  const committed = await facts(); await assert.rejects(readEntry(fresh.entries[0])); assert.deepEqual(await facts(), committed);
+});
+
+test('fake IDB: actual liveQuery selection reads a valid entry without transaction loss', async () => {
+  const good = await draft('live-read'), listed = await page();
+  const { liveQuery } = await import('dexie');
+  let subscription: { unsubscribe(): void } | undefined;
+  try {
+    const result = await new Promise<Draft>((resolve, reject) => { subscription = liveQuery(async () => await readEntry(listed.entries[0])).subscribe({ next: resolve, error: reject }); });
+    assert.deepEqual(result, good);
+  } finally { subscription?.unsubscribe(); }
+});
+
+test('fake IDB: selection capability keeps a private detached version even if the public entry is changed', async () => {
+  const good = await draft('private-version'), listed = await page(), entry = listed.entries[0], before = await facts();
+  entry.id = 'caller-renamed'; entry.draft.input = 'caller-replaced'; entry.draft.todos[0].text = 'caller-child';
+  assert.deepEqual(await readEntry(entry), good); assert.deepEqual(await facts(), before);
+});
+
+test('fake IDB: insertion order is ignored, but absent, explicit undefined, array order and negative zero are not', async () => {
+  const good = await draft('typed-version');
+  const original = { ...good, moodScore: -0, diaryExcludedText: undefined, todos: [{ id: 'a', text: ' a ', confirmed: false }, { id: 'b', text: ' b ', confirmed: true }] };
+  await storage.db.settings.put({ key: `capture-review:${good.id}`, value: original }); const entry = (await page()).entries[0];
+  const reordered = Object.fromEntries(Object.entries(original).reverse()); await storage.db.settings.put({ key: `capture-review:${good.id}`, value: reordered });
+  assert.deepEqual(await readEntry(entry), original);
+  const absent = { ...original }; delete absent.diaryExcludedText;
+  for (const changed of [absent, { ...original, moodScore: 0 }, { ...original, todos: [...original.todos].reverse() }]) {
+    await storage.db.settings.put({ key: `capture-review:${good.id}`, value: changed }); const before = await facts();
+    await assert.rejects(readEntry(entry)); assert.deepEqual(await facts(), before);
+  }
+});
+
+test('fake IDB: selection and issued context reject expired session and corrupted epoch without a write', async () => {
+  await draft('strict-context'); const module = await import('../src/services/captureDraftCatalog.ts'); const listed = await module.listCaptureDraftPage();
+  assert.equal(module.isCaptureCatalogContextCurrent(listed), true); assert.equal(module.isCaptureCatalogContextCurrent(structuredClone(listed)), false);
+  await assert.rejects(module.assertCaptureCatalogContext({})); api.setSessionActive('synthetic-catalog-A');
+  const before = await facts(); assert.equal(module.isCaptureCatalogContextCurrent(listed), false); await assert.rejects(readEntry(listed.entries[0])); await assert.rejects(module.assertCaptureCatalogContext(listed)); assert.deepEqual(await facts(), before);
+  const fresh = await module.listCaptureDraftPage(); await storage.db.settings.put({ key: storage.LOCAL_DATA_EPOCH_KEY, value: undefined });
+  const corrupted = await facts(); await assert.rejects(readEntry(fresh.entries[0])); await assert.rejects(module.assertCaptureCatalogContext(fresh)); assert.deepEqual(await facts(), corrupted);
+});
+
+test('fake IDB: selection rejects epoch/session changes while completed RO data awaits delivery', async () => {
+  const good = await draft('late-selected'), database = storage.db, original = database.transaction;
+  for (const change of ['epoch', 'session'] as const) {
+    const epoch = (await database.settings.get(storage.LOCAL_DATA_EPOCH_KEY))?.value;
+    await database.settings.put({ key: `capture-review:${good.id}`, value: { ...good, dataEpoch: epoch ?? 'initial' } }); const entry = (await page()).entries[0];
+    let signal!: () => void, release!: () => void; const reached = new Promise<void>(resolve => { signal = resolve; }), held = new Promise<void>(resolve => { release = resolve; }); let once = false;
+    database.transaction = function (...args: unknown[]) { const result = Reflect.apply(original, this, args); if (!once && args[0] === 'r' && Array.isArray(args[1]) && args[1].length === 2) { once = true; return result.then(async (value: unknown) => { signal(); await held; return value; }); } return result; } as typeof original;
+    try {
+      const pending = readEntry(entry), rejected = assert.rejects(pending); await reached;
+      if (change === 'epoch') await database.settings.put({ key: storage.LOCAL_DATA_EPOCH_KEY, value: 'rotated-during-selection' }); else api.setSessionActive('synthetic-catalog-A');
+      const before = await facts(); release(); await rejected; assert.deepEqual(await facts(), before);
+    } finally { release(); database.transaction = original; }
+  }
+});

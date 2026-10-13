@@ -195,4 +195,4 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
 }
 
 // Read-only catalog; explicit reopen/apply retain their separate authority checks.
-export { listCaptureDraftPage } from "./captureDraftCatalog";
+export { listCaptureDraftPage, readCaptureCatalogEntry } from "./captureDraftCatalog";

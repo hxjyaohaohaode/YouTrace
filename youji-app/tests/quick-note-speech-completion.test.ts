@@ -99,6 +99,7 @@ function componentDriver() {
     'react-router-dom': { useLocation: () => ({ key: 'synthetic-route', state: null }), useNavigate: () => (...args: unknown[]) => { navigations.push(args); record('router.navigate', args); } },
     'framer-motion': { motion: new Proxy({}, { get: (_target, key) => String(key) }), useReducedMotion: () => true },
     'lucide-react': { ArrowLeft: 'svg', Mic: 'svg', Square: 'svg', Keyboard: 'svg', Copy: 'svg' },
+    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null },
     '../components/ui/Button': { Button: 'button' },
     '../services/quickNoteIntegration': {
       captureSessionKey: () => 'synthetic-review-key',

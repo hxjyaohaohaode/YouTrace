@@ -138,6 +138,7 @@ test('Mounted Capture composer keeps header Return, named source/status/basis an
   const context = { capturedAt: 1, date: '2026-10-07', timeZone: 'Asia/Shanghai' }, source = { key: 'capture-input:local', text: '', context };
   const navigated: unknown[] = [], saves: unknown[] = [], drafts: unknown[] = [];
   const Page = load('../src/pages/QuickNote.tsx', {
+    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null },
     'react-router-dom': { ...router, useNavigate: () => (...args: unknown[]) => { navigated.push(structuredClone(args)); } },
     'framer-motion': { motion, useReducedMotion: () => true }, '../components/ui/Button': { Button: host('button') },
     '../services/quickNoteIntegration': { forkCaptureInput: async () => source, saveCaptureInput: async (...args: unknown[]) => { saves.push(structuredClone(args)); }, createCaptureDraft: async (...args: unknown[]) => { drafts.push(structuredClone(args)); return { id: 'review-local' }; }, saveCaptureDraft: async () => undefined, captureSessionKey: () => 'current-review' },
@@ -168,6 +169,7 @@ test('Mounted actual Capture review exposes all audited named fields, exact sele
   const snapshots: typeof original[] = [], navigated: unknown[] = [];
   const Checkbox = load('../src/components/ui/Checkbox.tsx', { 'framer-motion': { motion: { span: host('span') } } }).Checkbox;
   const Page = load('../src/pages/QuickNoteResult.tsx', {
+    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null },
     'react-router-dom': { ...router, useLocation: () => ({ key: 'review', search: '?draft=review-local', state: null }), useNavigate: () => (...args: unknown[]) => { navigated.push(structuredClone(args)); } },
     'framer-motion': { motion, useReducedMotion: () => true }, '../components/ui/Button': { Button: host('button') }, '../components/ui/Checkbox': { Checkbox },
     '../services/parser': { getMoodScore: () => 7 },

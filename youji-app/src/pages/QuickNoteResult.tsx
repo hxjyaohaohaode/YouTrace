@@ -4,6 +4,7 @@ import { liveQuery } from 'dexie';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Plus, Trash2, Check, Copy, ChevronRight } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { CaptureDraftBrowser } from '../components/capture/CaptureDraftBrowser';
 import { Checkbox } from '../components/ui/Checkbox';
 import { getMoodScore, type MoodLevel } from '../services/parser';
 import { applyCaptureDraft, CaptureChangedError, captureFingerprint, captureSessionKey, loadCaptureDraft, loadCaptureReceipt, saveCaptureDraft, upgradeCaptureReview, type CaptureDraft, type CaptureReceipt, type CaptureEntityRef } from '../services/quickNoteIntegration';
@@ -99,6 +100,7 @@ function CaptureReview({ original }: { original: CaptureDraft }) {
   const habit = (id: string, patch: Partial<CaptureDraft['habits'][number]>) => change({ habits: current.current.habits.map(row => row.id === id ? { ...row, ...patch } : row) });
   return <Frame title="选择要留下的记录" back={() => void back()} footer={<div className="space-y-2"><p className="text-xs leading-5 text-[var(--text-2)]" aria-label="本次保存范围">原文 + {draft.expenses.filter(row => row.confirmed).length} 笔收支 · {draft.todos.filter(row => row.confirmed).length} 个待办 · {draft.diary ? '记入日记' : '不写日记'} · {draft.moodConfirmed ? '记录所选心情' : '不记录情绪'}{draft.habits.some(row => row.confirmed) ? ` · ${draft.habits.filter(row => row.confirmed).length} 项打卡` : ''}</p><p className="text-xs text-[var(--text-3)]" role="status">{status === 'saved' ? '确认稿已保留在本机' : status === 'pending' ? '正在保留修改…' : '修改尚未落盘'} · 确认后同步到 {accountName || '当前有迹账号'}</p><Button className="w-full" disabled={saving} onClick={() => void save()}><Check size={18} aria-hidden />{saving ? '正在保存…' : '确认保存所选记录'}</Button></div>}>
     <div className="space-y-2 rounded-2xl bg-[var(--surface)] p-4"><p className="text-sm">规则整理可能有遗漏。你可以补充、修改，或只保留原文。</p><p className="text-xs leading-6 text-[var(--text-2)]">日期基准：{draft.context?.date ?? '旧稿日期未知'} · {draft.context?.timeZone ?? '原时区未知'}。各项实际写入日期如下，可以逐项修改。</p><details><summary className="cursor-pointer py-2 text-sm font-semibold">查看原文与本机确认稿</summary><p className="whitespace-pre-wrap break-words py-3 text-sm">{draft.input}</p><details><summary className="cursor-pointer py-2 text-xs">复制用完整确认稿</summary><textarea readOnly aria-label="完整确认稿备份" value={JSON.stringify(draft, null, 2)} className={field} rows={8} /></details></details></div>
+    <CaptureDraftBrowser disabled={saving} />
     {notice && <p role="status" className="rounded-xl bg-[var(--surface-2)] p-3 text-sm">{notice}</p>}
     {error && <div role="alert" className="space-y-3 rounded-xl border border-[var(--danger)] p-3 text-sm"><p>{error}</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => void persist(current.current).catch(() => undefined)}>重试保留修改</Button><Button variant="ghost" onClick={() => void copy()}><Copy size={16} aria-hidden />复制确认稿</Button></div></div>}
     <fieldset disabled={saving} className="space-y-4">

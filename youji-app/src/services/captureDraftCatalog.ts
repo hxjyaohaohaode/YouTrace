@@ -12,6 +12,8 @@ export interface CaptureCatalogPage {
   skipped: number;
   nextCursor: CaptureCatalogCursor | null;
 }
+const scopes = new WeakMap<object, LocalActor>();
+const versions = new WeakMap<CaptureCatalogEntry, CaptureDraft>();
 const cursors = new WeakMap<CaptureCatalogCursor, { actor: LocalActor; afterKey: string }>();
 const PREFIX = 'capture-review:', END = 'capture-review;';
 const MAX_PAGE = 50;
@@ -129,5 +131,52 @@ export async function listCaptureDraftPage(options: { cursor?: CaptureCatalogCur
     nextCursor = Object.freeze({ kind: 'capture-catalog-continuation' as const });
     cursors.set(nextCursor, { actor: pageActor, afterKey: result.afterKey });
   }
-  return { entries: result.entries, scanned: result.scanned, skipped: result.skipped, nextCursor };
+  const page = { entries: result.entries, scanned: result.scanned, skipped: result.skipped, nextCursor };
+  scopes.set(page, pageActor);
+  for (const entry of page.entries) { scopes.set(entry, pageActor); versions.set(entry, structuredClone(entry.draft)); }
+  return page;
+}
+
+/** Synchronous identity guard for render/publication, NOT a synchronous epoch read. */
+export function isCaptureCatalogContextCurrent(value: object): boolean {
+  const actor = scopes.get(value);
+  if (!actor) return false;
+  try { assertLocalActorNow(actor); return true; } catch { return false; }
+}
+export async function assertCaptureCatalogContext(value: object): Promise<void> {
+  const actor = scopes.get(value);
+  if (!actor) throw failure();
+  await assertCatalogActor(actor);
+}
+// All inputs below were checked as bounded plain records/arrays/primitives.
+// Keep explicit undefined and -0 distinct; object insertion order is immaterial.
+function versionValue(value: unknown): unknown {
+  if (value === undefined) return ['undefined'];
+  if (value === null) return ['null'];
+  if (typeof value === 'number') return ['number', Object.is(value, -0) ? '-0' : String(value)];
+  if (typeof value !== 'object') return [typeof value, value];
+  if (Array.isArray(value)) return ['array', value.map(versionValue)];
+  return ['object', Object.keys(value).sort().map(key => [key, versionValue((value as RecordValue)[key])])];
+}
+
+/** Explicit selection reads the issued version again; never calls the RW loader. */
+export async function readCaptureCatalogEntry(entry: CaptureCatalogEntry): Promise<CaptureDraft> {
+  const actor = scopes.get(entry), expected = versions.get(entry);
+  if (!actor || !expected) throw failure();
+  assertLocalActorNow(actor);
+  const database = actor.database, key = `${PREFIX}${expected.id}`;
+  const changed = () => new Error('这份确认稿已变化或已提交，请重新读取目录。原稿未改动');
+  const draft = await database.transaction('r', [database.settings, database.quickNotes], async () => {
+    await assertCatalogActor(actor);
+    const row = await database.settings.get(key);
+    if (!record(row, ['key', 'value']) || row.key !== key || !knownDraft(row.value, key, actor)) throw changed();
+    const [receipt, source, note] = await Promise.all([
+      database.settings.get(`capture-applied:${expected.id}`), database.settings.get(`capture-source:${expected.id}`), database.quickNotes.get(expected.id),
+    ]);
+    if (receipt !== undefined || source !== undefined || note !== undefined || JSON.stringify(versionValue(row.value)) !== JSON.stringify(versionValue(expected))) throw changed();
+    await assertCatalogActor(actor);
+    return structuredClone(row.value);
+  });
+  await assertCatalogActor(actor);
+  return draft;
 }

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, Mic, Square, Keyboard, Copy } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { CaptureDraftBrowser } from '../components/capture/CaptureDraftBrowser';
 import { captureSessionKey, createCaptureDraft, forkCaptureInput, loadCaptureDraft, loadCaptureReceipt, saveCaptureDraft, saveCaptureInput, type CaptureInput } from '../services/quickNoteIntegration';
 import { sameCaptureInput } from '../services/capturePresentation';
 import { newCaptureContext, parseQuickNote, type CaptureContext } from '../services/parser';
@@ -210,6 +211,7 @@ export default function QuickNote() {
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-3)]"><span>{text.length}/{MAX_LENGTH}</span><span role="status">{status === 'loading' ? '正在连接本机草稿存储…输入仍可继续' : status === 'pending' ? '正在保留草稿…' : status === 'saved' ? '原文已保留在本机' : '草稿尚未落盘'}</span></div>
       {error && <div role="alert" className="space-y-3 rounded-xl border border-[var(--danger)] p-3 text-sm"><p>{error}</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => source ? queueSave(source, text, context) : initialize()}>重试草稿存储</Button><Button variant="ghost" onClick={() => void copy()} disabled={!text}>复制原文</Button></div></div>}
       </div><aside className="capture-context space-y-4" aria-label="记录方式与保存说明"><h2>这次记录</h2><details open className="record-disclosure text-sm"><summary className="cursor-pointer py-1">记录基准：{context.date ?? '旧稿日期未知，请在确认稿逐项核对'}（{context.timeZone ?? '原时区未知'}）</summary><p className="my-3 text-xs leading-6 text-[var(--text-3)]">“明天、后天”按此日期解释，跨午夜或返回页面不会改成新的日期。旧稿缺失的原始时间不会补成现在。</p><label className="block">更改这次记录的基准日期<input type="date" aria-label="记录基准日期" value={context.date ?? ''} disabled={saving} onChange={event => change(text, { ...context, date: event.target.value || null })} className="ml-3 min-h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2" /></label></details>
+      <CaptureDraftBrowser disabled={saving || recording || finishingSpeech} />
       {reviewId && <p className="text-sm leading-6 text-[var(--text-2)]">原文和记录基准未改时，继续刚才的确认稿及修正；改动后会重新整理为新稿，原确认稿仍保留。</p>}
       {preview && <p className="text-sm text-[var(--text-2)]" aria-label="规则识别预览">规则建议：{preview.expenses.length} 笔收支 · {preview.todos.length} 个待办{preview.habits.length ? ` · ${preview.habits.length} 个习惯候选` : ''}。下一步可以补漏、改日期，或只保留原文。</p>}
       <p className="text-xs leading-6 text-[var(--text-3)]">原文和确认稿目前仅在本机。确认保存后，原文和你选定的记录会同步到当前有迹账号。</p>
