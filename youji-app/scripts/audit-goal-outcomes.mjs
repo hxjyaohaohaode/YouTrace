@@ -44,6 +44,17 @@ function goalRowsFromLedger(events) {
   }
   return [...current.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
+// Serialized into Chromium by waitForFunction. Re-resolve the same visible
+// identity on every poll: ordinary status feedback may insert a sibling and
+// invalidate a previously observed nth-of-type path without losing the Goal.
+export function goalProgressMatchesIdentity({ identity, value }) {
+  if (!identity || !['title', 'description', 'domain'].every(key => typeof identity[key] === 'string') || !Number.isFinite(value) || value < 0 || value > 100) return false;
+  const cards = [...document.querySelectorAll('[data-component="goal-workspace"] [data-component="goal-card"]')].filter(el =>
+    el.querySelector('h2')?.innerText === identity.title &&
+    [...el.querySelectorAll('p')].some(node => node.innerText === identity.description) &&
+    [...el.querySelectorAll('span')].some(node => node.innerText === identity.domain));
+  return cards.length === 1 && cards[0].querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') === String(value);
+}
 export const goalOutcomeChecks = { validVersion, version, preserved, onlyChanges, neighborUnchanged, sameInputs, goalRowsFromLedger, normalFeedback };
 
 export async function runGoalOutcomes(h) {
@@ -261,7 +272,7 @@ export async function runGoalOutcomes(h) {
   async function progress(page, api, identity, neighbor, value, label) {
     await closeDialogs(page); await filter(page, '全部'); const before = await facts(page, api, `${label}-before`, [identity.id, ...(neighbor ? [neighbor.id] : [])]);
     const root = await card(page, identity); await tap(page, `${root} button[aria-label="将目标进度设为 ${value}%"]`);
-    await page.waitForFunction(({ selector, value }) => document.querySelector(`${selector} [role=progressbar]`)?.getAttribute('aria-valuenow') === String(value), { timeout: 7000 }, { selector: root, value });
+    await page.waitForFunction(goalProgressMatchesIdentity, { timeout: 7000 }, { identity: { title: identity.title, description: identity.description, domain: identity.domain }, value });
     const after = await facts(page, api, label, [identity.id, ...(neighbor ? [neighbor.id] : [])]), a = after.local.goalRecords.find(row => row.id === identity.id), b = after.server.find(row => row.id === identity.id);
     const rawLocalUnchanged = onlyChanges(before.local.goalRecords.find(row => row.id === identity.id), a, ['progress', 'updatedAt']);
     const rawServerUnchanged = onlyChanges(before.server.find(row => row.id === identity.id), b, ['progress', 'updatedAt']);

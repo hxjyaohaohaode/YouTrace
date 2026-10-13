@@ -11,6 +11,7 @@ import { act } from 'react';
 import { create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import Dexie from 'dexie';
 import ts from 'typescript';
+import { goalProgressMatchesIdentity } from '../scripts/audit-goal-outcomes.mjs';
 
 // Actual Goal JSX, nested UI, Zustand store, actor checks and Dexie transactions.
 // Only CSS loading and browser host facilities are omitted/emulated. This is
@@ -256,4 +257,50 @@ for (const rejectionWindow of ['snapshot', 'error-publication'] as const) for (c
     assert.ok(await sameGoalSource(await snapshot(other), beforeOther)); assert.ok(await sameGoalSource(await snapshot(shared), beforeShared));
     await unchanged(before, monitor.writes);
   } finally { fault.restore(); held.restore(); monitor?.stop(); await act(async () => tree.unmount()); }
+});
+
+// DOM-path model over real component host output; no native layout claim.
+test('actual Goal first post-reload feedback cannot invalidate the progress identity witness', async context => {
+  // Motion's scroll observation needs a host document even without DOM refs.
+  Object.assign(globalThis, { document: { documentElement: { scrollLeft: 0, scrollTop: 0 }, body: { scrollLeft: 0, scrollTop: 0 } } });
+  const tree = await mount();
+  type Host = { type: string; props: Record<string, unknown>; children: Array<Host | string> | null };
+  const snapshot = () => tree.toJSON() as unknown as Host;
+  const children = (node: Host) => (node.children ?? []).filter((row): row is Host => typeof row !== 'string');
+  const walk = (node: Host): Host[] => [node, ...children(node).flatMap(walk)];
+  const content = (node: Host): string => (node.children ?? []).map(row => typeof row === 'string' ? row : content(row)).join('');
+  const isOriginal = (node: Host) => node.props['data-component'] === 'goal-card' && walk(node).some(row => row.type === 'p' && content(row) === original.description);
+  const locate = (node: Host, path: Array<{ tag: string; nth: number }> = []): Array<{ tag: string; nth: number }> | undefined => {
+    if (isOriginal(node)) return path;
+    const counts = new Map<string, number>();
+    for (const row of children(node)) { const nth = (counts.get(row.type) ?? 0) + 1; counts.set(row.type, nth); const found = locate(row, [...path, { tag: row.type, nth }]); if (found) return found; }
+  };
+  const resolve = (root: Host, path: Array<{ tag: string; nth: number }>) => path.reduce<Host | undefined>((node, step) => node && children(node).filter(row => row.type === step.tag)[step.nth - 1], root);
+  try {
+    await settle(() => store.getState().loaded, 'The original unmodified component must load');
+    const before = snapshot(), originalPath = locate(before)!;
+    assert.ok(originalPath.length > 0); assert.equal(walk(before).filter(node => node.props.role === 'status' && content(node).includes('进度已保存')).length, 0);
+    const originalCard = tree.root.findAll(node => typeof node.type === 'string' && node.props['data-component'] === 'goal-card').find(node => text(node).includes(original.description))!;
+    await act(async () => { originalCard.findAllByType('button').find(node => node.props['aria-label'] === '将目标进度设为 100%')!.props.onClick(); });
+    await settle(() => store.getState().items.find(row => row.id === original.id)?.progress === 100 && text(tree.root).includes('进度已保存'), 'Actual progress save and feedback must finish');
+    const after = snapshot(), movedPath = locate(after)!;
+    const source = await storage.db.goalRecords.get(original.id); assert.equal(source?.progress, 100);
+    assert.equal((await storage.db.goalRecords.get(neighbor.id))?.progress, neighbor.progress);
+    const remembered = resolve(after, originalPath);
+    const oldValue = remembered && walk(remembered).find(node => node.props.role === 'progressbar')?.props['aria-valuenow'];
+    context.diagnostic(JSON.stringify({ kind: 'actual-component-host-tree-path-model', originalPath, movedPath, oldValue: oldValue ?? null, actualProgress: source.progress, feedback: true }));
+    assert.equal(oldValue, undefined, 'The archived native nth path loses the real card when ordinary feedback inserts a div');
+    assert.notDeepEqual(movedPath, originalPath);
+    const adapter = (node: Host): { innerText: string; querySelector: (selector: string) => unknown; querySelectorAll: (selector: string) => unknown[]; getAttribute: (name: string) => string | null } => {
+      const matching = (selector: string) => walk(node).slice(1).filter(row => selector === '[role=progressbar]' ? row.props.role === 'progressbar' : row.type === selector);
+      return { innerText: content(node), getAttribute: name => node.props[name] === undefined ? null : String(node.props[name]), querySelector: selector => { const found = matching(selector)[0]; return found ? adapter(found) : null; }, querySelectorAll: selector => matching(selector).map(adapter) };
+    };
+    const document = { querySelectorAll: (selector: string) => {
+      assert.equal(selector, '[data-component="goal-workspace"] [data-component="goal-card"]');
+      return walk(after).filter(node => node.props['data-component'] === 'goal-card').map(adapter);
+    } };
+    const ready = runInNewContext(`(${goalProgressMatchesIdentity.toString()})`, { document });
+    assert.equal(ready({ identity: original, value: 100 }), true, 'The same actual host card is found by its unchanged visible identity after save');
+    assert.equal(ready({ identity: original, value: 75 }), false);
+  } finally { await act(async () => tree.unmount()); }
 });
