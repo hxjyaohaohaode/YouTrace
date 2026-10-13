@@ -65,3 +65,15 @@ SHA-256 是本地一致性/损坏检测，不是认证：整套 index/head 一�
 同 grant 精确重试还核私有 expected/submitted/operation。实际 IDB complete 事件保留本 document 已提交事实，不把函数体结束或 abort 当提交；已知完成的回放采用一致 readonly 全表快照、0新增写，不再次刷新/发送。正常删除或修改可变业务实体不使历史 receipt 失效，也不复活它。提交后取消/换号只停止旧结果发布，不能假装回滚已提交数据。首次提交后 store刷新/网络故障保留持久回执，只记诊断。
 
 此阶段只有真实模块/组件及合成IDB证据；用户 Save、指定ID重载反查、父页面完整handoff及新的原生验收仍未闭合。普通输入遇未知来源仍保文拒绝，不以同文本选回执。
+
+## 指定 ID 历史回执的严格服务候选（真实页面链仍待验）
+
+新 receipt 有三个明确字段 continuationProtocol、continuationOperationId、continuationProofDigest，与 source/proof/index/head 同一事务持久化。分类按任一字段的 own-property 存在性或 proof 行存在性，undefined/坏值/未知协议仍走严格分支，不能退回普通成功。普通旧 receipt 无这些标记时保留既有兼容读取。
+
+严格读取在一致 settings readonly 事务核同 owner/epoch 的全部证明和索引自己的项，返回 detached typed 历史值；初次 await 前捕获当前 actor，事务末及交付后仍核同 DB/session/generation/epoch。同 owner 同 epoch 的新登录可读历史，旧 submitted.session 不是本次登录授权。可变 note 删除不复活，历史回执不代表当前业务实体仍存在或已同步。
+
+普通 loadCaptureDraft 检出有效新协议后，在任何 put 前返回 null，交由原指定 ID 流程读取历史回执，不能从保留的 current 回填已删 review；坏证明抛错。普通 save/apply 检出新协议先严格核验，再拒绝普通写路径并提示查看该 ID，不凭宽松 fingerprint 借成功或 fork。专用同 grant 精确幂等回放不变。
+
+前三/四阶段均未公开用户 Save，中间 phase4 私有检查点未带这三个 receipt 字段；该检查点仍按自身完整源码恢复。本候选不把无字段的中间新 proof 默认为最终新协议通过。普通公开旧协议兼容与最终新协议严检是明确分支。
+
+实际模块已覆盖合法追加后读旧 O、note 删除后的历史、坏/缺 source/receipt/proof/index/head、标记存在但坏值、普通写误用、当前 D loader 不复活以及读中/交付后 owner、同号 generation、epoch 变化。真实页面 reload/parse-create 计数、明确新建空输入及最终用户 handoff 仍另验，不因服务绿而授 UI/native 完成。

@@ -68,14 +68,14 @@ function proof(v: unknown, id: string, actor: LocalActor): v is Proof {
   if (!isKnownCaptureCommitDraft(b.expected, actor) || !isKnownCaptureCommitDraft(b.submitted, actor) || b.expected.id !== id || b.submitted.id !== id || b.expected.inputKey !== b.inputKey || b.submitted.inputKey !== b.inputKey || !exact({ ...b.expected, sessionRevision: b.submitted.sessionRevision, sessionActive: b.submitted.sessionActive }, b.submitted)) return false;
   return validSnapshot(b.retainedInput, b.inputKey, false) && validSnapshot(b.retainedContext, `${b.inputKey}:context`, true) && result(b.result);
 }
-function receipt(b: Body): CaptureReceipt { return { fingerprint: captureFingerprint(b.submitted), result: b.result, input: b.submitted.input, ownerId: b.ownerId }; }
+function receipt(p: Proof): CaptureReceipt { const b = p.body; return { fingerprint: captureFingerprint(b.submitted), result: b.result, input: b.submitted.input, ownerId: b.ownerId, continuationProtocol: 'youtrace-capture-continuation-receipt-v1', continuationOperationId: b.operationId, continuationProofDigest: p.digest }; }
 async function readProof(actor: LocalActor, id: string, budget: Budget): Promise<Proof> {
   const database = actor.database, key = captureContinuationProofKey(id), row = await database.settings.get(key);
   if (!record(row, ['key', 'value']) || row.key !== key || !proof(row.value, id, actor)) throw fail();
   const p = row.value;
   if (await digest(p.body, budget) !== p.digest) throw fail();
   const [source, applied] = await Promise.all([database.settings.get(`capture-source:${id}`), database.settings.get(`capture-applied:${id}`)]);
-  if (!exact(source, { key: `capture-source:${id}`, value: p.body.submitted }) || !exact(applied, { key: `capture-applied:${id}`, value: receipt(p.body) })) throw fail();
+  if (!exact(source, { key: `capture-source:${id}`, value: p.body.submitted }) || !exact(applied, { key: `capture-applied:${id}`, value: receipt(p) })) throw fail();
   return p;
 }
 async function readIndex(actor: LocalActor, key: string, budget: Budget): Promise<{ value: Consumption; proofs: Map<string, Proof> }> {
@@ -121,8 +121,25 @@ export async function writeCaptureCommitProof(start: CaptureCommitStart, applied
   if (!proof(value, submitted.id, actor)) throw fail();
   value.digest = await digest(body, budget);
   await actor.database.settings.add({ key: captureContinuationProofKey(submitted.id), value });
+  await actor.database.settings.add({ key: `capture-applied:${submitted.id}`, value: receipt(value) });
   const index: Consumption = { ...start.index, entries: [...start.index.entries, { id: submitted.id, operationId, digest: value.digest }] };
   const head = { format: HEAD, ownerId: actor.owner!, epoch: actor.epoch, inputKey: submitted.inputKey!, count: index.entries.length, indexDigest: await digest(index, budget) };
   await actor.database.settings.put({ key: captureInputConsumptionKey(submitted.inputKey!), value: index });
   await actor.database.settings.put({ key: captureInputConsumptionHeadKey(submitted.inputKey!), value: head });
+}
+
+/** Presence, not truthiness: malformed/undefined protocol markers must never
+ * fall back to an ordinary receipt. The caller also checks proof ROW presence. */
+export function hasCaptureContinuationMarker(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && ['continuationProtocol', 'continuationOperationId', 'continuationProofDigest'].some(key => Object.hasOwn(value, key));
+}
+/** Internal reader: caller owns a consistent settings RO/RW transaction and
+ * fences the captured actor/strict epoch before and after this bounded read. */
+export async function readCaptureContinuationReceipt(actor: LocalActor, id: string): Promise<CaptureReceipt> {
+  if (!validId(id)) throw fail();
+  const budget = { deadline: performance.now() + 5000, bytes: 0 };
+  const own = await readProof(actor, id, budget);
+  const indexed = await readIndex(actor, own.body.inputKey, budget), linked = indexed.proofs.get(id);
+  if (!linked || !exact(own, linked)) throw fail();
+  return structuredClone(receipt(own));
 }
