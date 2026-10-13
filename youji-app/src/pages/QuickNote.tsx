@@ -9,13 +9,11 @@ import { sameCaptureInput } from '../services/capturePresentation';
 import { newCaptureContext, parseQuickNote, type CaptureContext } from '../services/parser';
 import { db } from '../db';
 import { recordDiagnostic } from '../services/diagnostics';
+import { readCaptureInputMemory, retainCaptureInputMemory, releaseCaptureInputMemory } from '../services/captureInputMemory';
 
 
 const MAX_LENGTH = 5000;
 const SPEECH_FINISH_TIMEOUT = 2000;
-// Only this document's verified account. A failed disk write can still be
-// recovered after an in-app Back; a full reload remains warned by beforeunload.
-let volatileInput: { owner: string | null; text: string; context: CaptureContext } | null = null;
 interface Recognition extends EventTarget {
   lang: string; continuous: boolean; interimResults: boolean;
   onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
@@ -39,7 +37,7 @@ export default function QuickNote() {
   const navigate = useNavigate(), location = useLocation(), reduced = useReducedMotion();
   const returnState = location.state as { reviewId?: string; inputKey?: string } | null;
   const reviewId = typeof returnState?.reviewId === 'string' && returnState.reviewId ? returnState.reviewId : null;
-  const remembered = volatileInput?.owner === db.ownerId ? volatileInput : null;
+  const remembered = readCaptureInputMemory(db.ownerId);
   const [text, setText] = useState(remembered?.text ?? '');
   const [context, setContext] = useState<CaptureContext>(remembered?.context ?? newCaptureContext);
   const [source, setSource] = useState<CaptureInput | null>(null);
@@ -68,10 +66,10 @@ export default function QuickNote() {
     if (!session.stopping) { try { session.input.stop(); } catch { /* Callbacks are already invalidated. */ } }
   };
   const queueSave = (input: CaptureInput, value: string, basis: CaptureContext) => {
-    const revision = ++version.current;
+    const revision = ++version.current, memoryToken = retainCaptureInputMemory(db.ownerId, value, basis);
     setStatus('pending'); setError('');
     const work = pending.current.catch(() => undefined).then(() => saveCaptureInput(input, value, basis)); pending.current = work;
-    void work.then(() => { if (alive.current && revision === version.current) { setStatus('saved'); setError(''); volatileInput = null; } }).catch(() => { if (alive.current && revision === version.current) { setStatus('failed'); setError('草稿还没写入本机。输入仍在此页，请先复制，或恢复存储后重试。'); recordDiagnostic('runtime-error', 'capture'); } });
+    void work.then(() => { if (alive.current && revision === version.current) { setStatus('saved'); setError(''); releaseCaptureInputMemory(memoryToken); } }).catch(() => { if (alive.current && revision === version.current) { setStatus('failed'); setError('草稿还没写入本机。输入仍在此页，请先复制，或恢复存储后重试。'); recordDiagnostic('runtime-error', 'capture'); } });
   };
   const initialize = () => {
     initialized.current ??= forkCaptureInput();
@@ -80,7 +78,6 @@ export default function QuickNote() {
       setSource(input);
       const draft = edited.current ? latest.current : { text: input.text, context: input.context };
       setText(draft.text); setContext(draft.context); latest.current = draft;
-      volatileInput = { owner: db.ownerId, ...draft };
       queueSave(input, draft.text, draft.context);
       if (input.text && !edited.current) setFeedback('已恢复本账号的未保存原文');
     }).catch(() => { if (alive.current) { initialized.current = null; setStatus('failed'); setError('草稿存储暂时打不开。你仍可输入和复制原文；检查设备空间或浏览器存储设置后重试。'); recordDiagnostic('runtime-error', 'capture'); } });
@@ -96,8 +93,8 @@ export default function QuickNote() {
     window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn);
   }, [status]);
   const preserveInput = (value: string, basis: CaptureContext) => {
-    const next = value.slice(0, MAX_LENGTH); edited.current = true; setText(next); setContext(basis); latest.current = { text: next, context: basis }; volatileInput = { owner: db.ownerId, text: next, context: basis };
-    if (source) queueSave(source, next, basis);
+    const next = value.slice(0, MAX_LENGTH); edited.current = true; setText(next); setContext(basis); latest.current = { text: next, context: basis };
+    if (source) queueSave(source, next, basis); else retainCaptureInputMemory(db.ownerId, next, basis);
   };
   const change = (value: string, basis = context) => {
     if (busy.current || !alive.current) return;

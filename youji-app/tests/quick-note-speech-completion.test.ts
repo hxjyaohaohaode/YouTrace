@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import * as React from 'react';
 import * as jsx from 'react/jsx-runtime';
 import ts from 'typescript';
+import * as inputMemory from '../src/services/captureInputMemory';
 
 // Actual QuickNote and its returned callbacks, with deterministic substitutes for
 // React scheduling, router, presentation, parser, SpeechRecognition and ALL
@@ -32,6 +33,7 @@ type Result = { resultIndex: number; results: Array<{ isFinal: boolean; 0: { tra
 type Effect = { deps?: unknown[]; cleanup?: () => void };
 
 function componentDriver() {
+  inputMemory.releaseCaptureInputMemory(inputMemory.retainCaptureInputMemory(null, '', basis));
   const trace: Array<{ seq: number; kind: string; data: unknown }> = [];
   const record = (kind: string, data: unknown = null) => trace.push({ seq: trace.length + 1, kind, data: structuredClone(data) });
   const slots: unknown[] = [], effects = new Map<number, Effect>(), commits: Array<() => void> = [];
@@ -128,6 +130,7 @@ function componentDriver() {
     '../services/capturePresentation': { sameCaptureInput: () => { throw new Error('Previous-review comparison is outside this speech witness'); } },
     '../services/parser': { newCaptureContext: () => structuredClone(basis), parseQuickNote: () => ({ expenses: [], todos: [], habits: [] }) },
     '../db': { db: { ownerId: 'synthetic-owner' } },
+    '../services/captureInputMemory': inputMemory,
     '../services/diagnostics': { recordDiagnostic: (...args: unknown[]) => record('diagnostic-double', args) },
   };
   const exports: { default?: () => React.ReactNode } = {};

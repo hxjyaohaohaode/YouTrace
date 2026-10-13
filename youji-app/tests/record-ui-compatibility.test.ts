@@ -7,6 +7,7 @@ import * as React from 'react';
 import { act, createElement } from 'react';
 import { create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import ts from 'typescript';
+import * as inputMemory from '../src/services/captureInputMemory';
 import * as diaryFocusReturn from '../src/components/diary/useDiaryFocusReturn';
 import * as expenseFocusReturn from '../src/components/expense/expenseFocus';
 import { getExpensePeriodTotals } from '../src/utils/expensePeriod';
@@ -138,7 +139,7 @@ test('Mounted Capture composer keeps header Return, named source/status/basis an
   const context = { capturedAt: 1, date: '2026-10-07', timeZone: 'Asia/Shanghai' }, source = { key: 'capture-input:local', text: '', context };
   const navigated: unknown[] = [], saves: unknown[] = [], drafts: unknown[] = [];
   const Page = load('../src/pages/QuickNote.tsx', {
-    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null },
+    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null }, '../services/captureInputMemory': inputMemory,
     'react-router-dom': { ...router, useNavigate: () => (...args: unknown[]) => { navigated.push(structuredClone(args)); } },
     'framer-motion': { motion, useReducedMotion: () => true }, '../components/ui/Button': { Button: host('button') },
     '../services/quickNoteIntegration': { forkCaptureInput: async () => source, saveCaptureInput: async (...args: unknown[]) => { saves.push(structuredClone(args)); }, createCaptureDraft: async (...args: unknown[]) => { drafts.push(structuredClone(args)); return { id: 'review-local' }; }, saveCaptureDraft: async () => undefined, captureSessionKey: () => 'current-review' },
@@ -167,17 +168,19 @@ test('Mounted actual Capture review exposes all audited named fields, exact sele
     expenses: [{ id: 'expense-local', name: '午饭', amount: 1500, amountText: '15', category: 'food', confirmed: true, date: context.date, currency: 'CNY', isIncome: false }],
     todos: [{ id: 'todo-local', text: '交资料', confirmed: true, dueDate: '2026-10-08', dateConfirmed: true }], habits: [], diary: '合成尾记', diaryDate: context.date, mood: null, moodScore: null, moodConfirmed: false };
   const snapshots: typeof original[] = [], navigated: unknown[] = [];
+  const target = { ownerId: 'synthetic-owner' };
+  const actor = { database: target, owner: target.ownerId, session: null, sessionGeneration: 1, epoch: undefined };
   const Checkbox = load('../src/components/ui/Checkbox.tsx', { 'framer-motion': { motion: { span: host('span') } } }).Checkbox;
   const Page = load('../src/pages/QuickNoteResult.tsx', {
     '../services/captureDraftCatalog': {},
-    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null },
+    '../components/capture/CaptureDraftBrowser': { CaptureDraftBrowser: () => null }, '../services/captureInputMemory': inputMemory,
     'react-router-dom': { ...router, useLocation: () => ({ key: 'review', search: '?draft=review-local', state: null }), useNavigate: () => (...args: unknown[]) => { navigated.push(structuredClone(args)); } },
     'framer-motion': { motion, useReducedMotion: () => true }, '../components/ui/Button': { Button: host('button') }, '../components/ui/Checkbox': { Checkbox },
     '../services/parser': { getMoodScore: () => 7 },
     '../services/quickNoteIntegration': { loadCaptureReceipt: async () => null, loadCaptureDraft: async () => original, upgradeCaptureReview: (value: unknown) => value, captureFingerprint: JSON.stringify, captureSessionKey: () => 'current-review', saveCaptureDraft: async (value: typeof original) => { snapshots.push(structuredClone(value)); return value.id; }, CaptureChangedError: Error },
     '../utils/icons': { MOOD_LEVELS: ['good'], getMoodMeta: () => ({ label: '不错' }), EXPENSE_CATEGORY_KEYS: Object.keys(categories), expenseCategoryIcons: categories, normalizeExpenseCategory: (value: string) => value },
-    '../db': { db: { ownerId: 'synthetic-owner' }, generateLocalId: () => 'new-local' }, '../stores/habitStore': { useHabitStore: (select: (value: object) => unknown) => select({ items: [] }) }, '../stores/authStore': { useAuthStore: (select: (value: object) => unknown) => select({ user: { id: 'synthetic-owner', nickname: 'Synthetic' } }) },
-    '../services/pendingEditorMemory': { readPendingEditor: () => null, retainPendingEditor: () => 'token', releasePendingEditor() {} }, '../services/apiClient': { SESSION_REVISION_KEY: 'session' }, '../services/captureReceiptView': {}, '../services/diagnostics': { recordDiagnostic() {} }, '../services/capturePresentation': { captureSaveFailure: String },
+    '../db': { db: target, generateLocalId: () => 'new-local' }, '../stores/habitStore': { useHabitStore: (select: (value: object) => unknown) => select({ items: [] }) }, '../stores/authStore': { useAuthStore: (select: (value: object) => unknown) => select({ user: { id: 'synthetic-owner', nickname: 'Synthetic' } }) },
+    '../services/pendingEditorMemory': { readPendingEditor: () => null, retainPendingEditor: () => 'token', releasePendingEditor() {} }, '../services/apiClient': { SESSION_REVISION_KEY: 'session', getSessionGeneration: () => 1 }, '../services/localActor': { assertLocalActorNow() {} }, '../services/captureInputProvenance': { readCaptureInputActor: async () => actor, assertCaptureInputActor: async () => undefined }, '../services/captureReceiptView': {}, '../services/diagnostics': { recordDiagnostic() {} }, '../services/capturePresentation': { captureSaveFailure: String },
   }, { window: browserWindow, sessionStorage: memoryStorage(), localStorage: memoryStorage() }).default;
   let tree!: ReactTestRenderer; await act(async () => { tree = create(createElement(Page)); });
   try {

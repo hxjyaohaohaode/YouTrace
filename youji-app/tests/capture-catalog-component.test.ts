@@ -13,6 +13,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, localStorage: memory
 const storage = await import('../src/db/index.ts'), api = await import('../src/services/apiClient.ts'), sync = await import('../src/services/syncEngine.ts');
 const capture = await import('../src/services/quickNoteIntegration.ts'), catalog = await import('../src/services/captureDraftCatalog.ts'), parser = await import('../src/services/parser.ts');
 const localActor = await import('../src/services/localActor.ts');
+const provenance = await import('../src/services/captureInputProvenance.ts');
+const inputMemory = await import('../src/services/captureInputMemory.ts');
 const presentation = await import('../src/services/capturePresentation.ts'), pending = await import('../src/services/pendingEditorMemory.ts'), receiptView = await import('../src/services/captureReceiptView.ts');
 const auth = await import('../src/stores/authStore.ts'), habits = await import('../src/stores/habitStore.ts'), icons = await import('../src/utils/icons.ts');
 const require = createRequire(import.meta.url);
@@ -33,7 +35,7 @@ async function seed(id: string, raw = `  合成${id}原文\n午饭15元；明天
   const input = await capture.forkCaptureInput(); await capture.saveCaptureInput(input, raw, basis);
   const draft = { ...await capture.createCaptureDraft(raw, input, basis), id }; await capture.saveCaptureDraft(draft, true); return draft;
 }
-beforeEach(async () => { sync.pauseSync(); api.clearSession(); localStorage.clear(); sessionStorage.clear(); await storage.bindAccountDatabase(owner); api.setSessionActive(owner); auth.useAuthStore.setState({ user, isAuthenticated: true }); await storage.clearAllData({ allowPending: true }); sync.pauseSync(); });
+beforeEach(async () => { inputMemory.releaseCaptureInputMemory(inputMemory.retainCaptureInputMemory(owner, '', basis)); sync.pauseSync(); api.clearSession(); localStorage.clear(); sessionStorage.clear(); await storage.bindAccountDatabase(owner); api.setSessionActive(owner); auth.useAuthStore.setState({ user, isAuthenticated: true }); await storage.clearAllData({ allowPending: true }); sync.pauseSync(); });
 after(() => { sync.pauseSync(); storage.db.close(); IDBDatabase.prototype.transaction = nativeTransaction; });
 // Production React components and services; router, animation and Modal host are
 // declared substitutes. No browser layout, native focus, clipboard or paint claim.
@@ -48,7 +50,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     '../components/ui/Checkbox': { Checkbox: ({ label, ...props }: { label?: string }) => React.createElement('input', { type: 'checkbox', 'aria-label': label, ...props }) },
     '../ui/Modal': { Modal: ({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; footer: React.ReactNode }) => open ? React.createElement('section', { role: 'dialog', 'aria-label': title }, React.createElement('button', { onClick: onClose }, '宿主Esc关闭'), children, footer) : null },
     '../services/captureDraftCatalog': catalog, '../services/quickNoteIntegration': capture, '../services/parser': parser, '../services/capturePresentation': presentation,
-    '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
+    '../services/captureInputMemory': inputMemory, '../services/localActor': localActor, '../services/captureInputProvenance': provenance, '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
     '../services/diagnostics': { recordDiagnostic() {} }, '../db': storage, '../utils/icons': icons,
     '../stores/useHabitStore': habits, '../stores/habitStore': habits, '../stores/authStore': auth,
     '../../services/captureDraftCatalog': catalog, '../../services/localActor': localActor, '../../stores/authStore': auth, '../../services/apiClient': api,

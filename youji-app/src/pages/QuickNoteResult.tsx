@@ -7,13 +7,16 @@ import { Button } from '../components/ui/Button';
 import { CaptureDraftBrowser } from '../components/capture/CaptureDraftBrowser';
 import { Checkbox } from '../components/ui/Checkbox';
 import { getMoodScore, type MoodLevel } from '../services/parser';
-import { applyCaptureDraft, CaptureChangedError, captureFingerprint, captureSessionKey, loadCaptureDraft, loadCaptureReceipt, saveCaptureDraft, upgradeCaptureReview, type CaptureDraft, type CaptureReceipt, type CaptureEntityRef } from '../services/quickNoteIntegration';
+import { createEmptyCaptureInput, applyCaptureDraft, CaptureChangedError, captureFingerprint, captureSessionKey, loadCaptureDraft, loadCaptureReceipt, saveCaptureDraft, upgradeCaptureReview, type CaptureDraft, type CaptureReceipt, type CaptureEntityRef } from '../services/quickNoteIntegration';
 import { MOOD_LEVELS, getMoodMeta, EXPENSE_CATEGORY_KEYS, expenseCategoryIcons, normalizeExpenseCategory } from '../utils/icons';
 import { db, generateLocalId } from '../db';
 import { useHabitStore } from '../stores/habitStore';
 import { useAuthStore } from '../stores/authStore';
 import { retainPendingEditor, readPendingEditor, releasePendingEditor } from '../services/pendingEditorMemory';
-import { SESSION_REVISION_KEY } from '../services/apiClient';
+import { SESSION_REVISION_KEY, getSessionGeneration } from '../services/apiClient';
+import { assertLocalActorNow } from '../services/localActor';
+import { readCaptureInputMemory, captureInputMemoryRevision } from '../services/captureInputMemory';
+import { readCaptureInputActor, assertCaptureInputActor, type CaptureInputActor } from '../services/captureInputProvenance';
 import { currentCaptureRecord, currentReceiptSyncStatus, failedReceiptRead, type ReceiptViewState, type CurrentCaptureRecord } from '../services/captureReceiptView';
 import { recordDiagnostic } from '../services/diagnostics';
 import { captureSaveFailure } from '../services/capturePresentation';
@@ -33,23 +36,32 @@ export default function QuickNoteResult() {
   const location = useLocation(), navigate = useNavigate();
   const params = new URLSearchParams(location.search), receiptId = params.get('receipt');
   const requestedId = params.get('draft') ?? (location.state as { draftId?: string } | null)?.draftId ?? sessionStorage.getItem(captureSessionKey());
-  const [loaded, setLoaded] = useState<{ draft: CaptureDraft | null; receipt: CaptureReceipt | null } | null>(null);
-  const [error, setError] = useState(''), [attempt, retry] = useState(0);
+  const currentUser = useAuthStore(state => state.user);
+  const target = db, generation = getSessionGeneration(), revision = localStorage.getItem(SESSION_REVISION_KEY);
+  // Bind at render, before effects run: old data must never inherit a new ID or actor.
+  const requestKey = JSON.stringify([receiptId, requestedId, currentUser?.id, target.ownerId, generation, revision]);
+  const [loaded, setLoaded] = useState<{ key: string; context: CaptureInputActor; draft: CaptureDraft | null; receipt: CaptureReceipt | null } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; target: typeof db; message: string } | null>(null), [attempt, retry] = useState(0);
   useEffect(() => {
     let active = true;
     const read = async () => {
+      const context = await readCaptureInputActor();
       const id = receiptId ?? requestedId;
       const receipt = id ? await loadCaptureReceipt(id) : null;
       const draft = !receipt && !receiptId ? await loadCaptureDraft(requestedId) : null;
-      if (active) { setLoaded({ draft, receipt }); setError(''); }
+      await assertCaptureInputActor(context);
+      if (active) { setLoaded({ key: requestKey, context, draft, receipt }); setFailure(null); }
     };
-    void read().catch(() => { if (active) { setError('暂时读不到本机确认稿。原文不会因此删除，请检查存储后重试。'); recordDiagnostic('runtime-error', 'capture-review'); } });
+    void read().catch(() => { if (active) { setFailure({ key: requestKey, target, message: '暂时读不到本机确认稿。原文不会因此删除，请检查存储后重试。' }); recordDiagnostic('runtime-error', 'capture-review'); } });
     return () => { active = false; };
-  }, [receiptId, requestedId, attempt]);
-  if (error || !loaded) return <Frame title="整理确认稿" back={() => navigate('/quick-note')}>{error ? <div role="alert" className="space-y-4"><p>{error}</p><Button onClick={() => retry(value => value + 1)}>重试读取</Button><Button variant="ghost" onClick={() => navigate('/quick-note')}>返回原文</Button></div> : <p role="status">正在恢复本机确认稿…</p>}</Frame>;
-  if (loaded.receipt) return <SavedCapture receipt={loaded.receipt} id={receiptId ?? requestedId!} />;
-  if (!loaded.draft) return <Frame title="整理确认稿" back={() => navigate('/')}><p>这份确认稿在当前账号的本机存储中没有找到。可能已在其他设备处理，或本机资料已清理。</p><Button onClick={() => navigate('/quick-note')}>查看未保存原文</Button></Frame>;
-  return <CaptureReview key={loaded.draft.id} original={loaded.draft} />;
+  }, [receiptId, requestedId, requestKey, target, attempt]);
+  const error = failure?.key === requestKey && failure.target === target ? failure.message : '';
+  let current = loaded?.key === requestKey && loaded.context.database === target;
+  if (current) { try { assertLocalActorNow(loaded!.context); } catch { current = false; } }
+  if (error || !current) return <Frame title="整理确认稿" back={() => navigate('/quick-note')}>{error ? <div role="alert" className="space-y-4"><p>{error}</p><Button onClick={() => retry(value => value + 1)}>重试读取</Button><Button variant="ghost" onClick={() => navigate('/quick-note')}>返回原文</Button></div> : <p role="status">正在恢复本机确认稿…</p>}</Frame>;
+  if (loaded!.receipt) return <SavedCapture receipt={loaded!.receipt} id={receiptId ?? requestedId!} context={loaded!.context} />;
+  if (!loaded!.draft) return <Frame title="整理确认稿" back={() => navigate('/')}><p>这份确认稿在当前账号的本机存储中没有找到。可能已在其他设备处理，或本机资料已清理。</p><Button onClick={() => navigate('/quick-note')}>查看未保存原文</Button></Frame>;
+  return <CaptureReview key={loaded!.draft.id} original={loaded!.draft} />;
 }
 function Section({ title, children, add }: { title: string; children: ReactNode; add?: () => void }) {
   return <section aria-label={title} className="review-section space-y-4"><header className="flex items-center justify-between gap-2"><h2 className="text-lg font-semibold">{title}</h2>{add && <Button variant="ghost" onClick={add} aria-label={`添加${title}`}><Plus size={16} aria-hidden />添加</Button>}</header>{children}</section>;
@@ -168,14 +180,35 @@ function targetPath(record: CaptureEntityRef): string {
   const paths = { quickNotes: '/timeline', expenses: '/expense', todos: '/todo', diaries: '/diary', habitCheckins: '/habit' };
   return `${paths[record.entity]}?record=${encodeURIComponent(record.entity === 'habitCheckins' ? record.parentId ?? record.id : record.id)}${record.entity === 'habitCheckins' ? `&date=${encodeURIComponent(record.date ?? '')}` : ''}`;
 }
-function SavedCapture({ receipt, id }: { receipt: CaptureReceipt; id: string }) {
+function SavedCapture({ receipt, id, context }: { receipt: CaptureReceipt; id: string; context: CaptureInputActor }) {
   const currentOwner = useAuthStore(auth => auth.user?.id);
   const navigate = useNavigate(), [state, setState] = useState<ReceiptViewState>({ statuses: {}, current: {}, error: '', locked: false }), [attempt, retry] = useState(0);
   const records = receipt.result.records;
+  const [newInputError, setNewInputError] = useState(''), [startingInput, setStartingInput] = useState(false);
+  const inputRequest = useRef(0), inputBusy = useRef(false), alive = useRef(true);
+  useEffect(() => { alive.current = true; const requests = inputRequest; return () => { alive.current = false; requests.current++; }; }, [context]);
+  const newInput = async () => {
+    if (inputBusy.current || !alive.current) return;
+    if (!receipt.continuationProtocol) { navigate('/quick-note'); return; }
+    if (readCaptureInputMemory(context.owner)) { setNewInputError('还有尚未确认落盘的原文保留在本次应用内存中。请先返回原文核对，不会清空或混入新输入。'); return; }
+    const request = ++inputRequest.current, memoryRevision = captureInputMemoryRevision();
+    inputBusy.current = true; setStartingInput(true); setNewInputError('');
+    try {
+      await assertCaptureInputActor(context);
+      const input = await createEmptyCaptureInput();
+      await assertCaptureInputActor(context);
+      if (!alive.current || request !== inputRequest.current) return;
+      if (captureInputMemoryRevision() !== memoryRevision || readCaptureInputMemory(context.owner)) throw new Error('已有新的原文编辑，未切换输入');
+      sessionStorage.setItem(`youtrace:input:${context.owner ?? 'guest'}`, input.key);
+      navigate('/quick-note');
+    } catch { if (alive.current && request === inputRequest.current) setNewInputError('暂时未能打开新的空白原文。已有原文和回执仍保留；请核对账号、当前编辑及本机存储后重试。'); }
+    finally { inputBusy.current = false; if (alive.current && request === inputRequest.current) setStartingInput(false); }
+  };
   useEffect(() => {
-    const target = db, actorRevision = localStorage.getItem(SESSION_REVISION_KEY);
-    const isActorCurrent = () => target === db && useAuthStore.getState().user?.id === target.ownerId && localStorage.getItem(SESSION_REVISION_KEY) === actorRevision;
-    const subscription = liveQuery(() => target.transaction('r', target.tables, async () => {
+    const target = context.database; let active = true, delivery = 0;
+    const isActorCurrent = () => { try { assertLocalActorNow(context); return useAuthStore.getState().user?.id === target.ownerId; } catch { return false; } };
+    const subscription = liveQuery(async () => { const value = await target.transaction('r', target.tables, async () => {
+      await assertCaptureInputActor(context);
       const outbox = await target.outbox.toArray(), values: Record<string, string> = {}, current: Record<string, CurrentCaptureRecord> = {};
       for (const row of records ?? []) {
         const key = `${row.entity}:${row.id}`;
@@ -185,13 +218,15 @@ function SavedCapture({ receipt, id }: { receipt: CaptureReceipt; id: string }) 
         const conflict = await target.settings.get(`sync-conflict:${key}`), version = await target.settings.get(`sync-version:${key}`);
         values[key] = currentReceiptSyncStatus(row, current[key].available, outbox, Boolean(conflict), version?.value);
       }
-      return { statuses: values, current };
-    })).subscribe({ next: value => { setState(isActorCurrent() ? { ...value, error: '', locked: false } : failedReceiptRead(false)); }, error: () => setState(failedReceiptRead(isActorCurrent())) });
-    return () => subscription.unsubscribe();
-  }, [records, attempt]);
-  if (state.locked || currentOwner !== db.ownerId || receipt.ownerId !== undefined && receipt.ownerId !== currentOwner) return <Frame title="需要重新核对账号" back={() => navigate('/')}><p role="alert">账号状态已变化，当前不展示上一账号的保存结果。请先确认登录身份。</p></Frame>;
+      await assertCaptureInputActor(context); return { statuses: values, current };
+    }); await assertCaptureInputActor(context); return value; }).subscribe({ next: value => { if (active) { delivery++; setState(isActorCurrent() ? { ...value, error: '', locked: false } : failedReceiptRead(false)); } }, error: () => { const currentDelivery = ++delivery; void assertCaptureInputActor(context).then(() => { if (active && currentDelivery === delivery) setState(failedReceiptRead(isActorCurrent())); }, () => { if (active && currentDelivery === delivery) setState(failedReceiptRead(false)); }); } });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [records, context, attempt]);
+  let actorCurrent = true; try { assertLocalActorNow(context); } catch { actorCurrent = false; }
+  if (!actorCurrent || state.locked || currentOwner !== db.ownerId || receipt.ownerId !== undefined && receipt.ownerId !== currentOwner) return <Frame title="需要重新核对账号" back={() => navigate('/')}><p role="alert">账号状态已变化，当前不展示上一账号的保存结果。请先确认登录身份。</p></Frame>;
   const returnTo = { path: `/quick-note/result?receipt=${encodeURIComponent(id)}`, label: '返回保存结果' };
-  return <Frame title="这次记录已保存在本机" back={() => navigate('/')} footer={<div className="flex gap-3"><Button variant="ghost" className="flex-1" onClick={() => navigate('/')}>回到首页</Button><Button className="flex-1" onClick={() => navigate('/quick-note')}>再记一条</Button></div>}>
+  return <Frame title="这次记录已保存在本机" back={() => navigate('/')} footer={<div className="flex gap-3"><Button variant="ghost" className="flex-1" onClick={() => navigate('/')}>回到首页</Button><Button className="flex-1" disabled={startingInput} onClick={() => void newInput()}>{startingInput ? '正在准备空白原文…' : '再记一条'}</Button></div>}>
+    {newInputError && <p role="alert" className="text-sm text-[var(--danger)]">{newInputError}</p>}
     <p className="text-sm leading-6">下面展示这些记录的当前内容，会跟随之后的修改。创建时写入的只读回执仍原样保留，可在下方展开。刷新不会重复保存。</p>
     {receipt.result.committedAt && <p className="text-xs text-[var(--text-3)]">本机保存时间：{new Date(receipt.result.committedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（Asia/Shanghai）</p>}
     {state.error && <div role="alert" className="space-y-3 text-sm text-[var(--danger)]"><p>{state.error}</p><Button variant="ghost" onClick={() => { setState({ current: {}, statuses: {}, error: '', locked: false }); retry(value => value + 1); }}>重新读取当前记录</Button></div>}

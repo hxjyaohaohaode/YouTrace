@@ -68,6 +68,23 @@ export async function forkCaptureInput(): Promise<CaptureInput> {
   sessionStorage.setItem(sessionKey, value.key);
   return value;
 }
+/** Explicit new-input action only. Creates an unrelated empty root; never
+ * promotes, deletes or copies an old/consumed source, and never selects a pointer. */
+export async function createEmptyCaptureInput(): Promise<CaptureInput> {
+  const authority = await readCaptureInputActor(), target = authority.database;
+  const value = await target.transaction('rw', target.settings, async () => {
+    await assertCaptureInputActor(authority);
+    const key = `capture-input:${generateLocalId()}`, context = newCaptureContext();
+    const session: CaptureActor = { ownerId: authority.owner, dataEpoch: authority.epoch ?? 'initial', sessionRevision: authority.session, sessionActive: true };
+    const rows = await Promise.all([key, `${key}:context`, captureInputOriginKey(key), captureInputConsumptionKey(key), captureInputConsumptionHeadKey(key)].map(name => target.settings.get(name)));
+    if (rows.some(row => row !== undefined)) throw new Error('新原文编号已存在，未覆盖任何资料，请重试');
+    await target.settings.add({ key, value: '' }); await target.settings.add({ key: `${key}:context`, value: context });
+    await recordCaptureInputOrigin(target, key, authority, key, undefined, undefined, undefined, undefined);
+    await assertCaptureInputActor(authority);
+    return { key, text: '', context, ...session };
+  });
+  await assertCaptureInputActor(authority); assertLocalActorNow(authority); return value;
+}
 export async function saveCaptureInput(input: CaptureInput, text: string, context = input.context): Promise<void> {
   const target = db;
   await target.transaction('rw', target.settings, async () => { await assertActor(target, input); await target.settings.put({ key: input.key, value: text }); await target.settings.put({ key: `${input.key}:context`, value: context }); await assertActor(target, input); });
