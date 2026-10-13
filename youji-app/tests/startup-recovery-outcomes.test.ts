@@ -21,10 +21,12 @@ function chronology(branch = 'recovery-success') {
   const recovering = branch === 'recovery-success';
   add(12016, recovering ? 'readonly-release-requested' : 'readonly-abort-requested', { target: 'initial' });
   add(12017, 'readonly-terminal', { target: 'initial', outcome: recovering ? 'complete' : 'abort' });
+  if (!recovering) for (const [stage, elapsedMs] of [['expense', 12017.2], ['stores', 12017.3]]) add(Number(elapsedMs), 'application-initialization', { phase: 'initial', stage, outcome: 'error', attempt: 1, generationChanged: false, revisionChanged: false });
   app(12018, 'initial', 'error');
   add(12500, recovering ? 'readonly-release-requested' : 'readonly-abort-requested', { target: 'recovery' });
   add(12501, 'readonly-terminal', { target: 'recovery', outcome: recovering ? 'complete' : 'abort' });
-  add(12502, 'application-initialization', { phase: 'recovery', stage: 'goal', outcome: 'success', generationChanged: false, revisionChanged: false });
+  add(12502, 'application-initialization', { phase: 'recovery', attempt: 2, stage: 'goal', outcome: 'success', generationChanged: false, revisionChanged: false });
+  if (!recovering) for (const [stage, elapsedMs] of [['expense', 12502.2], ['stores', 12502.3]]) add(Number(elapsedMs), 'application-initialization', { phase: 'recovery', stage, outcome: 'error', attempt: 2, generationChanged: false, revisionChanged: false });
   app(12503, 'recovery', recovering ? 'success' : 'error');
   const visible = { readable: true, sequence: events.length, todoId: source.todoId, rowCount: 1, editorCount: 1, containerId: `todo-record-${source.todoId}`, editorContainerId: `todo-record-${source.todoId}`, rowVisible: true, editorVisible: true };
   const fault = { ...source, syntheticOnly: true, branch, violation: null, expired: false, initialTransactions: 1, recoveryTransactions: 1, initialAttempt: 1, recoveryAttempt: 2, businessRejected: 1, holds: [{ target: 'initial', terminal: recovering ? 'complete' : 'abort', keepaliveRequests: 2000, epochPresent: true, epoch: source.epoch }, { target: 'recovery', terminal: recovering ? 'complete' : 'abort', keepaliveRequests: 200, epochPresent: true, epoch: source.epoch }], events };
@@ -118,6 +120,11 @@ test('new native runner is inert outside hosted CI and no source timer/fix is bu
   assert.ok(journey.includes("await waitApp('initial', 'error')"));
   assert.ok(journey.includes("await faultCommand('finish', 'recovery', 'complete'); await waitApp('recovery', 'success')"));
   assert.ok(!journey.includes("await waitApp('initial', 'success')"));
+  const abortInitial = journey.indexOf("await faultCommand('finish', 'initial', 'abort')");
+  const awaitInitialError = journey.indexOf("await waitApp('initial', 'error')", abortInitial);
+  const awaitInitialTerminal = journey.indexOf("await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.find(row => row.target === 'initial')?.terminal === 'abort')", abortInitial);
+  const abortRecovery = journey.indexOf("await faultCommand('finish', 'recovery', 'abort')");
+  assert.ok(abortInitial > 0 && abortInitial < awaitInitialError && awaitInitialError < awaitInitialTerminal && awaitInitialTerminal < abortRecovery, 'The next abort cannot begin until both initial failure and its real terminal were observed');
   assert.ok(journey.includes("await tap('[role=dialog] button', '取消（保留草稿）')"));
   assert.ok(journey.indexOf("await save('first-failure-faults-before-release'") < journey.indexOf("await releaseFaults('first-failure-cleanup')"));
 });

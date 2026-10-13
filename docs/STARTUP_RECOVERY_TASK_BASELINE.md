@@ -157,3 +157,14 @@ page3/document2根页initial初始化172ms成功；整页进入settings产生doc
 本轮只改验收准备／chronology／模块合同，不再改 `c3cb` 生产 guard。真实原生仍 `BLOCKED_EXTERNAL`，需最终准确 SHA 的官方 CI 与原图独审。原本“已有完整可信视图后晚失败不撤回”的产品语义保留，由受控 actual App 合同继续授证；没有为了原生字样造同文档 store 缓存或改变必需初始化要求。
 
 本地定向：startup 合同 9/9、新增 actual App 三臂 3/3、全部 Goal／initialization／initial-session／startup 相邻 346/346；最终 ACK 时间／chronology 负向 3/3 再验通过。346 包含仍隔离的8个 Goal 首读 native 脚本替身合同，不是原生执行。修改脚本 syntax、定向 eslint、diff 检查通过；精确冻结后完整门禁与独审由父任务接续。
+
+## f9 官方原生：保留真实 abort 的部分顺序
+
+`f9f2c764c02dfc46e0d24ffc69add7db761862c0`／CI `38330403418` 的 startup 原档案 SHA256 为 `d012bf216bc8b88f4632e13d025c4f75f898ddc539d1c038f1d7e52177119eec`。
+153 个成员已逐 hash／字节独立核验。两宽 `recovery-success` 已实际完成全部恢复、原 Goal／Todo 可见与原 ID／全字段保全。两宽 `both-fail` 均在 Retry 前因旧 chronology 的 `initialError > initialTerminal` 断言失败；它们不能算整链成功。
+
+原两宽都记录 initial：abort 请求 seq20 → Expense error21 → stores error22 → initialization error23 → 原生 transaction abort 终态24；recovery 对应30→31→32→33→34。request error／Promise 链确实能先于最终 transaction abort 观察回调，独立 IDB 请求账亦有旁证，不是缺失终态。1280 和360 原时间线分别保留在 `tests/fixtures/startup-native-f9`，附原成员 SHA 和运行身份；它们是原合成工件的字段完整 JSON 包装，不冒充未经重排的原成员字节。
+
+最小合同保留同 attempt 的 abort 请求先于 Expense→stores→完整 attempt error，同时请求先于真实 abort 终态；error 与终态不再强加相对先后。下一阶段明确等待两者俱全才发出 recovery abort。错误先于请求、缺失／错误终态、跨 attempt 绑定仍失败；正常 complete 分支仍要求真实终态先于完整成功。模型合同同时覆盖两种合法回调顺序，原两个实际序列单独保留。12 秒 App 预算、原 Retry、故障范围、数据保护、四个既有 profile 和25项正式矩阵均未改变，生产源代码零改。
+
+新两宽 both-fail 的真实 Retry 尚待后续准确 SHA 的 CI 验收；本次测试修订和 recovery-success 原结果不解释或关闭 fcec 偶发初始化队列问题。

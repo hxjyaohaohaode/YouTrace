@@ -20,6 +20,11 @@ export function assertStartupChronology(fault, beforeVisible, source) {
   assert.equal(fault.initialTransactions, 1); assert.equal(fault.recoveryTransactions, 1);
   assert.equal(fault.holds.length, 2);
   assert.equal(fault.databaseName, source.databaseName);
+  let priorSequence = 0;
+  for (const row of fault.events) {
+    assert.ok(Number.isSafeInteger(row.sequence) && row.sequence > priorSequence, 'Chronology must be ordered without duplicate boundaries'); priorSequence = row.sequence;
+    if (row.kind === 'application-initialization' && ['initial', 'recovery'].includes(row.phase)) assert.equal(row.attempt, row.phase === 'initial' ? fault.initialAttempt : fault.recoveryAttempt, 'Every phase event belongs to its captured attempt');
+  }
   assert.ok(Number.isSafeInteger(fault.initialAttempt) && Number.isSafeInteger(fault.recoveryAttempt) && fault.initialAttempt !== fault.recoveryAttempt);
   const find = predicate => { const rows = fault.events.filter(predicate); assert.equal(rows.length, 1, 'Required chronology boundary must occur exactly once'); return rows[0]; };
   const app = (phase, outcome) => find(row => row.kind === 'application-initialization' && row.phase === phase && row.stage === 'initialization' && row.outcome === outcome);
@@ -51,12 +56,13 @@ export function assertStartupChronology(fault, beforeVisible, source) {
   assert.ok(fault.events.filter(row => row.kind === 'synthetic-business-fetch-rejected').every(row => row.method === 'GET'), 'No new business write request may be attempted in this startup fixture');
   assert.equal(fault.events.filter(row => row.kind === 'application-initialization' && row.phase === 'initial' && row.stage === 'initialization' && row.outcome === 'success').length, 0, 'An unpublished cancelled Goal read is not initial readiness');
   const initialError = app('initial', 'error');
-  assert.ok(initialError.sequence > initialTerminal.sequence);
   if (fault.branch === 'recovery-success') {
+    assert.ok(initialError.sequence > initialTerminal.sequence);
     const initialRelease = find(row => row.kind === 'readonly-release-requested' && row.target === 'initial');
     const recoveryRelease = find(row => row.kind === 'readonly-release-requested' && row.target === 'recovery');
     const success = app('recovery', 'success');
     assert.equal(first.terminal, 'complete'); assert.equal(next.terminal, 'complete');
+    assert.equal(initialTerminal.outcome, 'complete'); assert.equal(recoveryTerminal.outcome, 'complete');
     assert.ok(initialRelease.sequence > nextHold.sequence && initialError.sequence > initialRelease.sequence);
     assert.ok(recoveryRelease.sequence > initialError.sequence && success.sequence > recoveryRelease.sequence);
     const goalRead = find(row => row.kind === 'application-initialization' && row.phase === 'recovery' && row.stage === 'goal' && row.outcome === 'success');
@@ -68,8 +74,18 @@ export function assertStartupChronology(fault, beforeVisible, source) {
     const initialAbort = find(row => row.kind === 'readonly-abort-requested' && row.target === 'initial');
     const recoveryAbort = find(row => row.kind === 'readonly-abort-requested' && row.target === 'recovery');
     assert.equal(first.terminal, 'abort'); assert.equal(next.terminal, 'abort');
+    assert.equal(initialTerminal.outcome, 'abort'); assert.equal(recoveryTerminal.outcome, 'abort');
     assert.ok(initialAbort.sequence > nextHold.sequence && initialError.sequence > initialAbort.sequence);
-    assert.ok(recoveryAbort.sequence > initialError.sequence && recoveryTerminal.sequence > recoveryAbort.sequence && app('recovery', 'error').sequence > recoveryTerminal.sequence);
+    // A rejected request/Promise may report before the final native abort
+    // callback. Both real boundaries remain mandatory after the same abort
+    // request; neither observation is substituted for the other.
+    for (const [phase, request, terminal] of [['initial', initialAbort, initialTerminal], ['recovery', recoveryAbort, recoveryTerminal]]) {
+      const expenseError = find(row => row.kind === 'application-initialization' && row.phase === phase && row.stage === 'expense' && row.outcome === 'error');
+      const storesError = find(row => row.kind === 'application-initialization' && row.phase === phase && row.stage === 'stores' && row.outcome === 'error');
+      assert.ok(expenseError.sequence > request.sequence && storesError.sequence > expenseError.sequence && app(phase, 'error').sequence > storesError.sequence);
+      assert.ok(terminal.sequence > request.sequence);
+    }
+    assert.ok(recoveryAbort.sequence > Math.max(initialError.sequence, initialTerminal.sequence));
     assert.equal(fault.events.filter(row => row.kind === 'application-initialization' && row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === 'success').length, 0);
   }
   return true;

@@ -103,7 +103,73 @@ export function assertGoalRetryDocuments(documents, retries) {
   return true;
 }
 
-export function assertGoalInitialSourcePreserved(before, after, allowPullTime = false) {
+const sequence = value => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
+const pullPath = cursor => `/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=500`;
+
+// Preserve the actual GET response pages, not a guessed cursor derived from
+// a filtered list. Existing apiFor verifies response.ok and sends the captured
+// owner's account header; no cookies or credentials enter this evidence.
+export async function readGoalInitialPullProof(api) {
+  assert.ok(typeof api.ownerId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(api.ownerId));
+  const pages = [], events = []; let cursor = '0';
+  for (let index = 0; index < 20; index++) {
+    const path = pullPath(cursor), response = await api(path);
+    assert.ok(Array.isArray(response.events) && sequence(response.nextCursor) && typeof response.hasMore === 'boolean');
+    pages.push({ method: 'GET', path, account: api.ownerId, response }); events.push(...response.events);
+    if (!response.hasMore) return { owner: api.ownerId, pages, events, tip: response.nextCursor };
+    assert.ok(BigInt(response.nextCursor) > BigInt(cursor)); cursor = response.nextCursor;
+  }
+  throw new Error('First-read ledger proof exceeded its bounded page count');
+}
+
+export function assertGoalInitialPullProof(proof, account) {
+  const owner = /^youtrace:user:([a-zA-Z0-9_-]{1,128}):schedule-v1$/.exec(account.databaseName)?.[1];
+  assert.ok(owner); assert.equal(proof?.owner, owner);
+  assert.ok(Array.isArray(proof.pages) && proof.pages.length > 0 && proof.pages.length <= 20);
+  let cursor = '0'; const events = [];
+  for (const [index, page] of proof.pages.entries()) {
+    assert.equal(page.method, 'GET'); assert.equal(page.account, owner); assert.equal(page.path, pullPath(cursor));
+    const body = page.response;
+    assert.equal(body.protocol, 2); assert.ok(Array.isArray(body.features) && body.features.includes('goals-v1'));
+    assert.ok(Array.isArray(body.events) && body.events.length <= 500 && sequence(body.nextCursor));
+    assert.equal(body.hasMore, index < proof.pages.length - 1, 'The final real page must prove the ledger is complete');
+    let previous = BigInt(cursor);
+    for (const event of body.events) {
+      assert.ok(sequence(event.seq) && BigInt(event.seq) > previous); previous = BigInt(event.seq);
+      assert.equal(event.entity, 'goals'); assert.equal(event.operation, 'upsert');
+      assert.ok(typeof event.entityId === 'string' && event.entityId.length > 0);
+      assert.equal(event.data?.id, event.entityId); assert.equal(event.data?.userId, owner);
+      for (const key of ['title', 'description', 'level', 'domain', 'priority']) assert.equal(typeof event.data[key], 'string');
+      assert.ok(event.data.targetDate === null || typeof event.data.targetDate === 'string');
+      assert.ok(Number.isFinite(event.data.progress) && event.data.progress >= 0 && event.data.progress <= 100);
+      for (const key of ['createdAt', 'updatedAt']) assert.ok(typeof event.data[key] === 'string' && Number.isFinite(Date.parse(event.data[key])) && new Date(event.data[key]).toISOString() === event.data[key]);
+      events.push(event);
+    }
+    assert.equal(body.nextCursor, previous.toString());
+    if (body.hasMore) assert.ok(body.events.length > 0);
+    cursor = body.nextCursor;
+  }
+  assert.deepEqual(proof.events, events); assert.equal(proof.tip, cursor);
+  const rows = name => decodeAccountFact(account.tables.find(table => table.name === name)?.losslessRows);
+  const settings = rows('settings'), goals = rows('goalRecords');
+  assert.equal(rows('outbox').length, 0); assert.equal(goals.length, 2);
+  assert.equal(events.length, 4, 'This declared fixture has exactly two original creates and two progress ACKs');
+  assert.equal(new Set(goals.map(row => row.id)).size, 2);
+  for (const goal of goals) {
+    const history = events.filter(event => event.entityId === goal.id); assert.equal(history.length, 2);
+    assert.equal(history[0].data.progress, 0); const latest = history[1];
+    assert.equal(goal.syncScope, 'account');
+    assert.equal(settings.find(row => row.key === `sync-version:goals:${goal.id}`)?.value, latest.seq, 'Existing ACK must cover the complete original event history');
+    for (const key of ['id', 'title', 'description', 'level', 'domain', 'priority', 'progress', 'targetDate']) assert.deepEqual(latest.data[key], goal[key]);
+    assert.ok(Number.isSafeInteger(goal.createdAt)); assert.equal(latest.data.createdAt, new Date(goal.createdAt).toISOString());
+  }
+  const current = settings.find(row => row.key === 'syncV2Cursor')?.value;
+  assert.ok(sequence(current) && BigInt(current) <= BigInt(cursor), 'Captured cursor cannot exceed its same-owner complete ledger');
+  assert.ok(!settings.some(row => row.key.startsWith('sync-conflict:')));
+  return cursor;
+}
+
+export function assertGoalInitialSourcePreserved(before, after, allowBootstrapMetadata = false) {
   assert.deepEqual(after.catalog, before.catalog, 'No DB is created, deleted or upgraded by a failed read or Retry');
   assert.deepEqual(after.otherDatabases, before.otherDatabases, 'Every actually present non-current source stays exact');
   assert.deepEqual(after.events, before.events, 'The complete server event ledger remains exact');
@@ -120,8 +186,16 @@ export function assertGoalInitialSourcePreserved(before, after, allowPullTime = 
     for (let index = 0; index < oldRows.length; index++) {
       const old = oldRows[index], now = newRows[index];
       if (equal(old, now)) continue;
-      assert.ok(allowPullTime && old.key === 'lastPullAt' && now.key === old.key, 'No blanket settings exclusion');
+      assert.ok(allowBootstrapMetadata && ['lastPullAt', 'syncV2Cursor'].includes(old.key) && now.key === old.key, 'No blanket settings exclusion');
       assert.deepEqual(Object.keys(now).sort(), ['key', 'value']); assert.deepEqual(Object.keys(old).sort(), ['key', 'value']);
+      if (old.key === 'syncV2Cursor') {
+        const oldTip = assertGoalInitialPullProof(before.pullProof, before.account), newTip = assertGoalInitialPullProof(after.pullProof, after.account);
+        assert.deepEqual(before.pullProof.events, before.events); assert.deepEqual(after.pullProof.events, after.events);
+        assert.equal(newTip, oldTip); assert.ok(sequence(old.value) && sequence(now.value) && BigInt(now.value) >= BigInt(old.value));
+        assert.equal(now.value, newTip, 'Only the precise complete previously ACKed ledger tip may be adopted');
+        changes.push({ table: 'settings', key: old.key, before: old.value, after: now.value, owner: after.pullProof.owner, evidence: 'Exact before/after pullProof raw GET pages and unchanged events in the same snapshot', tip: newTip });
+        continue;
+      }
       assert.ok(typeof old.value === 'string' && typeof now.value === 'string' && Number.isFinite(Date.parse(old.value)) && Number.isFinite(Date.parse(now.value)) && Date.parse(now.value) >= Date.parse(old.value));
       changes.push({ table: 'settings', key: old.key, before: old.value, after: now.value, scope: 'Normal bootstrap pull across documents, outside the settled failure zero-write window' });
     }
@@ -134,7 +208,7 @@ export function assertGoalInitialSourcePreserved(before, after, allowPullTime = 
  * quota/edit/delete step is permitted to disguise or repair this first result. */
 export async function runGoalInitialReadRecovery(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Goal first-read native journey is hosted-CI only');
-  const { page, owner, target, neighbor, label, tap, read, exactSelector, readLedger, verifyPair, capture, actions, writeFile, join, artifacts } = h;
+  const { page, owner, target, neighbor, label, tap, read, exactSelector, readLedger, readPullProof, verifyPair, capture, actions, writeFile, join, artifacts } = h;
   const origin = new URL(page.url()).origin; assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/);
   const databaseName = `youtrace:user:${owner}:schedule-v1`, controller = '__youtraceSyntheticGoalInitialRead';
   const trace = createInitializationObserver(), documents = [], retries = [];
@@ -152,7 +226,10 @@ export async function runGoalInitialReadRecovery(h) {
     assert.ok(catalog.some(row => row.name === databaseName), 'Current verified account database must already exist');
     const otherDatabases = [];
     for (const entry of catalog.filter(row => row.name !== databaseName)) otherDatabases.push({ name: entry.name, snapshot: await page.evaluate(legacyBackupFacts, undefined, entry.name) });
-    return { catalog, account: await page.evaluate(readExistingAccount, owner), otherDatabases, events: await readLedger() };
+    const account = await page.evaluate(readExistingAccount, owner);
+    const pullProof = readPullProof ? await readPullProof() : undefined;
+    if (pullProof) assertGoalInitialPullProof(pullProof, account);
+    return { catalog, account, otherDatabases, events: pullProof ? pullProof.events : await readLedger(), ...(pullProof ? { pullProof } : {}) };
   };
   const gate = async suffix => {
     await page.waitForFunction(key => {
@@ -202,7 +279,7 @@ export async function runGoalInitialReadRecovery(h) {
     const rows = decodeAccountFact(before.account.tables.find(row => row.name === 'goalRecords').losslessRows);
     assert.equal(rows.length, 2); assert.equal(rows.find(row => row.id === target.id)?.progress, 25); assert.equal(rows.find(row => row.id === neighbor.id)?.progress, 50);
     assert.equal(decodeAccountFact(before.account.tables.find(row => row.name === 'outbox').losslessRows).length, 0);
-    await save('scope-and-original', { syntheticOnly: true, owner, targetId: target.id, neighborId: neighbor.id, before, limitations: ['No new foreign-owner or legacy-source fixture is seeded: preservation applies only to databases/tables actually present in this recorded catalog', 'Exact four-table snapshot abort tests the required App gate and real reload recovery; neither the narrower error-publication catch nor the controlled overlapping-read matrix is awarded native coverage', 'Normal lastPullAt refresh across documents is disclosed exactly, not counted as a zero-write startup', 'No third Retry, no provider/production claim; no startup queue or timeout modification'] });
+    await save('scope-and-original', { syntheticOnly: true, owner, targetId: target.id, neighborId: neighbor.id, before, limitations: ['No new foreign-owner or legacy-source fixture is seeded: preservation applies only to databases/tables actually present in this recorded catalog', 'Exact four-table snapshot abort tests the required App gate and real reload recovery; neither the narrower error-publication catch nor the controlled overlapping-read matrix is awarded native coverage', 'Cross-document lastPullAt refresh and exact same-owner fully ACKed pull-proof cursor advancement are disclosed individually; neither is counted as a zero-write startup', 'No third Retry, no provider/production claim; no startup queue or timeout modification'] });
     script = await page.evaluateOnNewDocument(`globalThis.${controller} = (${installGoalInitialReadFault.toString()})(${JSON.stringify({ databaseName })});`);
     stage = 'first-new-document-failure'; installed = true;
     actions.push({ kind: 'declared-goal-first-read-new-document', label, path: '/goal', fault: 'exact-owner-four-table-readonly-native-abort' });

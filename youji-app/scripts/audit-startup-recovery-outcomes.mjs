@@ -269,6 +269,7 @@ export async function runStartupRecoveryOutcomes(h) {
         } else {
           await setStage('both-native-readonly-aborts');
           await faultCommand('finish', 'initial', 'abort'); await waitApp('initial', 'error');
+          await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.find(row => row.target === 'initial')?.terminal === 'abort');
           await faultCommand('finish', 'recovery', 'abort'); await waitApp('recovery', 'error');
           await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.every(row => row.terminal));
           const fault = await faultSnapshot(); await save('complete-fault-chronology', fault); assertStartupChronology(fault, undefined, sourceWitness(beforeFacts.local));

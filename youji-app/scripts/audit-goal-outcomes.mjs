@@ -4,7 +4,7 @@
 // put/delete fault injection never seeds a record or touches an app/auth store.
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { runGoalInitialReadRecovery } from './audit-goal-initial-read.mjs';
+import { runGoalInitialReadRecovery, readGoalInitialPullProof } from './audit-goal-initial-read.mjs';
 
 const NAME = 'Synthetic 自主方向';
 const WORKSPACE = '[data-component="goal-workspace"]';
@@ -567,7 +567,7 @@ export async function runGoalOutcomes(h) {
     // this profile before any later edit/quota/deletion can change its sources.
     requirePair();
     await runGoalInitialReadRecovery({ page, owner: api.ownerId, target, neighbor, label: `${label}-initial-read`, tap, read, exactSelector,
-      readLedger: () => ledger(api), verifyPair: async originals => {
+      readLedger: () => ledger(api), readPullProof: () => readGoalInitialPullProof(api), verifyPair: async originals => {
         await card(page, target); await card(page, neighbor);
         const current = await facts(page, api, `${label}-initial-read-returned`, [target.id, neighbor.id]);
         assert.equal(current.local.goalRecords.find(row => row.id === target.id)?.progress, 25);
