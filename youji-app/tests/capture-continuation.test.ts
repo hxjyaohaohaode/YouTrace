@@ -154,3 +154,84 @@ test('actual modules: matching a newer row on a first attempt or retrying known 
   await storage.db.settings.put({ key: `capture-review:${old.id}`, value: desired }); const before = await facts();
   await assert.rejects(save(grant, desired), /已变化/); await assert.rejects(save(grant, desired), /已变化/); assert.deepEqual(await facts(), before);
 });
+
+test('owned pending: each explicit edit requires an opaque ticket and cannot clear a later queued payload', async () => {
+  const { entry } = await selected(); const grant = await prepare(entry);
+  const stage = (catalog as unknown as Record<string, unknown>).stageCaptureContinuationEdit;
+  assert.equal(typeof stage, 'function', 'isolated component requires pending ownership, not ordinary retain');
+  const first = { ...grant.draft, diary: '合成排队一' }, second = { ...grant.draft, diary: '合成排队二' };
+  const one = (stage as typeof catalog.stageCaptureContinuationEdit)(grant, first), two = (stage as typeof catalog.stageCaptureContinuationEdit)(grant, second);
+  await assert.rejects(catalog.saveCaptureContinuation(grant, first));
+  await catalog.saveCaptureContinuation(grant, first, one);
+  assert.equal(catalog.readCaptureContinuationState(grant).pending, true);
+  assert.deepEqual(catalog.readCaptureContinuationState(grant).draft, second);
+  await assert.rejects(catalog.saveCaptureContinuation(grant, second, one));
+  await catalog.saveCaptureContinuation(grant, second, two);
+  assert.equal(catalog.readCaptureContinuationState(grant).pending, false);
+});
+
+for (const sabotage of ['replace', 'delete-by-old-read'] as const) test(`owned pending: ordinary ${sabotage} is detected without losing either original or reclaiming the slot`, async () => {
+  const old = await draft(`owned-${sabotage}`), pending = await import('../src/services/pendingEditorMemory.ts');
+  const entry = (await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!, grant = await prepare(entry);
+  const desired = { ...grant.draft, diary: '  合成本实例未落盘\n尾空白  ' }, ticket = catalog.stageCaptureContinuationEdit(grant, desired);
+  const scope = { database: storage.db, owner: storage.db.ownerId, session: grant.draft.sessionRevision!, epoch: grant.draft.dataEpoch, key: `capture-review:${old.id}` };
+  const other = { ...old, diary: '合成另一实例未落盘' };
+  let otherToken: number | undefined;
+  if (sabotage === 'replace') otherToken = pending.retainPendingEditor(scope, other);
+  else assert.equal(pending.readPendingEditor({ ...scope, session: 'SYNTHETIC_WRONG_SESSION' }), null);
+  const before = await facts();
+  await assert.rejects(catalog.saveCaptureContinuation(grant, desired, ticket), /归属/);
+  assert.deepEqual(catalog.readCaptureContinuationState(grant), { draft: desired, pending: true });
+  const more = { ...desired, diary: '  继续输入也要保留\n  ' };
+  assert.throws(() => catalog.stageCaptureContinuationEdit(grant, more), /归属/);
+  assert.deepEqual(catalog.readCaptureContinuationState(grant).draft, more);
+  assert.deepEqual(pending.readPendingEditor(scope), sabotage === 'replace' ? other : null);
+  assert.deepEqual(await facts(), before);
+  if (otherToken !== undefined) pending.releasePendingEditor(scope, otherToken);
+  await assert.rejects(prepare((await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!), /未落盘/);
+});
+
+test('owned pending: registered payload is immutable, exact and single-use after acknowledgement', async () => {
+  const old = await draft('owned-exact'), grant = await prepare((await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!);
+  const desired = { ...grant.draft, diary: '合成准确暂存' }, ticket = catalog.stageCaptureContinuationEdit(grant, desired);
+  desired.diary = '合成调用者随后篡改'; const before = await facts();
+  await assert.rejects(catalog.saveCaptureContinuation(grant, desired, ticket));
+  await assert.rejects(catalog.saveCaptureContinuation(grant, { ...desired, diary: '合成准确暂存' }, structuredClone(ticket)));
+  assert.deepEqual(await facts(), before);
+  assert.equal(catalog.readCaptureContinuationState(grant).draft.diary, '合成准确暂存');
+  const actual = { ...desired, diary: '合成准确暂存' }; await catalog.saveCaptureContinuation(grant, actual, ticket);
+  const after = await facts(); await assert.rejects(catalog.saveCaptureContinuation(grant, actual, ticket)); assert.deepEqual(await facts(), after);
+});
+
+test('owned pending: stale first completion keeps newer payload retained until its exact ticket commits', async () => {
+  const old = await draft('owned-late'), grant = await prepare((await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!);
+  const first = { ...grant.draft, diary: '合成一' }, second = { ...grant.draft, diary: '合成二' };
+  const one = catalog.stageCaptureContinuationEdit(grant, first), get = storage.db.settings.get; let epochReads = 0; let two!: catalog.CaptureContinuationEdit;
+  storage.db.settings.get = function (...args: Parameters<typeof get>) { return get.apply(this, args).then(value => { if (args[0] === storage.LOCAL_DATA_EPOCH_KEY && ++epochReads === 2) two = catalog.stageCaptureContinuationEdit(grant, second); return value; }); } as typeof get;
+  try { await catalog.saveCaptureContinuation(grant, first, one); } finally { storage.db.settings.get = get; }
+  assert.deepEqual(catalog.readCaptureContinuationState(grant), { draft: second, pending: true });
+  assert.deepEqual((await storage.db.settings.get(`capture-review:${old.id}`))?.value, first);
+  await catalog.saveCaptureContinuation(grant, second, two); assert.equal(catalog.readCaptureContinuationState(grant).pending, false);
+});
+
+test('owned pending: final awaited token replacement aborts the transaction and preserves both memory originals', async () => {
+  const old = await draft('owned-final'), grant = await prepare((await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!);
+  const pending = await import('../src/services/pendingEditorMemory.ts'), desired = { ...grant.draft, diary: '合成本次' }, ticket = catalog.stageCaptureContinuationEdit(grant, desired);
+  const scope = { database: storage.db, owner: storage.db.ownerId, session: grant.draft.sessionRevision!, epoch: grant.draft.dataEpoch, key: `capture-review:${old.id}` };
+  const other = { ...old, diary: '合成并发另一个' }, before = await facts(), get = storage.db.settings.get; let count = 0, token = 0;
+  storage.db.settings.get = function (...args: Parameters<typeof get>) { return get.apply(this, args).then(value => { if (args[0] === storage.LOCAL_DATA_EPOCH_KEY && ++count === 2) token = pending.retainPendingEditor(scope, other); return value; }); } as typeof get;
+  try { await assert.rejects(catalog.saveCaptureContinuation(grant, desired, ticket), /归属/); } finally { storage.db.settings.get = get; }
+  assert.deepEqual(await facts(), before); assert.deepEqual(catalog.readCaptureContinuationState(grant).draft, desired); assert.deepEqual(pending.readPendingEditor(scope), other);
+  pending.releasePendingEditor(scope, token);
+});
+
+test('owned pending: an invalid numeric edit is retained exactly until the user corrects it, never written as a valid draft', async () => {
+  const old = await draft('owned-invalid-input'), grant = await prepare((await catalog.listCaptureDraftPage()).entries.find(x => x.id === old.id)!);
+  const invalid = structuredClone(grant.draft); invalid.expenses[0].amount = Infinity; invalid.expenses[0].amountText = '9'.repeat(400);
+  const before = await facts(), ticket = catalog.stageCaptureContinuationEdit(grant, invalid);
+  assert.deepEqual(catalog.readCaptureContinuationState(grant).draft, invalid);
+  await assert.rejects(catalog.saveCaptureContinuation(grant, invalid, ticket)); assert.deepEqual(await facts(), before);
+  const corrected = structuredClone(invalid); corrected.expenses[0].amount = 1250; corrected.expenses[0].amountText = '12.50';
+  const correction = catalog.stageCaptureContinuationEdit(grant, corrected); await catalog.saveCaptureContinuation(grant, corrected, correction);
+  assert.deepEqual((await storage.db.settings.get(`capture-review:${old.id}`))?.value, corrected);
+});

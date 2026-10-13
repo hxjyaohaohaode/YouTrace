@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { runInNewContext } from 'node:vm';
+import { runInThisContext } from 'node:vm';
 import { after, beforeEach, test } from 'node:test';
 import * as React from 'react';
 import { act } from 'react';
@@ -47,7 +47,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     '../components/ui/Button': { Button: host('button') }, '../ui/Button': { Button: host('button') },
     '../components/ui/Checkbox': { Checkbox: ({ label, ...props }: { label?: string }) => React.createElement('input', { type: 'checkbox', 'aria-label': label, ...props }) },
     '../ui/Modal': { Modal: ({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; footer: React.ReactNode }) => open ? React.createElement('section', { role: 'dialog', 'aria-label': title }, React.createElement('button', { onClick: onClose }, '宿主Esc关闭'), children, footer) : null },
-    '../services/quickNoteIntegration': capture, '../services/parser': parser, '../services/capturePresentation': presentation,
+    '../services/captureDraftCatalog': catalog, '../services/quickNoteIntegration': capture, '../services/parser': parser, '../services/capturePresentation': presentation,
     '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
     '../services/diagnostics': { recordDiagnostic() {} }, '../db': storage, '../utils/icons': icons,
     '../stores/useHabitStore': habits, '../stores/habitStore': habits, '../stores/authStore': auth,
@@ -59,10 +59,13 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     const exports: Record<string, React.ComponentType> = {}; cache.set(path, exports);
     const source = readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
     const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2023 } }).outputText;
-    runInNewContext(code, { exports, require: (name: string) => name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON });
+    // Same JS realm as the actual services: cross-realm VM object literals
+    // deliberately fail the service's plain-record check and do not model the app.
+    const bindings = { exports, require: (name: string) => name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON };
+    runInThisContext(`(function(${Object.keys(bindings).join(',')}) {${code}\n})`)(...Object.values(bindings));
     return exports;
   }
-  return { Component: compile(`pages/${page}.tsx`).default, navigations };
+  return { Component: compile(`pages/${page}.tsx`).default, Review: compile(`pages/${page}.tsx`).CaptureReview as React.ComponentType<{ original: capture.CaptureDraft; continuation: { grant: catalog.CaptureContinuation; onClose: () => void } }>, navigations };
 }
 async function mount(s: ReturnType<typeof setup>) { let tree!: ReactTestRenderer; await act(async () => { tree = create(React.createElement(s.Component)); }); await settle(() => !text(tree.root).includes('正在恢复本机确认稿') && !text(tree.root).includes('正在保留草稿') && !text(tree.root).includes('正在连接本机草稿')); return tree; }
 for (const page of ['QuickNote', 'QuickNoteResult'] as const) test(`actual ${page}: read-only catalog entry is discoverable without changing the existing editor`, async () => {
@@ -261,4 +264,146 @@ test('actual late read error from replaced session publishes only generic contex
     await settle(() => text(tree.root).includes('账号或本机资料已变化'));
     assert.doesNotMatch(text(tree.root), /原账号合成私有错误不可显示|原编号：O/); assert.deepEqual(await facts(), before);
   } finally { held.reject(new Error('cleanup')); await act(async () => tree.unmount()); }
+});
+
+
+test('internal isolated actual review: private original and no-edit close skip upgrade, ordinary pending and every writer', async () => {
+  const original = await seed('O'); await seed('D'); const entry = (await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!;
+  const grant = await catalog.prepareCaptureContinuation(entry); grant.draft.input = 'SYNTHETIC_PUBLIC_MUTATION';
+  let closed = 0, forbidden = 0;
+  const s = setup('QuickNoteResult', { '../services/quickNoteIntegration': { ...capture, upgradeCaptureReview() { forbidden++; throw new Error('no upgrade'); }, saveCaptureDraft() { forbidden++; throw new Error('no ordinary writer'); }, applyCaptureDraft() { forbidden++; throw new Error('no business apply'); } }, '../services/pendingEditorMemory': { ...pending, readPendingEditor() { forbidden++; throw new Error('no ordinary pending read'); } } });
+  assert.equal(typeof s.Review, 'function', 'internal policy must reuse the actual original review component');
+  const before = await facts(), pointers = [sessionStorage.getItem(capture.captureSessionKey()), sessionStorage.getItem(`youtrace:input:${owner}`)]; let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(React.createElement(s.Review, { original: { ...original, input: 'SYNTHETIC_WRONG_PROP' }, continuation: { grant, onClose: () => { closed++; } } })); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '完整确认稿备份' }).length === 1);
+  try {
+    assert.ok(text(tree.root).includes(original.input)); assert.doesNotMatch(text(tree.root), /SYNTHETIC_PUBLIC_MUTATION|SYNTHETIC_WRONG_PROP/);
+    assert.equal(tree.root.findAllByType('button').some(x => /确认保存所选记录|查看本机未提交稿/.test(text(x))), false);
+    await act(async () => tree.root.findAllByType('button').find(x => x.props['aria-label'] === '返回')!.props.onClick());
+    assert.equal(closed, 1); assert.equal(forbidden, 0); assert.deepEqual(await facts(), before); assert.deepEqual(s.navigations, []);
+    assert.deepEqual([sessionStorage.getItem(capture.captureSessionKey()), sessionStorage.getItem(`youtrace:input:${owner}`)], pointers);
+  } finally { await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: correcting original O keeps mounted parent D, all other rows and both pointers exact', async () => {
+  const original = await seed('policy-O'), parent = await seed('policy-D');
+  const grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const s = setup('QuickNoteResult'); let tree!: ReactTestRenderer;
+  function Pair() { const [open, setOpen] = React.useState(true); return React.createElement(React.Fragment, null, React.createElement(s.Component), open && React.createElement(s.Review, { original, continuation: { grant, onClose: () => setOpen(false) } })); }
+  await act(async () => { tree = create(React.createElement(Pair)); }); await settle(() => tree.root.findAllByType(s.Review).length === 2 && tree.root.findAllByProps({ 'aria-label': '完整确认稿备份' }).length === 2);
+  try {
+    const parentView = tree.root.findAllByType(s.Review).find(x => !x.props.continuation)!;
+    const parentFields = editorFields({ root: parentView } as ReactTestRenderer), before = await facts();
+    const pointers = [sessionStorage.getItem(capture.captureSessionKey()), sessionStorage.getItem(`youtrace:input:${owner}`)];
+    const isolated = tree.root.findAllByType(s.Review).find(x => x.props.continuation)!;
+    const edit = '  合成选中O的新日记\n仍保留末尾  ';
+    await act(async () => { isolated.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: edit } }); await tick(); });
+    await settle(() => !catalog.readCaptureContinuationState(grant).pending);
+    const expected = structuredClone(before), row = (expected.settings as Array<{ key: string; value: unknown }>).find(x => x.key === `capture-review:${original.id}`)!;
+    row.value = { ...grant.draft, diary: edit };
+    assert.deepEqual(await facts(), expected); assert.deepEqual(editorFields({ root: parentView } as ReactTestRenderer), parentFields);
+    assert.equal(tree.root.findAllByType(s.Review).find(x => !x.props.continuation), parentView);
+    assert.deepEqual((await storage.db.settings.get('quicknote_review'))?.value, parent);
+    await act(async () => isolated.findAllByType('button').find(x => x.props['aria-label'] === '返回')!.props.onClick());
+    assert.equal(tree.root.findAllByType(s.Review).length, 1); assert.equal(tree.root.findByType(s.Review), parentView);
+    assert.deepEqual(editorFields({ root: parentView } as ReactTestRenderer), parentFields); assert.deepEqual(s.navigations, []);
+    assert.deepEqual([sessionStorage.getItem(capture.captureSessionKey()), sessionStorage.getItem(`youtrace:input:${owner}`)], pointers);
+  } finally { await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: quota keeps failed typed input, back cannot discard it, exact retry keeps original ID', async () => {
+  const original = await seed('policy-quota'); await seed('policy-parent'); const grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const s = setup('QuickNoteResult'); let tree!: ReactTestRenderer, closed = 0;
+  await act(async () => { tree = create(React.createElement(s.Review, { original, continuation: { grant, onClose: () => closed++ } })); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '日记内容' }).length === 1);
+  const before = await facts(), put = storage.db.settings.put; let fail = true;
+  storage.db.settings.put = function (...args: Parameters<typeof put>) { if (fail && args[0].key === `capture-review:${original.id}`) return Promise.reject(new DOMException('SYNTHETIC_QUOTA', 'QuotaExceededError')) as ReturnType<typeof put>; return put.apply(this, args); } as typeof put;
+  try {
+    const edit = '  合成失败编辑\n完整保留  ';
+    await act(async () => { tree.root.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: edit } }); await tick(); });
+    await settle(() => text(tree.root).includes('修改尚未落盘'));
+    assert.deepEqual(await facts(), before); assert.equal(tree.root.findByProps({ 'aria-label': '日记内容' }).props.value, edit);
+    assert.equal(catalog.readCaptureContinuationState(grant).draft.diary, edit);
+    await act(async () => tree.root.findAllByType('button').find(x => x.props['aria-label'] === '返回')!.props.onClick());
+    assert.equal(closed, 0); assert.equal(catalog.readCaptureContinuationState(grant).pending, true);
+    fail = false; await click(tree, '重试保留修改'); await settle(() => !catalog.readCaptureContinuationState(grant).pending);
+    assert.equal((await storage.db.settings.get(`capture-review:${original.id}`))?.value.diary, edit); assert.deepEqual(s.navigations, []);
+    await act(async () => tree.root.findAllByType('button').find(x => x.props['aria-label'] === '返回')!.props.onClick()); assert.equal(closed, 1);
+  } finally { storage.db.settings.put = put; await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: queued failure survives unmount, then same granted instance retries without pending recovery or upgrade', async () => {
+  const original = await seed('policy-unmount'), grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const held = deferred<void>(); let started = false;
+  const s = setup('QuickNoteResult', { '../services/captureDraftCatalog': { ...catalog, saveCaptureContinuation: async (...args: Parameters<typeof catalog.saveCaptureContinuation>) => { started = true; await held.promise; return catalog.saveCaptureContinuation(...args); } } });
+  let tree!: ReactTestRenderer; const props = { original, continuation: { grant, onClose() {} } };
+  await act(async () => { tree = create(React.createElement(s.Review, props)); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '日记内容' }).length === 1);
+  const before = await facts(), edit = '  合成卸载后待保存\n  ';
+  await act(async () => tree.root.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: edit } })); await settle(() => started);
+  await act(async () => tree.unmount()); held.reject(new Error('SYNTHETIC_LATE_FAILURE')); await act(async () => tick());
+  assert.deepEqual(await facts(), before); assert.equal(catalog.readCaptureContinuationState(grant).draft.diary, edit);
+  const freshHost = setup('QuickNoteResult'); await act(async () => { tree = create(React.createElement(freshHost.Review, props)); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '日记内容' }).length === 1);
+  try { assert.equal(tree.root.findByProps({ 'aria-label': '日记内容' }).props.value, edit); assert.match(text(tree.root), /尚未落盘/); await click(tree, '重试保留修改'); await settle(() => !catalog.readCaptureContinuationState(grant).pending); assert.equal((await storage.db.settings.get(`capture-review:${original.id}`))?.value.diary, edit); }
+  finally { await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: session replacement hides previous text and blocks delayed queued writes', async () => {
+  const original = await seed('policy-session'), grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const held = deferred<void>(); let started = false;
+  const s = setup('QuickNoteResult', { '../services/captureDraftCatalog': { ...catalog, saveCaptureContinuation: async (...args: Parameters<typeof catalog.saveCaptureContinuation>) => { started = true; await held.promise; return catalog.saveCaptureContinuation(...args); } } });
+  let tree!: ReactTestRenderer; await act(async () => { tree = create(React.createElement(s.Review, { original, continuation: { grant, onClose() {} } })); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '日记内容' }).length === 1);
+  const before = await facts(), edit = 'SYNTHETIC_PRIVATE_OLD_SESSION';
+  try {
+    await act(async () => tree.root.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: edit } })); await settle(() => started);
+    await act(async () => { api.setSessionActive(owner); auth.useAuthStore.setState({ user: { ...user } }); held.resolve(); await tick(); });
+    await settle(() => text(tree.root).includes('账号状态已变化'));
+    assert.doesNotMatch(text(tree.root), /SYNTHETIC_PRIVATE_OLD_SESSION/); assert.deepEqual(await facts(), before); assert.deepEqual(s.navigations, []);
+    assert.throws(() => catalog.readCaptureContinuationState(grant), /账号/);
+  } finally { held.resolve(); await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: a changed epoch before mount never renders selected private contents', async () => {
+  const original = await seed('policy-epoch', 'SYNTHETIC_PRIVATE_PREVIOUS_EPOCH'), grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  await storage.db.settings.put({ key: storage.LOCAL_DATA_EPOCH_KEY, value: 'SYNTHETIC_REPLACED_EPOCH' });
+  const before = await facts(), s = setup('QuickNoteResult'); let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(React.createElement(s.Review, { original, continuation: { grant, onClose() {} } })); });
+  try { assert.doesNotMatch(text(tree.root), /SYNTHETIC_PRIVATE_PREVIOUS_EPOCH/); await settle(() => text(tree.root).includes('账号状态已变化')); assert.deepEqual(await facts(), before); }
+  finally { await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: original amount control retains an invalid long edit across failed write and exact correction', async () => {
+  const original = await seed('policy-amount'), grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const s = setup('QuickNoteResult'); let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(React.createElement(s.Review, { original, continuation: { grant, onClose() {} } })); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '第1笔金额（人民币元）' }).length === 1);
+  try {
+    const before = await facts(), raw = '9'.repeat(400);
+    await act(async () => { tree.root.findByProps({ 'aria-label': '第1笔金额（人民币元）' }).props.onChange({ target: { value: raw } }); await tick(); });
+    await settle(() => text(tree.root).includes('修改尚未落盘'));
+    assert.equal(tree.root.findByProps({ 'aria-label': '第1笔金额（人民币元）' }).props.value, raw);
+    assert.equal(catalog.readCaptureContinuationState(grant).draft.expenses[0].amountText, raw); assert.deepEqual(await facts(), before);
+    await act(async () => { tree.root.findByProps({ 'aria-label': '第1笔金额（人民币元）' }).props.onChange({ target: { value: '12.50' } }); await tick(); });
+    await settle(() => !catalog.readCaptureContinuationState(grant).pending);
+    const result = (await storage.db.settings.get(`capture-review:${original.id}`))?.value;
+    assert.equal(result.expenses[0].amount, 1250); assert.equal(result.expenses[0].amountText, '12.50'); assert.equal(result.id, original.id);
+  } finally { await act(async () => tree.unmount()); }
+});
+
+test('internal isolated actual review: newer queued failure is visible after old success and remains in memory', async () => {
+  const original = await seed('policy-queue'), grant = await catalog.prepareCaptureContinuation((await catalog.listCaptureDraftPage()).entries.find(x => x.id === original.id)!);
+  const held = deferred<void>(); let calls = 0, started = false;
+  const s = setup('QuickNoteResult', { '../services/captureDraftCatalog': { ...catalog, saveCaptureContinuation: async (...args: Parameters<typeof catalog.saveCaptureContinuation>) => { if (++calls === 1) { started = true; await held.promise; return catalog.saveCaptureContinuation(...args); } throw new Error('SYNTHETIC_SECOND_FAILED'); } } });
+  let tree!: ReactTestRenderer; await act(async () => { tree = create(React.createElement(s.Review, { original, continuation: { grant, onClose() {} } })); });
+  await settle(() => tree.root.findAllByProps({ 'aria-label': '日记内容' }).length === 1);
+  try {
+    await act(async () => tree.root.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: '合成第一笔' } })); await settle(() => started);
+    await act(async () => { tree.root.findByProps({ 'aria-label': '日记内容' }).props.onChange({ target: { value: '  合成较新失败\n  ' } }); held.resolve(); await tick(); });
+    await settle(() => text(tree.root).includes('修改尚未落盘'));
+    assert.equal(calls, 2); assert.equal((await storage.db.settings.get(`capture-review:${original.id}`))?.value.diary, '合成第一笔');
+    assert.equal(tree.root.findByProps({ 'aria-label': '日记内容' }).props.value, '  合成较新失败\n  ');
+    assert.equal(catalog.readCaptureContinuationState(grant).draft.diary, '  合成较新失败\n  ');
+  } finally { held.resolve(); await act(async () => tree.unmount()); }
 });

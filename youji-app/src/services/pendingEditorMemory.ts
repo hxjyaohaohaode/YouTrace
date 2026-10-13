@@ -18,3 +18,15 @@ export function hasPendingEditorForRecord(database: object, owner: string | null
   return Boolean(entry && entry.scope.database === database && entry.scope.owner === owner);
 }
 export function releasePendingEditor(scope: EditorMemoryScope, token: number): void { const key = `${scope.owner}:${scope.key}`, entry = pending.get(key); if (entry && entry.token === token && sameScope(entry.scope, scope)) pending.delete(key); }
+
+/** Conditional ownership for an explicitly isolated editor. Absence after a
+ * previously issued token is a conflict, never permission to reclaim a slot. */
+export function matchesPendingEditor(scope: EditorMemoryScope, token: number): boolean {
+  const entry = pending.get(`${scope.owner}:${scope.key}`);
+  return Boolean(entry && entry.token === token && sameScope(entry.scope, scope));
+}
+export function retainPendingEditorIfAvailable<T>(scope: EditorMemoryScope, value: T, expectedToken?: number): number {
+  const entry = pending.get(`${scope.owner}:${scope.key}`);
+  if (expectedToken === undefined ? entry !== undefined : !matchesPendingEditor(scope, expectedToken)) throw new Error('这份确认稿的未落盘编辑已变化，未替换其他编辑');
+  return retainPendingEditor(scope, value);
+}

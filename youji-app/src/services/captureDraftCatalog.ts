@@ -2,7 +2,7 @@ import { LOCAL_DATA_EPOCH_KEY } from '../db';
 import { assertLocalActorNow, captureLocalActor, type LocalActor } from './localActor';
 import { isCaptureDate, MOOD_LEVELS } from './parser';
 import type { CaptureDraft } from './quickNoteIntegration';
-import { hasPendingEditorForRecord } from './pendingEditorMemory';
+import { hasPendingEditorForRecord, matchesPendingEditor, retainPendingEditorIfAvailable, releasePendingEditor, type EditorMemoryScope } from './pendingEditorMemory';
 
 /** Read-only preview, not an authorization to reopen, save, claim or apply. */
 export interface CaptureCatalogEntry { id: string; draft: CaptureDraft }
@@ -196,8 +196,88 @@ export interface CaptureContinuation {
 interface ContinuationState {
   actor: LocalActor; expected: CaptureDraft; initial: CaptureDraft; busy: boolean; closed: boolean;
   uncertain?: { expected: CaptureDraft; desired: CaptureDraft };
+  sequence: number; acknowledged: number;
+  pending?: { token: number; sequence: number; value: CaptureDraft; owned: boolean };
 }
 const continuations = new WeakMap<CaptureContinuation, ContinuationState>();
+// Failed edits survive a component unmount. This is document memory, NOT disk
+// durability or cross-session recovery. Never delete it merely to reopen a grant.
+const retainedContinuations = new Map<CaptureContinuation, ContinuationState>();
+export interface CaptureContinuationEdit { readonly kind: 'capture-continuation-edit' }
+const continuationEdits = new WeakMap<CaptureContinuationEdit, { grant: CaptureContinuation; sequence: number; value: CaptureDraft }>();
+const pendingScope = (state: ContinuationState): EditorMemoryScope => ({ database: state.actor.database, owner: state.actor.owner, session: state.actor.session, epoch: state.actor.epoch, key: `${PREFIX}${state.initial.id}` });
+function assertContinuationPending(state: ContinuationState): void {
+  if ([...retainedContinuations.values()].some(other => other !== state && other.actor.database === state.actor.database && other.actor.owner === state.actor.owner && other.initial.id === state.initial.id && other.pending)) throw new Error('另一份本机编辑仍有未落盘内容，未写入或替换');
+  if (state.pending) {
+    if (!state.pending.owned || !matchesPendingEditor(pendingScope(state), state.pending.token)) throw new Error('未落盘编辑的归属已变化，仍保留本次原文，未继续写入');
+  } else assertNoPending(state.actor, state.initial.id);
+}
+// Memory retention is deliberately weaker than disk eligibility: an unfinished
+// numeric/date edit must survive for correction. Reject executable/unsupported
+// JS shapes without invoking accessors; no such value reaches the disk validator.
+function plainEdit(value: unknown, depth = 0, path = new Set<object>()): boolean {
+  if (value === null || ['undefined', 'string', 'boolean', 'number'].includes(typeof value)) return true;
+  if (!value || typeof value !== 'object' || depth > 8 || path.has(value)) return false;
+  if (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  path.add(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const safe = Reflect.ownKeys(value).every(key => {
+    if (typeof key !== 'string') return false;
+    const descriptor = descriptors[key];
+    return 'value' in descriptor && (descriptor.enumerable || Array.isArray(value) && key === 'length') && plainEdit(descriptor.value, depth + 1, path);
+  });
+  path.delete(value); return safe;
+}
+function validateContinuationValue(state: ContinuationState, value: CaptureDraft, forWrite = true): void {
+  const { actor, initial } = state;
+  if (forWrite ? !knownDraft(value, `${PREFIX}${initial.id}`, actor) : !plainEdit(value)) throw failure();
+  for (const field of ['id', 'input', 'inputKey', 'context', 'ownerId', 'dataEpoch', 'sessionRevision', 'sessionActive'] as const) {
+    if (Object.hasOwn(value, field) !== Object.hasOwn(initial, field) || !exact(value[field], initial[field])) throw failure();
+  }
+}
+/** Private original/pending clone, not ordinary pending recovery or upgrade. */
+export function readCaptureContinuationState(grant: CaptureContinuation): { draft: CaptureDraft; pending: boolean } {
+  const state = continuations.get(grant);
+  if (!state) throw failure();
+  assertLocalActorNow(state.actor);
+  return { draft: structuredClone(state.pending?.value ?? continuationView(state.expected, state.actor)), pending: Boolean(state.pending) };
+}
+/** A typed comparison text, explicitly not an import/restore format. */
+export function captureContinuationText(grant: CaptureContinuation): string {
+  return JSON.stringify({ format: 'youtrace-capture-review-typed-comparison-v1', value: versionValue(readCaptureContinuationState(grant).draft) }, null, 2);
+}
+export async function assertCaptureContinuationContext(grant: CaptureContinuation): Promise<void> {
+  const state = continuations.get(grant);
+  if (!state || state.closed) throw failure();
+  await assertCatalogActor(state.actor);
+  if (state.closed) throw failure();
+}
+export function isCaptureContinuationCurrent(grant: CaptureContinuation): boolean {
+  const state = continuations.get(grant);
+  if (!state || state.closed) return false;
+  try { assertLocalActorNow(state.actor); return true; } catch { return false; }
+}
+/** Registers an exact immutable queued edit. Shared Map ownership is only a
+ * conflict detector; the private retained copy remains when legacy code removes
+ * or replaces the Map slot. A lost slot is never automatically reacquired. */
+export function stageCaptureContinuationEdit(grant: CaptureContinuation, value: CaptureDraft): CaptureContinuationEdit {
+  const state = continuations.get(grant);
+  if (!state || state.closed) throw failure();
+  validateContinuationValue(state, value, false);
+  const next = structuredClone(value), sequence = ++state.sequence, prior = state.pending;
+  retainedContinuations.set(grant, state);
+  try {
+    assertLocalActorNow(state.actor); assertContinuationPending(state);
+    const token = retainPendingEditorIfAvailable(pendingScope(state), next, prior?.token);
+    state.pending = { token, sequence, value: next, owned: true };
+  } catch (error) {
+    state.pending = { token: prior?.token ?? 0, sequence, value: next, owned: false };
+    throw error;
+  }
+  const ticket: CaptureContinuationEdit = Object.freeze({ kind: 'capture-continuation-edit' });
+  continuationEdits.set(ticket, { grant, sequence, value: structuredClone(next) });
+  return ticket;
+}
 const exact = (left: unknown, right: unknown) => JSON.stringify(versionValue(left)) === JSON.stringify(versionValue(right));
 function continuationView(source: CaptureDraft, actor: LocalActor): CaptureDraft {
   return { ...source, ownerId: actor.owner, dataEpoch: actor.epoch ?? 'initial', sessionRevision: actor.session, sessionActive: true } as CaptureDraft;
@@ -219,11 +299,13 @@ export async function prepareCaptureContinuation(entry: CaptureCatalogEntry): Pr
   const actor = scopes.get(entry), expected = versions.get(entry);
   if (!actor || !expected) throw failure();
   assertLocalActorNow(actor); assertNoPending(actor, expected.id);
+  if ([...retainedContinuations.values()].some(state => state.actor.database === actor.database && state.actor.owner === actor.owner && state.initial.id === expected.id && state.pending)) throw new Error('这份原稿仍有未落盘修改保留在本次打开的应用中，请先核对原编辑');
   const source = await readCaptureCatalogEntry(entry);
   assertLocalActorNow(actor); assertNoPending(actor, expected.id);
+  if ([...retainedContinuations.values()].some(state => state.actor.database === actor.database && state.actor.owner === actor.owner && state.initial.id === expected.id && state.pending)) throw new Error('这份原稿仍有未落盘修改，请先核对原编辑');
   const projected = continuationView(source, actor);
   const grant: CaptureContinuation = Object.freeze({ kind: 'capture-continuation', draft: structuredClone(projected) });
-  continuations.set(grant, { actor, expected: structuredClone(source), initial: structuredClone(projected), busy: false, closed: false });
+  continuations.set(grant, { actor, expected: structuredClone(source), initial: structuredClone(projected), busy: false, closed: false, sequence: 0, acknowledged: 0 });
   return grant;
 }
 
@@ -235,15 +317,15 @@ export function cancelCaptureContinuation(grant: CaptureContinuation): void {
 
 /** Explicit local correction only. Typed full-row CAS, never an apply/commit or
  * a lifetime-revision claim: indistinguishable same-value ABA remains unknown. */
-export async function saveCaptureContinuation(grant: CaptureContinuation, value: CaptureDraft): Promise<CaptureDraft> {
+export async function saveCaptureContinuation(grant: CaptureContinuation, value: CaptureDraft, ticket?: CaptureContinuationEdit): Promise<CaptureDraft> {
   const state = continuations.get(grant);
   if (!state || state.busy || state.closed) throw failure();
   const { actor, initial } = state, database = actor.database, key = `${PREFIX}${initial.id}`;
-  assertLocalActorNow(actor); assertNoPending(actor, initial.id);
-  // Only bounded, accessor-free known records reach the canonical comparison.
-  if (!knownDraft(value, key, actor)) throw failure();
-  for (const field of ['id', 'input', 'inputKey', 'context', 'ownerId', 'dataEpoch', 'sessionRevision', 'sessionActive'] as const) {
-    if (Object.hasOwn(value, field) !== Object.hasOwn(initial, field) || !exact(value[field], initial[field])) throw failure();
+  assertLocalActorNow(actor); assertContinuationPending(state);
+  validateContinuationValue(state, value);
+  const edit = ticket && continuationEdits.get(ticket);
+  if (state.pending || ticket) {
+    if (!edit || edit.grant !== grant || edit.sequence <= state.acknowledged || !exact(edit.value, value)) throw failure();
   }
   const next = structuredClone(value), expected = structuredClone(state.expected);
   const retry = state.uncertain;
@@ -252,7 +334,7 @@ export async function saveCaptureContinuation(grant: CaptureContinuation, value:
   const active = () => { assertLocalActorNow(actor); if (state.closed) throw failure(); };
   try {
     const persisted = await database.transaction('rw', [database.settings, database.quickNotes], async () => {
-      await assertCatalogActor(actor); active(); assertNoPending(actor, initial.id);
+      await assertCatalogActor(actor); active(); assertContinuationPending(state);
       const row = await database.settings.get(key);
       if (!record(row, ['key', 'value']) || row.key !== key || !knownDraft(row.value, key, actor)) throw failure();
       await uncommitted(actor, initial.id);
@@ -264,13 +346,20 @@ export async function saveCaptureContinuation(grant: CaptureContinuation, value:
       // eventual caller mistakenly invokes save with the initial visible value.
       const unchanged = exact(continuationView(row.value, actor), next);
       if (!unchanged && !exact(row.value, next)) await database.settings.put({ key, value: next });
-      await assertCatalogActor(actor); active(); assertNoPending(actor, initial.id);
+      await assertCatalogActor(actor); active(); assertContinuationPending(state);
       bodyFinished = true;
       return structuredClone(unchanged ? row.value : next);
     });
     state.expected = persisted;
     state.uncertain = undefined;
-    await assertCatalogActor(actor); active();
+    await assertCatalogActor(actor); active(); assertContinuationPending(state);
+    if (edit) {
+      state.acknowledged = edit.sequence;
+      if (state.pending?.sequence === edit.sequence) {
+        releasePendingEditor(pendingScope(state), state.pending.token);
+        state.pending = undefined; retainedContinuations.delete(grant);
+      }
+    }
     return structuredClone(next);
   } catch (error) {
     // A failed precondition must not mint replay authority. Only an operation

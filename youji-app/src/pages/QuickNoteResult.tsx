@@ -17,6 +17,7 @@ import { SESSION_REVISION_KEY } from '../services/apiClient';
 import { currentCaptureRecord, currentReceiptSyncStatus, failedReceiptRead, type ReceiptViewState, type CurrentCaptureRecord } from '../services/captureReceiptView';
 import { recordDiagnostic } from '../services/diagnostics';
 import { captureSaveFailure } from '../services/capturePresentation';
+import { readCaptureContinuationState, assertCaptureContinuationContext, isCaptureContinuationCurrent, captureContinuationText, stageCaptureContinuationEdit, saveCaptureContinuation, cancelCaptureContinuation, type CaptureContinuation, type CaptureContinuationEdit } from '../services/captureDraftCatalog';
 
 
 const field = 'min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)] focus:outline-2 focus:outline-[var(--primary)]';
@@ -54,23 +55,55 @@ function Section({ title, children, add }: { title: string; children: ReactNode;
   return <section aria-label={title} className="review-section space-y-4"><header className="flex items-center justify-between gap-2"><h2 className="text-lg font-semibold">{title}</h2>{add && <Button variant="ghost" onClick={add} aria-label={`添加${title}`}><Plus size={16} aria-hidden />添加</Button>}</header>{children}</section>;
 }
 function Remove({ label, onClick }: { label: string; onClick: () => void }) { return <Button variant="ghost" aria-label={`移除${label}`} onClick={onClick}><Trash2 size={17} aria-hidden /></Button>; }
-function CaptureReview({ original }: { original: CaptureDraft }) {
-  const navigate = useNavigate(), accountName = useAuthStore(state => state.user?.nickname), knownHabits = useHabitStore(state => state.items);
+/** Internal isolated policy only; the production browser does not expose a
+ * continuation entry until the separate business-commit contract is complete. */
+export function CaptureReview({ original, continuation }: { original: CaptureDraft; continuation?: { grant: CaptureContinuation; onClose: () => void } }) {
+  const navigate = useNavigate(), currentUser = useAuthStore(state => state.user), accountName = currentUser?.nickname, knownHabits = useHabitStore(state => state.items);
   const scope = { database: db, owner: db.ownerId, session: original.sessionRevision ?? localStorage.getItem(SESSION_REVISION_KEY), epoch: original.dataEpoch ?? 'initial', key: `capture-review:${original.id}` };
-  const [recovered] = useState(() => readPendingEditor<CaptureDraft>(scope));
-  const initial = recovered ?? upgradeCaptureReview(original);
+  const [entry] = useState(() => {
+    if (!continuation) return null;
+    try { return { ...readCaptureContinuationState(continuation.grant), invalid: false }; }
+    catch { return { draft: original, pending: false, invalid: true }; }
+  });
+  const [initialGrant] = useState(continuation?.grant);
+  const [context, setContext] = useState<'checking' | 'ready' | 'locked'>(continuation ? 'checking' : 'ready');
+  useEffect(() => {
+    if (!continuation) return;
+    let active = true;
+    const subscription = liveQuery(() => assertCaptureContinuationContext(continuation.grant)).subscribe({
+      next: () => { if (active) setContext(isCaptureContinuationCurrent(continuation.grant) ? 'ready' : 'locked'); },
+      error: () => { if (active) setContext('locked'); },
+    });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [continuation, currentUser]);
+  const [recovered] = useState(() => continuation ? null : readPendingEditor<CaptureDraft>(scope));
+  const initial = entry?.draft ?? recovered ?? upgradeCaptureReview(original);
   const [draft, setDraft] = useState(initial);
   const [amounts, setAmounts] = useState<Record<string, string>>(() => Object.fromEntries(initial.expenses.map(row => [row.id, row.amountText ?? String(row.amount / 100)])));
-  const [status, setStatus] = useState<'saved' | 'pending' | 'failed'>(recovered ? 'failed' : 'saved'), [error, setError] = useState(recovered ? '已找回离开前尚未落盘的确认稿，请重试保留修改' : ''), [notice, setNotice] = useState(''), [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<'saved' | 'pending' | 'failed'>(recovered || entry?.pending ? 'failed' : 'saved'), [error, setError] = useState(recovered || entry?.pending ? '已找回离开前尚未落盘的确认稿，请重试保留修改' : ''), [notice, setNotice] = useState(''), [saving, setSaving] = useState(false);
   const current = useRef(initial), persistedId = useRef(original.id), expected = useRef(captureFingerprint(original)), queue = useRef(Promise.resolve()), version = useRef(0), busy = useRef(false), alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (status !== 'saved') { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [status]);
   const persist = (next: CaptureDraft) => {
-    const revision = ++version.current, token = retainPendingEditor(scope, next); setStatus('pending');
+    const revision = ++version.current;
+    let token: number | undefined, ticket: CaptureContinuationEdit | undefined;
+    try {
+      if (continuation) ticket = stageCaptureContinuationEdit(continuation.grant, next);
+      else token = retainPendingEditor(scope, next);
+    } catch (cause) {
+      setStatus('failed'); setError('修改仍在本次打开的应用中，尚未写入原稿。请保留核对文本，不要关闭应用。');
+      return Promise.reject(cause);
+    }
+    setStatus('pending');
     const work = queue.current.catch(() => undefined).then(async () => {
+      if (continuation) {
+        await saveCaptureContinuation(continuation.grant, next, ticket);
+        if (alive.current && revision === version.current) { setStatus('saved'); setError(''); }
+        return;
+      }
       const snapshot = { ...next, id: persistedId.current };
       const id = await saveCaptureDraft(snapshot, true, expected.current);
-      releasePendingEditor(scope, token);
+      releasePendingEditor(scope, token!);
       expected.current = captureFingerprint(snapshot); persistedId.current = id;
       sessionStorage.setItem(captureSessionKey(), id);
       if (id !== snapshot.id && alive.current) setNotice('另一页已经修改或保存原稿。这份修改已独立保留，请重新核对后确认，不会覆盖另一页。');
@@ -81,10 +114,16 @@ function CaptureReview({ original }: { original: CaptureDraft }) {
     return work;
   };
   const change = (patch: Partial<CaptureDraft>) => { const next = { ...current.current, ...patch }; current.current = next; setDraft(next); void persist(next).catch(() => undefined); };
-  const copy = async () => { const content = JSON.stringify(current.current, null, 2); try { await navigator.clipboard.writeText(content); setNotice('包含原文与修改的确认稿已复制'); } catch { setNotice('自动复制不可用，可在下方展开原文和确认稿后选择复制'); } };
-  const back = async () => { if (busy.current) return; try { await persist(current.current); navigate('/quick-note', { state: { reviewId: persistedId.current, inputKey: current.current.inputKey } }); } catch { /* visible inline failure */ } };
+  const copy = async () => { const content = continuation ? captureContinuationText(continuation.grant) : JSON.stringify(current.current, null, 2); try { await navigator.clipboard.writeText(content); setNotice(continuation ? '已复制带类型的核对文本（不是导入格式）' : '包含原文与修改的确认稿已复制'); } catch { setNotice('自动复制不可用，可在下方展开原文和确认稿后选择复制'); } };
+  const back = async () => {
+    if (busy.current) return;
+    if (continuation) {
+      if (status !== 'saved' || readCaptureContinuationState(continuation.grant).pending) { setError('修改尚未落盘，仍保留在此页；请重试或先复制核对文本。'); return; }
+      busy.current = true; cancelCaptureContinuation(continuation.grant); continuation.onClose(); return;
+    }
+    try { await persist(current.current); navigate('/quick-note', { state: { reviewId: persistedId.current, inputKey: current.current.inputKey } }); } catch { /* visible inline failure */ } };
   const save = async () => {
-    if (busy.current) return; busy.current = true; setSaving(true); setError('');
+    if (continuation || busy.current) return; busy.current = true; setSaving(true); setError('');
     try {
       await persist(current.current);
       const finalDraft = { ...current.current, id: persistedId.current };
@@ -98,9 +137,11 @@ function CaptureReview({ original }: { original: CaptureDraft }) {
   const expense = (id: string, patch: Partial<CaptureDraft['expenses'][number]>) => change({ expenses: current.current.expenses.map(row => row.id === id ? { ...row, ...patch } : row) });
   const todo = (id: string, patch: Partial<CaptureDraft['todos'][number]>) => change({ todos: current.current.todos.map(row => row.id === id ? { ...row, ...patch } : row) });
   const habit = (id: string, patch: Partial<CaptureDraft['habits'][number]>) => change({ habits: current.current.habits.map(row => row.id === id ? { ...row, ...patch } : row) });
-  return <Frame title="选择要留下的记录" back={() => void back()} footer={<div className="space-y-2"><p className="text-xs leading-5 text-[var(--text-2)]" aria-label="本次保存范围">原文 + {draft.expenses.filter(row => row.confirmed).length} 笔收支 · {draft.todos.filter(row => row.confirmed).length} 个待办 · {draft.diary ? '记入日记' : '不写日记'} · {draft.moodConfirmed ? '记录所选心情' : '不记录情绪'}{draft.habits.some(row => row.confirmed) ? ` · ${draft.habits.filter(row => row.confirmed).length} 项打卡` : ''}</p><p className="text-xs text-[var(--text-3)]" role="status">{status === 'saved' ? '确认稿已保留在本机' : status === 'pending' ? '正在保留修改…' : '修改尚未落盘'} · 确认后同步到 {accountName || '当前有迹账号'}</p><Button className="w-full" disabled={saving} onClick={() => void save()}><Check size={18} aria-hidden />{saving ? '正在保存…' : '确认保存所选记录'}</Button></div>}>
-    <div className="space-y-2 rounded-2xl bg-[var(--surface)] p-4"><p className="text-sm">规则整理可能有遗漏。你可以补充、修改，或只保留原文。</p><p className="text-xs leading-6 text-[var(--text-2)]">日期基准：{draft.context?.date ?? '旧稿日期未知'} · {draft.context?.timeZone ?? '原时区未知'}。各项实际写入日期如下，可以逐项修改。</p><details><summary className="cursor-pointer py-2 text-sm font-semibold">查看原文与本机确认稿</summary><p className="whitespace-pre-wrap break-words py-3 text-sm">{draft.input}</p><details><summary className="cursor-pointer py-2 text-xs">复制用完整确认稿</summary><textarea readOnly aria-label="完整确认稿备份" value={JSON.stringify(draft, null, 2)} className={field} rows={8} /></details></details></div>
-    <CaptureDraftBrowser disabled={saving} />
+  if (continuation && (initialGrant !== continuation.grant || entry?.invalid || context === 'locked' || !isCaptureContinuationCurrent(continuation.grant))) return <Frame title="需要重新核对账号" back={continuation.onClose}><p role="alert">账号状态已变化，当前不展示这份原稿；未落盘内容仍仅保留在本次打开的应用内存中。</p></Frame>;
+  if (continuation && context !== 'ready') return <Frame title="正在核验原稿归属" back={() => void back()}><p role="status">正在核验本机资料，尚未打开原稿内容…</p></Frame>;
+  return <Frame title="选择要留下的记录" back={() => void back()} footer={<div className="space-y-2"><p className="text-xs leading-5 text-[var(--text-2)]" aria-label="本次保存范围">原文 + {draft.expenses.filter(row => row.confirmed).length} 笔收支 · {draft.todos.filter(row => row.confirmed).length} 个待办 · {draft.diary ? '记入日记' : '不写日记'} · {draft.moodConfirmed ? '记录所选心情' : '不记录情绪'}{draft.habits.some(row => row.confirmed) ? ` · ${draft.habits.filter(row => row.confirmed).length} 项打卡` : ''}</p><p className="text-xs text-[var(--text-3)]" role="status">{status === 'saved' ? '确认稿已保留在本机' : status === 'pending' ? '正在保留修改…' : '修改尚未落盘'} · 确认后同步到 {accountName || '当前有迹账号'}</p>{continuation ? <p role="status" className="text-xs">内部核对模式：只保留这份本机确认稿，尚未启用写入业务记录。</p> : <Button className="w-full" disabled={saving} onClick={() => void save()}><Check size={18} aria-hidden />{saving ? '正在保存…' : '确认保存所选记录'}</Button>}</div>}>
+    <div className="space-y-2 rounded-2xl bg-[var(--surface)] p-4"><p className="text-sm">规则整理可能有遗漏。你可以补充、修改，或只保留原文。</p><p className="text-xs leading-6 text-[var(--text-2)]">日期基准：{draft.context?.date ?? '旧稿日期未知'} · {draft.context?.timeZone ?? '原时区未知'}。各项实际写入日期如下，可以逐项修改。</p><details><summary className="cursor-pointer py-2 text-sm font-semibold">查看原文与本机确认稿</summary><p className="whitespace-pre-wrap break-words py-3 text-sm">{draft.input}</p><details><summary className="cursor-pointer py-2 text-xs">复制用完整确认稿</summary><textarea readOnly aria-label="完整确认稿备份" value={continuation ? captureContinuationText(continuation.grant) : JSON.stringify(draft, null, 2)} className={field} rows={8} /></details></details></div>
+    {!continuation && <CaptureDraftBrowser disabled={saving} />}
     {notice && <p role="status" className="rounded-xl bg-[var(--surface-2)] p-3 text-sm">{notice}</p>}
     {error && <div role="alert" className="space-y-3 rounded-xl border border-[var(--danger)] p-3 text-sm"><p>{error}</p><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => void persist(current.current).catch(() => undefined)}>重试保留修改</Button><Button variant="ghost" onClick={() => void copy()}><Copy size={16} aria-hidden />复制确认稿</Button></div></div>}
     <fieldset disabled={saving} className="space-y-4">
