@@ -11,3 +11,13 @@ for (const scenario of ['initial-race-success-first', 'initial-race-error-first'
   });
   assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
 });
+
+
+// A generic Goal read error never turns the required loader into success. The
+// actual global recovery/route gate is distinct from the mounted Goal contract.
+for (const scenario of ['goal-initial-persistent', 'goal-initial-recovers', 'goal-initial-new-owner', 'goal-initial-newer-read']) test(`actual Goal initialization gate: ${scenario}`, () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'tests/helpers/initial-session-scenario.ts', scenario], {
+    cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 20_000,
+  });
+  assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
+});

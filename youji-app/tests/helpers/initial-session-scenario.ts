@@ -19,11 +19,16 @@ const sync = await import('../../src/services/syncEngine.ts');
 const diagnostics = await import('../../src/services/diagnostics.ts');
 const initialization = await import('../../src/services/initializationDiagnostics.ts');
 const actor = await import('../../src/services/localActor.ts');
+const goals = await import('../../src/stores/goalStore.ts');
+const { sameGoalSource } = await import('../../src/services/goalSource.ts');
 const owner = 'synthetic-initial-owner-a', newerOwner = 'synthetic-initial-owner-b';
 const user = { id: owner, phone: '13900009902', nickname: 'Synthetic A', avatar: '', identity: 'other', city: '', coachStyle: 'gentle', quietStart: '23:00', quietEnd: '07:00', pushLimit: 2 };
 const requests: string[] = [], loads: string[] = [];
 const heldRecovery = deferred<void>();
-let raceExpenseReads = 0;
+let raceExpenseReads = 0, goalReadFailures = 0, goalFaultArmed = true, goalReadStarted = false, reloadRequests = 0;
+const heldGoalFailure = deferred<void>();
+const extraDatabases: Dexie[] = [];
+Object.assign(events, { location: { reload() { reloadRequests++; } } });
 const imports: Record<string, unknown> = {
   dexie: { default: Dexie }, '../db': storage, '../services/apiClient': session,
   '../services/diagnostics': diagnostics, '../services/initializationDiagnostics': initialization,
@@ -38,7 +43,15 @@ for (const name of ['Expense', 'Todo', 'Habit', 'QuickNote', 'Schedule', 'Diary'
     loads.push(name);
     if (scenario.startsWith('initial-race-') && name === 'Expense' && ++raceExpenseReads === 1) await heldRecovery.promise;
     if (scenario === 'store-failure' && name === 'Habit') throw Object.assign(new Error('Synthetic retained storage failure'), { name: 'DatabaseClosedError' });
-    await original();
+    if (scenario.startsWith('goal-initial-') && name === 'Goal') goalReadStarted = true;
+    try { await original(); } catch (error) {
+      if (scenario.startsWith('goal-initial-') && name === 'Goal') {
+        goalReadFailures++;
+        if (scenario === 'goal-initial-recovers') goalFaultArmed = false;
+        if (goalReadFailures === 1 && ['goal-initial-new-owner', 'goal-initial-newer-read'].includes(scenario)) await heldGoalFailure.promise;
+      }
+      throw error;
+    }
   } });
 }
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
@@ -55,7 +68,7 @@ globalThis.fetch = async input => {
     if (scenario === 'offline-unverified') throw new TypeError('Synthetic offline identity');
     return Response.json({ user });
   }
-  if (scenario === 'offline-verified') throw new TypeError('Synthetic offline after identity verification');
+  if (scenario === 'offline-verified' || scenario.startsWith('goal-initial-') && path.startsWith('/api/sync/')) throw new TypeError('Synthetic offline after identity verification');
   if (path === '/api/user/settings') return Response.json({ protocol: 1, revision: '0', settings: { coachStyle: 'gentle', coachPushEnabled: false, pushLimit: 2, quietEnabled: true, quietStart: '23:00', quietEnd: '07:00', eveningReviewEnabled: false, eveningReviewTime: '21:00' } });
   if (path.startsWith('/api/sync/pull?')) return Response.json({ protocol: 2, features: ['goals-v1'], events: [], nextCursor: '0', hasMore: false });
   if (path.startsWith('/api/coach/insights')) return Response.json({ insights: [] });
@@ -107,7 +120,7 @@ function driver() {
   }
   const common = { react: hooks, 'react/jsx-runtime': jsx };
   const placeholder = () => null;
-  const router = { BrowserRouter: placeholder, Routes: placeholder, Route: placeholder, Navigate: 'SyntheticNavigate', useLocation: () => ({ pathname: '/todo', search: '?view=all' }), useNavigate: () => placeholder };
+  const router = { BrowserRouter: placeholder, Routes: placeholder, Route: placeholder, Navigate: 'SyntheticNavigate', useLocation: () => ({ pathname: scenario.startsWith('goal-initial-') ? '/goal' : '/todo', search: '?view=all' }), useNavigate: () => placeholder };
   async function setup() {
     const hook = compile(await readFile(new URL('../../src/hooks/useAppInit.ts', import.meta.url), 'utf8'), { ...common, ...imports, '../stores/authStore': authShim });
     let initializationState = { ready: false, failed: false };
@@ -210,9 +223,68 @@ try {
       await storage.db.todos.put(offlineTodo);
       await storage.db.outbox.add({ entity: 'todos', op: 'upsert', payload: offlineTodo, baseVersion: '0', queuedAt: 1, status: 'pending', attempts: 0 });
     }
+    const exactGoal = { id: 'synthetic-initial-goal-exact-id', title: 'Synthetic original goal', description: 'Exact multiline\nretained description', level: 'medium' as const, domain: '学习', priority: 'high' as const, progress: 75, targetDate: '2027-03-14', createdAt: 17, updatedAt: 29, syncScope: 'local' as const, unknown: new Map([['keep', 'exact original']]) };
+    const sourceGoal = { ...exactGoal, description: 'Exact old source, no automatic recovery' };
+    let retainedOthers: unknown;
+    const rawSnapshot = async (database: Dexie) => Object.fromEntries(await Promise.all(database.tables.map(async table => [table.name, { keys: await table.toCollection().primaryKeys(), values: await table.toArray() }])));
+    if (scenario.startsWith('goal-initial-')) {
+      await storage.db.goalRecords.put(exactGoal); await storage.db.table('goals').put(sourceGoal);
+      const other = new storage.YoujiDatabase(newerOwner); await other.open(); await other.goalRecords.put({ ...exactGoal, id: 'synthetic-owner-b-goal' });
+      const shared = new Dexie('youtrace'); shared.version(30).stores({ goals: 'id' }); await shared.open(); await shared.table('goals').put({ ...sourceGoal, id: 17 });
+      extraDatabases.push(other, shared); retainedOthers = await Promise.all(extraDatabases.map(rawSnapshot));
+      const get = storage.db.settings.get;
+      storage.db.settings.get = function (...args: Parameters<typeof get>) {
+        const tables = Dexie.currentTransaction?.storeNames ?? [];
+        // The actual initial actor read succeeds. Only epoch reads inside the
+        // Goal snapshot and error-publication transactions reject. This reaches
+        // the generic-memory-error fallback while preserving the rejected load.
+        if (goalReadStarted && goalFaultArmed && args[0] === storage.LOCAL_DATA_EPOCH_KEY && (tables.includes('goalRecords') || tables.length === 1 && tables[0] === 'settings')) return Promise.reject(new DOMException('Synthetic Goal epoch transaction read failure', 'AbortError'));
+        return get.apply(this, args);
+      } as typeof get;
+    }
     if (scenario === 'initialization-closed-db') storage.db.close();
     app.render();
-    if (scenario === 'signed-out' || scenario === 'unauthorized') {
+    if (scenario.startsWith('goal-initial-')) {
+      await until(() => goalReadFailures > 0);
+      assert.equal(goals.useGoalStore.getState().loading, false, 'Failed Goal read must stop loading even when its error-publication epoch read fails');
+      assert.ok(goals.useGoalStore.getState().readError);
+      if (scenario === 'goal-initial-persistent') {
+        await until(() => app!.state().failed && goalReadFailures >= 2);
+        assert.deepEqual(app.state(), { ready: false, failed: true });
+        const route = app.route(); assert.equal(route.gate, 'loading-or-error');
+        const children = (route.tree.props.children as Element).props.children as Element;
+        const errorChildren = children.props.children as Element[];
+        assert.equal(errorChildren[0].props.children, '加载遇到问题');
+        const retry = errorChildren.find(child => child.type === 'button')!;
+        assert.equal(retry.props.children, '重试'); (retry.props.onClick as () => void)();
+        assert.equal(reloadRequests, 1, 'The original global retry asks for a document reload; this driver does not emulate a real browser reload');
+        assert.equal(goals.useGoalStore.getState().loaded, false);
+      } else if (scenario === 'goal-initial-new-owner') {
+        session.clearSession(); session.setSessionActive(newerOwner);
+        auth.useAuthStore.setState({ user: { ...user, id: newerOwner }, isAuthenticated: true, authChecked: true });
+        app.render(); heldGoalFailure.resolve();
+        await until(() => app!.state().failed);
+        assert.equal(app.route().gate, 'loading-or-error'); assert.equal(app.state().ready, false);
+        assert.equal(session.getVerifiedSessionOwner(), newerOwner); assert.deepEqual(goals.useGoalStore.getState().items, []);
+      } else {
+        if (scenario === 'goal-initial-newer-read') {
+          goalFaultArmed = false;
+          const deadline = [...app.timers.values()][0]; assert.equal(deadline.delay, 12_000); deadline.callback();
+        }
+        await until(() => app!.state().ready);
+        const revision = goals.useGoalStore.getState().publishedRevision;
+        heldGoalFailure.resolve(); await tick(); await tick();
+        assert.deepEqual(app.state(), { ready: true, failed: true }); assert.equal(app.route().gate, 'protected');
+        assert.equal(goals.useGoalStore.getState().publishedRevision, revision);
+        assert.deepEqual(goals.useGoalStore.getState().items, [exactGoal]); assert.equal(goals.useGoalStore.getState().readError, null);
+      }
+      assert.deepEqual(await storage.db.goalRecords.toArray(), [exactGoal]); assert.deepEqual(await storage.db.table('goals').toArray(), [sourceGoal]);
+      assert.equal(await storage.db.outbox.count(), 0);
+      assert.equal(await storage.db.settings.where('key').startsWith('goal-source-recovery:').count(), 0);
+      assert.equal(await storage.db.settings.where('key').startsWith('shared-goal-recovery:v1:').count(), 0);
+      assert.ok(await sameGoalSource(await Promise.all(extraDatabases.map(rawSnapshot)), retainedOthers));
+      assert.ok(initialization.initializationSnapshot().some(row => row.stage === 'goal' && row.outcome === 'error'), 'Required Goal failure is still propagated to initialization diagnostics');
+    } else if (scenario === 'signed-out' || scenario === 'unauthorized') {
       assert.equal(auth.useAuthStore.getState().authChecked, true);
       assert.equal(auth.useAuthStore.getState().isAuthenticated, false);
       assert.equal(auth.useAuthStore.getState().identityUnavailable, false);
@@ -289,5 +361,5 @@ try {
   }
   console.log(JSON.stringify({ scenario, outcome: 'passed', authChecked: auth.useAuthStore.getState().authChecked, authenticated: auth.useAuthStore.getState().isAuthenticated, loads, requestCount: requests.length }));
 } finally {
-  app?.cleanup(); settings.stopPreferenceSync(); sync.pauseSync(); session.clearSession(); storage.db.close();
+  app?.cleanup(); settings.stopPreferenceSync(); sync.pauseSync(); session.clearSession(); storage.db.close(); for (const database of extraDatabases) database.close();
 }

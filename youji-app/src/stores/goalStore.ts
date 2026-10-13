@@ -294,7 +294,14 @@ export const useGoalStore = create<GoalState>((set, get) => ({
             assertLocalActorNow(actor!);
             if (sequence === loadSequence) set({ loading: false, readError: READ_FAILED });
           });
-        } catch { /* no readable current context in which to publish an error */ }
+        } catch {
+          // Storage can fail after the first epoch read as well as before it.
+          // A generic error publishes no snapshot or epoch-dependent authority;
+          // keep the original retry reachable under the same synchronous actor.
+          try { assertLocalActorNow(actor); }
+          catch { if (sequence === loadSequence) clearObsoleteView(actor); return; }
+          if (sequence === loadSequence) set({ loading: false, readError: READ_FAILED });
+        }
       } else if (captured) {
         // If even the initial epoch read failed, retain the last good snapshot.
         // Only a generic storage error can be shown without a readable epoch.
