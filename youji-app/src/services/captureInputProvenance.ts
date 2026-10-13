@@ -5,6 +5,7 @@ import { isCaptureDate } from './parser';
 /** Local provenance is evidence of a copy, never authority to select a receipt. */
 export const captureInputOriginKey = (key: string) => `capture-input-origin:${key}`;
 export const captureInputConsumptionKey = (key: string) => `capture-input-consumption:${key}`;
+export const captureInputConsumptionHeadKey = (key: string) => `capture-input-consumption-head:${key}`;
 export const CAPTURE_INPUT_ORIGIN_LIMIT = 32;
 export type CaptureInputActor = Omit<LocalActor, 'epoch'> & { epoch: string | undefined };
 type Row = { key: string; value: unknown };
@@ -68,9 +69,9 @@ export async function assertNewCaptureInput(actor: CaptureInputActor, key: strin
   const visited = new Set<string>(); let current = key;
   for (let depth = 0; depth < CAPTURE_INPUT_ORIGIN_LIMIT; depth++) {
     if (visited.has(current)) throw fail(); visited.add(current);
-    const [row, consumed] = await Promise.all([actor.database.settings.get(captureInputOriginKey(current)), actor.database.settings.get(captureInputConsumptionKey(current))]);
+    const [row, consumed, head] = await Promise.all([actor.database.settings.get(captureInputOriginKey(current)), actor.database.settings.get(captureInputConsumptionKey(current)), actor.database.settings.get(captureInputConsumptionHeadKey(current))]);
     assertLocalActorNow(actor);
-    if (consumed !== undefined || !record(row, ['key', 'value']) || row.key !== captureInputOriginKey(current) || !validOrigin(row.value, current, actor)) throw fail();
+    if (consumed !== undefined || head !== undefined || !record(row, ['key', 'value']) || row.key !== captureInputOriginKey(current) || !validOrigin(row.value, current, actor)) throw fail();
     // A copy that already observed a consumption marker never forgets it merely
     // because the mutable source marker is later missing. This is refusal evidence.
     if (row.value.sourceConsumptionPresent) throw fail();

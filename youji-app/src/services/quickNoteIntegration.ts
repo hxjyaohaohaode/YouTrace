@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { db, generateLocalId, LOCAL_DATA_EPOCH_KEY, type DiaryRecord, type YoujiDatabase } from '../db';
 import { enqueueSync, flush } from './syncEngine';
 import { isCaptureDate, newCaptureContext, parseQuickNote, type CaptureContext, type ParsedExpense, type ParsedHabit, type ParsedTodo, type MoodLevel } from './parser';
@@ -6,7 +7,9 @@ import { SESSION_REVISION_KEY, SIGNED_OUT_KEY, isLoggedIn } from './apiClient';
 import { recordDiagnostic } from './diagnostics';
 import { getToday } from '../utils/date';
 import { assertLocalActorNow } from './localActor';
-import { readCaptureInputActor, assertCaptureInputActor, recordCaptureInputOrigin, captureInputOriginKey, captureInputConsumptionKey, assertNewCaptureInput } from './captureInputProvenance';
+import { withCaptureContinuationCommit, captureCommitSnapshot, markCaptureContinuationCommitted, assertCaptureContinuationCommit, type CaptureContinuation, type CaptureContinuationCommit } from './captureDraftCatalog';
+import { checkCaptureCommitStart, writeCaptureCommitProof, type CaptureCommitStart } from './captureContinuationProof';
+import { readCaptureInputActor, assertCaptureInputActor, recordCaptureInputOrigin, captureInputOriginKey, captureInputConsumptionKey, captureInputConsumptionHeadKey, assertNewCaptureInput } from './captureInputProvenance';
 
 interface CaptureActor { ownerId: string | null; dataEpoch: string; sessionRevision: string | null; sessionActive: boolean }
 export interface CaptureDraft {
@@ -37,12 +40,12 @@ export async function forkCaptureInput(): Promise<CaptureInput> {
     await assertCaptureInputActor(authority);
     const session = await actor(target);
     const previous = await target.settings.get(sourceKey), savedContext = await target.settings.get(`${sourceKey}:context`);
-    const prior = await target.settings.get(captureInputOriginKey(sourceKey)), consumed = await target.settings.get(captureInputConsumptionKey(sourceKey));
+    const prior = await target.settings.get(captureInputOriginKey(sourceKey)), consumed = await target.settings.get(captureInputConsumptionKey(sourceKey)), consumptionHead = await target.settings.get(captureInputConsumptionHeadKey(sourceKey));
     const text = typeof previous?.value === 'string' ? previous.value : '';
     const context = text ? savedContext?.value as CaptureContext | undefined ?? unknownContext() : newCaptureContext();
     const key = `capture-input:${generateLocalId()}`;
     await target.settings.add({ key, value: text }); await target.settings.add({ key: `${key}:context`, value: context });
-    await recordCaptureInputOrigin(target, key, authority, sourceKey, previous, savedContext, prior, consumed);
+    await recordCaptureInputOrigin(target, key, authority, sourceKey, previous, savedContext, prior, consumed ?? consumptionHead);
     await assertCaptureInputActor(authority);
     return { key, text, context, ...session };
   });
@@ -121,9 +124,14 @@ export function upgradeCaptureReview(draft: CaptureDraft): CaptureDraft {
 
 /** Only selected structured fields are copied, exactly once, with durable refs. */
 export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResult> {
-  const target = db, session = await actor(target);
+  return applyCaptureDraftCore(draft);
+}
+/** Internal capability-only entry; no visible Save consumes it yet. */
+export async function applyCaptureContinuation(grant: CaptureContinuation): Promise<ApplyResult> {
+  return withCaptureContinuationCommit(grant, async operation => applyCaptureDraftCore(captureCommitSnapshot(operation).submitted, operation), draft => { prepareCaptureBusinessFields(draft); });
+}
+function prepareCaptureBusinessFields(draft: CaptureDraft) {
   if (typeof draft.id !== 'string' || !draft.id || typeof draft.input !== 'string' || !draft.input.trim() || draft.input.length > 5000) throw new Error('速记内容无效，原稿未更改');
-  if (draft.ownerId !== undefined && draft.ownerId !== session.ownerId || draft.dataEpoch !== undefined && draft.dataEpoch !== session.dataEpoch || draft.sessionRevision !== undefined && draft.sessionRevision !== session.sessionRevision || draft.sessionActive !== undefined && draft.sessionActive !== session.sessionActive) throw new Error('账号或资料版本已变化，请重新核对确认稿');
   if ([draft.expenses, draft.todos, draft.habits].some(rows => rows.length > 100)) throw new Error('一次最多核对每类100条记录，原文和草稿仍保留');
   const expenses = draft.expenses.filter(row => row.confirmed === true), todos = draft.todos.filter(row => row.confirmed === true), selectedHabits = draft.habits.filter(row => row.confirmed === true);
   const safeId = (value: unknown) => typeof value === 'string' && value.length > 0 && value.length <= 128;
@@ -145,13 +153,31 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
   const selectedTodos = todos.map(row => ({ id: row.id, text: row.text, confirmed: true, dueDate: row.dueDate ?? null }));
   const confirmedHabits = selectedHabits.map(row => ({ id: row.id, name: row.name, done: true, confirmed: true, ...(row.habitId ? { habitId: row.habitId } : {}), date: row.date! }));
   const context: CaptureContext = { capturedAt: typeof draft.context?.capturedAt === 'number' && Number.isFinite(draft.context.capturedAt) ? draft.context.capturedAt : null, timeZone: draft.context?.timeZone === 'Asia/Shanghai' ? 'Asia/Shanghai' : null, date: isCaptureDate(draft.context?.date) ? draft.context.date : null };
-  const result = await target.transaction('rw', target.tables, async () => {
+  return { expenses, todos, selectedHabits, mood, moodScore, diaryText, diaryDate, now, selectedExpenses, selectedTodos, confirmedHabits, context };
+}
+async function applyCaptureDraftCore(draft: CaptureDraft, operation?: CaptureContinuationCommit): Promise<ApplyResult> {
+  const target = db, session = await actor(target);
+  if (draft.ownerId !== undefined && draft.ownerId !== session.ownerId || draft.dataEpoch !== undefined && draft.dataEpoch !== session.dataEpoch || draft.sessionRevision !== undefined && draft.sessionRevision !== session.sessionRevision || draft.sessionActive !== undefined && draft.sessionActive !== session.sessionActive) throw new Error('账号或资料版本已变化，请重新核对确认稿');
+  const { expenses, todos, selectedHabits, mood, moodScore, diaryText, diaryDate, now, selectedExpenses, selectedTodos, confirmedHabits, context } = prepareCaptureBusinessFields(draft);
+  let continuationStart: CaptureCommitStart | undefined, replayed = false;
+  if (operation) await assertCaptureContinuationCommit(operation);
+  const mode = operation && captureCommitSnapshot(operation).committed ? 'r' : 'rw';
+  const result = await target.transaction(mode, target.tables, async () => {
     await assertActor(target, session);
-    const completed = (await target.settings.get(`capture-applied:${draft.id}`))?.value as CaptureReceipt | undefined;
-    if (completed) { if (completed.fingerprint === captureFingerprint(draft)) return completed.result; return { forkedDraftId: await saveCaptureDraft(draft) }; }
-    const saved = (await target.settings.get(`capture-review:${draft.id}`))?.value as CaptureDraft | undefined;
-    if (saved && captureFingerprint(saved) !== captureFingerprint(draft)) {
-      const copy = { ...draft, id: generateLocalId() }; await target.settings.put({ key: `capture-review:${copy.id}`, value: copy }); await assertActor(target, session); return { forkedDraftId: copy.id };
+    if (operation) {
+      await assertCaptureContinuationCommit(operation);
+      Dexie.currentTransaction!.on('complete', () => markCaptureContinuationCommitted(operation));
+      continuationStart = await checkCaptureCommitStart(captureCommitSnapshot(operation));
+      if (continuationStart.replay) {
+        await assertCaptureContinuationCommit(operation); replayed = true; return continuationStart.replay;
+      }
+    } else {
+      const completed = (await target.settings.get(`capture-applied:${draft.id}`))?.value as CaptureReceipt | undefined;
+      if (completed) { if (completed.fingerprint === captureFingerprint(draft)) return completed.result; return { forkedDraftId: await saveCaptureDraft(draft) }; }
+      const saved = (await target.settings.get(`capture-review:${draft.id}`))?.value as CaptureDraft | undefined;
+      if (saved && captureFingerprint(saved) !== captureFingerprint(draft)) {
+        const copy = { ...draft, id: generateLocalId() }; await target.settings.put({ key: `capture-review:${copy.id}`, value: copy }); await assertActor(target, session); return { forkedDraftId: copy.id };
+      }
     }
     const records: CaptureEntityRef[] = [];
     const result: ApplyResult = { expenseCount: 0, habitCount: 0, diaryCreated: false, diaryUpdated: false, todoCount: 0, records, committedAt: now, captureContext: context };
@@ -191,15 +217,21 @@ export async function applyCaptureDraft(draft: CaptureDraft): Promise<ApplyResul
     await target.settings.put({ key: `capture-source:${draft.id}`, value: structuredClone(draft) });
     await target.settings.put({ key: `capture-applied:${draft.id}`, value: { fingerprint: captureFingerprint(draft), result, input: draft.input, ownerId: target.ownerId } satisfies CaptureReceipt });
     await target.settings.delete(`capture-review:${draft.id}`);
-    if (draft.inputKey?.startsWith('capture-input:')) {
-      const raw = (await target.settings.get(draft.inputKey))?.value;
-      if (typeof raw === 'string' && raw === draft.input) { await target.settings.delete(draft.inputKey); await target.settings.delete(`${draft.inputKey}:context`); }
+    if (operation) {
+      await writeCaptureCommitProof(continuationStart!, result);
+    } else {
+      if (draft.inputKey?.startsWith('capture-input:')) {
+        const raw = (await target.settings.get(draft.inputKey))?.value;
+        if (typeof raw === 'string' && raw === draft.input) { await target.settings.delete(draft.inputKey); await target.settings.delete(`${draft.inputKey}:context`); }
+      }
+      const current = (await target.settings.get('quicknote_review'))?.value as CaptureDraft | undefined;
+      if (current?.id === draft.id) { await target.settings.delete('quicknote_review'); if ((await target.settings.get('quicknote_draft'))?.value === draft.input) await target.settings.delete('quicknote_draft'); }
     }
-    const current = (await target.settings.get('quicknote_review'))?.value as CaptureDraft | undefined;
-    if (current?.id === draft.id) { await target.settings.delete('quicknote_review'); if ((await target.settings.get('quicknote_draft'))?.value === draft.input) await target.settings.delete('quicknote_draft'); }
     await assertActor(target, session);
+    if (operation) await assertCaptureContinuationCommit(operation);
     return result;
   });
+  if (operation) { await assertCaptureContinuationCommit(operation); if (replayed) return result as ApplyResult; }
   if ('forkedDraftId' in result) throw new CaptureChangedError(result.forkedDraftId);
   // The receipt is already durable. A refresh/network failure cannot change it
   // into a claimed failed save or cause the user to apply the capture twice.

@@ -4,7 +4,7 @@
 
 ## 已实现的内部边界
 
-1. 目录/查看仍只读。独立的显式交接 API 只接受目录私有版本能力，重新核当前 owner、DB、session generation、严格 epoch 行和三种提交标记，返回内存投影；不调用 `loadCaptureDraft`，不更新当前稿/输入或 session 指针。
+1. 目录/查看仍只读。独立的显式交接 API 只接受目录私有版本能力，重新核当前 owner、DB、session generation、严格 epoch 行和已知提交标记（receipt/source/note，以及本候选新增 proof），返回内存投影；不调用 `loadCaptureDraft`，不更新当前稿/输入或 session 指针。
 2. 首次本机修正采用 typed 全行 CAS，保留 undefined 与字段缺席、负零、字符串空白和数组顺序，忽略对象键插入顺序。只有实际修正才更新同一个 `capture-review:<ID>`。未变值不会只为重绑定 session 写入。
 3. 原 `CaptureReview` 的内部隔离策略从私有副本初始化，跳过普通 pending 恢复和 upgrade。首次严格只读归属核验成功后才显示内容；正常 auth 渲染/IDB epoch 变化及每次写入均有保护。没有为任意无事件的外部 JS 内存变化添加轮询，也不宣称瞬间捕获所有此类变化。
 4. 本实例每项排队修改绑定不可变 payload、序号和私有 ticket。共享 pending token 仅作为冲突检测，不是锁。已拥有的 token 被删除或替换后拒绝写入，不自动抢占；旧任务成功不清除新 pending，已确认票据不可重写。
@@ -15,7 +15,7 @@
 ## 明确未闭合
 
 - 普通 loader 本身不是目录交接授权；不能把旧 ID URL 直接当作继续流程。
-- 独立业务 apply 的完整 receipt/source 版本绑定、共享 input/context 保全及指定已提交 ID 重入不重复解析仍未实现，原红例保留。
+- 内部业务 apply 的完整证明和共享输入保全见下节候选；指定已提交 ID 的真实重载/用户交接仍未接入，原红例保留。
 - 父编辑 pending/failed/语音/提交中阻止实际新入口、双指针全链、真正用户入口和浏览器验收仍待后续阶段。
 - 原始行没有所有写入方维护的单调生命周期版本。同 ID 完全同 typed 值的删除重建 ABA 无法识别，当前 CAS 不作该承诺。
 - 内存保全不保证关闭浏览器、刷新或崩溃后的恢复；尚未提供丢失共享槽后的自动恢复/重新归属 UI。
@@ -44,10 +44,24 @@ npm test
 
 `capture-input-origin:<inputKey>` 是本机、不授权的复制来源记录。每次 fork 在同一 settings 事务读取父 key 对应原文、context、来源和消费行，再原子新增子 input/context/来源三行；源行保持不变。原文与日期不会从两个时点混合。副作用增加一行来源元数据，不能称默认 fork 的物理写入字节完全不变。
 
-只有实际 input/context/来源/消费四行都不存在时，才能为本次确实没有复制旧文字的新输入记录空 root。旧 session 指针可作为悬空指针证据记录，不作为继承父节点，也不据此猜测缺席一定因 clear。现存 undefined/null/空字符串、半行、旧无来源的输入都不是这种缺席；原值保留并标未知。
+只有实际 input/context/来源/消费索引/消费校验头五行都不存在时，才能为本次确实没有复制旧文字的新输入记录空 root。旧 session 指针可作为悬空指针证据记录，不作为继承父节点，也不据此猜测缺席一定因 clear。现存 undefined/null/空字符串、半行、旧无来源的输入都不是这种缺席；原值保留并标未知。
 
 新确认稿 create 有只读预检，真正首次 `capture-review:<新ID>` put 还在同一 RW 事务重新检查来源链、当前 actor/epoch 和最新消费标记，防止 create→save 之间发生变化。已经存在的明确 D 原 ID 继续走既有版本路径，不因 O 共用输入就冒认成 O。来源最多核 32 个节点，环/超界/缺损/跨 owner 或 epoch 均保文拒绝，不截短或补写“安全”标签。
 
-`capture-input-consumption:<inputKey>` 在此小步只是一项保守停止条件：链上任一点只要该行存在，包含 undefined/坏值/未知格式，均不授权新建，也不据其选择回执。复制记录已见过消费行时，即使原行之后消失，也持续保守拒绝，不能把明确已有的未知消费证据洗成安全。生产业务提交目前还没有写该索引；测试注入的 marker 明确是合成不可信数据，不是已实现业务证明。完整不可变 proof/source/receipt 的反向核验、保留输入的原子业务提交、合法历史回执重入仍待后续阶段。
+`capture-input-consumption:<inputKey>` 在此小步只是一项保守停止条件：链上任一点只要该行存在，包含 undefined/坏值/未知格式，均不授权新建，也不据其选择回执。复制记录已见过消费行时，即使原行之后消失，也持续保守拒绝，不能把明确已有的未知消费证据洗成安全。第三阶段单独检查点尚无生产索引写方，彼时注入 marker 仅是合成不可信数据。本节之后的内部业务服务才新增真实索引写方；指定历史 ID 的真实页面重载仍待接入。
 
 现有明确 ID 的普通回执重放，在实际 QuickNote store 删除原实体后仍返回历史结果、全表不变；后续新协议必须保留此语义，不能要求可变原实体永远存在或因其删除重新 apply。新的无 reviewId 原文页遇未知来源时保持原文并失败，不按同文本找某条回执。用户消歧/真正继续入口及全部原生仍未验收，本候选不可作为完整恢复交付。
+
+## 内部原子业务提交候选（未开放用户 Save）
+
+新增能力专用 applyCaptureContinuation(grant)，公开可修改的 grant.draft 不作保存依据；真实私有能力在 RW 前登记固定 operation、expected 原行与当前 session 的 submitted 投影。独立 committing 状态禁止提交期间 stage/CAS/第二次提交，不改变原 autosave busy 可排队语义。纯字段校验在首次 operation 登记与任何 RW 前执行；这类明确未开始业务提交的错误仍允许同 grant 修正。已登记的提交尝试不悄悄改 operation 或重取原行；若需重新编辑，要经过以后明确取消/重新核对的用户流程，当前尚未接入。事务内的习惯唯一匹配、重复日记或追加过长等业务拒绝已经建立 operation，仍按精确重试/另行明确授权处理；不宣称所有失败都能在同 grant 任意修改。
+
+同一份原业务 mapper 服务普通 apply 和隔离分支。隔离分支在全表事务核 typed CAS、owner/严格epoch/取消和全部提交标记，原子落实体/outbox/source/receipt/版本化 proof/index/head；只删选定 capture-review，保留实际 input/context、父 current 及双 session 指针。source 等于 submitted，proof 另留 expected；零编辑不先写 session 绑定。
+
+不可变 proof 只绑定自己的操作、完整历史 result 及实际保留输入两行，不绑定未来可追加的整个 index。双行 index+head 同事务更新；head 含准确 owner/epoch/inputKey、数量及整个规范 index 的 SHA-256。读取先核双行一致，再有界反查每项 proof/source/receipt。合法 D 追加后 O 仍能回放；单边缺失、截断、重复项、坏摘要均拒绝，不自动补 head。最多32项、规范内容尺寸/节点/深度有界，单次证明处理总哈希预算4MiB/5秒；哈希用 Dexie.waitFor 持活，不夹网络。
+
+SHA-256 是本地一致性/损坏检测，不是认证：整套 index/head 一致改写或同时删除，当前没有独立可信全历史来识别。不得宣传永久全局 exactly-once 或不可篡改。fork/首次 put 把 index 或 head 任一存在当作消费证据，已经见过的标记即使消失仍拒绝；新空 root 须五行全缺。
+
+同 grant 精确重试还核私有 expected/submitted/operation。实际 IDB complete 事件保留本 document 已提交事实，不把函数体结束或 abort 当提交；已知完成的回放采用一致 readonly 全表快照、0新增写，不再次刷新/发送。正常删除或修改可变业务实体不使历史 receipt 失效，也不复活它。提交后取消/换号只停止旧结果发布，不能假装回滚已提交数据。首次提交后 store刷新/网络故障保留持久回执，只记诊断。
+
+此阶段只有真实模块/组件及合成IDB证据；用户 Save、指定ID重载反查、父页面完整handoff及新的原生验收仍未闭合。普通输入遇未知来源仍保文拒绝，不以同文本选回执。

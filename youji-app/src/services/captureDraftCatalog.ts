@@ -1,4 +1,4 @@
-import { LOCAL_DATA_EPOCH_KEY } from '../db';
+import { LOCAL_DATA_EPOCH_KEY, generateLocalId } from '../db';
 import { assertLocalActorNow, captureLocalActor, type LocalActor } from './localActor';
 import { isCaptureDate, MOOD_LEVELS } from './parser';
 import type { CaptureDraft } from './quickNoteIntegration';
@@ -121,10 +121,10 @@ export async function listCaptureDraftPage(options: { cursor?: CaptureCatalogCur
       if (!record(row, ['key', 'value']) || typeof row.key !== 'string' || !knownDraft(row.value, row.key, actor)) continue;
       const draft = row.value;
       // Any durable commit marker, including malformed values, blocks listing.
-      const [receipt, source, note] = await Promise.all([
-        database.settings.get(`capture-applied:${draft.id}`), database.settings.get(`capture-source:${draft.id}`), database.quickNotes.get(draft.id),
+      const [receipt, source, note, proof] = await Promise.all([
+        database.settings.get(`capture-applied:${draft.id}`), database.settings.get(`capture-source:${draft.id}`), database.quickNotes.get(draft.id), database.settings.get(`capture-continuation-proof:${draft.id}`),
       ]);
-      if (receipt !== undefined || source !== undefined || note !== undefined) continue;
+      if (receipt !== undefined || source !== undefined || note !== undefined || proof !== undefined) continue;
       entries.push({ id: draft.id, draft: structuredClone(draft) });
     }
     await assertCatalogActor(actor);
@@ -176,10 +176,10 @@ export async function readCaptureCatalogEntry(entry: CaptureCatalogEntry): Promi
     await assertCatalogActor(actor);
     const row = await database.settings.get(key);
     if (!record(row, ['key', 'value']) || row.key !== key || !knownDraft(row.value, key, actor)) throw changed();
-    const [receipt, source, note] = await Promise.all([
-      database.settings.get(`capture-applied:${expected.id}`), database.settings.get(`capture-source:${expected.id}`), database.quickNotes.get(expected.id),
+    const [receipt, source, note, proof] = await Promise.all([
+      database.settings.get(`capture-applied:${expected.id}`), database.settings.get(`capture-source:${expected.id}`), database.quickNotes.get(expected.id), database.settings.get(`capture-continuation-proof:${expected.id}`),
     ]);
-    if (receipt !== undefined || source !== undefined || note !== undefined || JSON.stringify(versionValue(row.value)) !== JSON.stringify(versionValue(expected))) throw changed();
+    if (receipt !== undefined || source !== undefined || note !== undefined || proof !== undefined || JSON.stringify(versionValue(row.value)) !== JSON.stringify(versionValue(expected))) throw changed();
     await assertCatalogActor(actor);
     return structuredClone(row.value);
   });
@@ -197,6 +197,7 @@ interface ContinuationState {
   actor: LocalActor; expected: CaptureDraft; initial: CaptureDraft; busy: boolean; closed: boolean;
   uncertain?: { expected: CaptureDraft; desired: CaptureDraft };
   sequence: number; acknowledged: number;
+  committing?: boolean; operation?: CaptureContinuationCommit;
   pending?: { token: number; sequence: number; value: CaptureDraft; owned: boolean };
 }
 const continuations = new WeakMap<CaptureContinuation, ContinuationState>();
@@ -262,7 +263,7 @@ export function isCaptureContinuationCurrent(grant: CaptureContinuation): boolea
  * or replaces the Map slot. A lost slot is never automatically reacquired. */
 export function stageCaptureContinuationEdit(grant: CaptureContinuation, value: CaptureDraft): CaptureContinuationEdit {
   const state = continuations.get(grant);
-  if (!state || state.closed) throw failure();
+  if (!state || state.closed || state.committing || state.operation) throw failure();
   validateContinuationValue(state, value, false);
   const next = structuredClone(value), sequence = ++state.sequence, prior = state.pending;
   retainedContinuations.set(grant, state);
@@ -287,10 +288,10 @@ function assertNoPending(actor: LocalActor, id: string): void {
 }
 async function uncommitted(actor: LocalActor, id: string): Promise<void> {
   const database = actor.database;
-  const [receipt, source, note] = await Promise.all([
-    database.settings.get(`capture-applied:${id}`), database.settings.get(`capture-source:${id}`), database.quickNotes.get(id),
+  const [receipt, source, note, proof] = await Promise.all([
+    database.settings.get(`capture-applied:${id}`), database.settings.get(`capture-source:${id}`), database.quickNotes.get(id), database.settings.get(`capture-continuation-proof:${id}`),
   ]);
-  if (receipt !== undefined || source !== undefined || note !== undefined) throw new Error('这份原稿已有保存标记，请核对原记录；没有继续写入');
+  if (receipt !== undefined || source !== undefined || note !== undefined || proof !== undefined) throw new Error('这份原稿已有保存标记，请核对原记录；没有继续写入');
 }
 
 /** Called only by an eventual separate explicit continuation action. The whole
@@ -319,7 +320,7 @@ export function cancelCaptureContinuation(grant: CaptureContinuation): void {
  * a lifetime-revision claim: indistinguishable same-value ABA remains unknown. */
 export async function saveCaptureContinuation(grant: CaptureContinuation, value: CaptureDraft, ticket?: CaptureContinuationEdit): Promise<CaptureDraft> {
   const state = continuations.get(grant);
-  if (!state || state.busy || state.closed) throw failure();
+  if (!state || state.busy || state.closed || state.committing || state.operation) throw failure();
   const { actor, initial } = state, database = actor.database, key = `${PREFIX}${initial.id}`;
   assertLocalActorNow(actor); assertContinuationPending(state);
   validateContinuationValue(state, value);
@@ -367,4 +368,57 @@ export async function saveCaptureContinuation(grant: CaptureContinuation, value:
     state.uncertain = bodyFinished ? { expected, desired: next } : undefined;
     throw error;
   } finally { state.busy = false; }
+}
+
+/** Internal operation tokens are private registrations, not structural policy flags.
+ * A fixed attempted operation is retained for exact retry, never silently reset. */
+export interface CaptureContinuationCommit { readonly kind: 'capture-continuation-commit' }
+export interface CaptureCommitSnapshot { actor: LocalActor; operationId: string; expected: CaptureDraft; submitted: CaptureDraft; committed: boolean }
+const commitOperations = new WeakMap<CaptureContinuationCommit, { state: ContinuationState; identity: CaptureCommitSnapshot }>();
+function commitState(operation: CaptureContinuationCommit) {
+  const registration = commitOperations.get(operation);
+  if (!registration || registration.state.closed || !registration.state.committing || registration.state.operation !== operation) throw failure();
+  assertLocalActorNow(registration.state.actor); assertContinuationPending(registration.state);
+  if (registration.state.pending || registration.state.uncertain || registration.state.busy) throw failure();
+  return registration;
+}
+export function captureCommitSnapshot(operation: CaptureContinuationCommit): CaptureCommitSnapshot {
+  const { identity } = commitState(operation);
+  return { actor: { ...identity.actor }, operationId: identity.operationId, expected: structuredClone(identity.expected), submitted: structuredClone(identity.submitted), committed: identity.committed };
+}
+export async function assertCaptureContinuationCommit(operation: CaptureContinuationCommit): Promise<void> {
+  const { state } = commitState(operation); await assertCatalogActor(state.actor); commitState(operation);
+}
+export async function withCaptureContinuationCommit<T>(grant: CaptureContinuation, execute: (operation: CaptureContinuationCommit) => Promise<T>, preflight: (submitted: CaptureDraft) => void): Promise<T> {
+  const state = continuations.get(grant);
+  if (!state || state.closed || state.busy || state.committing || state.pending || state.uncertain) throw failure();
+  assertLocalActorNow(state.actor); assertContinuationPending(state);
+  if (!state.operation) {
+    const submitted = continuationView(state.expected, state.actor); validateContinuationValue(state, submitted);
+    // Pure business rejection before any RW has no unknown outcome to freeze.
+    preflight(structuredClone(submitted));
+    assertLocalActorNow(state.actor); assertContinuationPending(state);
+    if (state.closed || state.busy || state.committing || state.pending || state.uncertain) throw failure();
+    const operation: CaptureContinuationCommit = Object.freeze({ kind: 'capture-continuation-commit' });
+    state.operation = operation; commitOperations.set(operation, { state, identity: { actor: state.actor, operationId: generateLocalId(), expected: structuredClone(state.expected), submitted: structuredClone(submitted), committed: false } });
+  }
+  state.committing = true;
+  try {
+    await assertCaptureContinuationCommit(state.operation);
+    const result = await execute(state.operation);
+    await assertCaptureContinuationCommit(state.operation);
+    return result;
+  } finally { state.committing = false; }
+}
+/** Validation only; this never grants a continuation or authorizes writes. */
+export function isKnownCaptureCommitDraft(value: unknown, actor: LocalActor): value is CaptureDraft {
+  return value !== null && typeof value === 'object'
+    && typeof Object.getOwnPropertyDescriptor(value, 'id')?.value === 'string'
+    && knownDraft(value, `${PREFIX}${Object.getOwnPropertyDescriptor(value, 'id')!.value}`, actor);
+}
+
+/** Actual IDB complete records a durable outcome even if delivery is lost. */
+export function markCaptureContinuationCommitted(operation: CaptureContinuationCommit): void {
+  const registration = commitOperations.get(operation); if (!registration) throw failure();
+  registration.identity.committed = true;
 }

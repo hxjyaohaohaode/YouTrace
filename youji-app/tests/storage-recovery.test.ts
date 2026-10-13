@@ -166,7 +166,7 @@ test('fake IndexedDB: raw composer recovery forks per mount and confirmation cle
   // A separate, genuinely empty input fixture exercises the original fork/clear
   // contract without deleting or reclassifying the retained legacy source.
   const emptyKey = 'capture-input:synthetic-empty-root-for-fork-contract';
-  for (const key of [emptyKey, `${emptyKey}:context`, `capture-input-origin:${emptyKey}`, `capture-input-consumption:${emptyKey}`]) assert.equal(await current.settings.get(key), undefined);
+  for (const key of [emptyKey, `${emptyKey}:context`, `capture-input-origin:${emptyKey}`, `capture-input-consumption:${emptyKey}`, `capture-input-consumption-head:${emptyKey}`]) assert.equal(await current.settings.get(key), undefined);
   sessionStorage.setItem('youtrace:input:synthetic-account-a', emptyKey);
   const a = await forkCaptureInput();
   await current.settings.put({ key: a.key, value: 'composer A' });
