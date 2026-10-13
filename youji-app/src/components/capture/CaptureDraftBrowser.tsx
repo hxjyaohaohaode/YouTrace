@@ -21,7 +21,7 @@ function captureReadonlyFields(value: unknown, depth = 0): string {
   return `{${keys.map(key => `\n${child}${JSON.stringify(key)}: ${captureReadonlyFields((value as Record<string, unknown>)[key], depth + 1)}`).join(',')}${keys.length ? `\n${pad}` : ''}}`;
 }
 const contextChanged = '账号或本机资料已变化，请重新打开查看；原稿未改动';
-export function CaptureDraftBrowser({ disabled = false }: { disabled?: boolean }) {
+export function CaptureDraftBrowser({ disabled = false, onContinue }: { disabled?: boolean; onContinue?: (entry: CaptureCatalogEntry, stillSelected: () => boolean) => Promise<void> }) {
   const user = useAuthStore(state => state.user);
   const [open, setOpen] = useState(false), [page, setPage] = useState<CaptureCatalogPage | null>(null);
   const [selected, setSelected] = useState<CaptureCatalogEntry | null>(null), [detail, setDetail] = useState<CaptureDraft | null>(null);
@@ -75,6 +75,19 @@ export function CaptureDraftBrowser({ disabled = false }: { disabled?: boolean }
     if (request === generation.current && isOpen.current) detailSubscription.current = subscription;
     else subscription.unsubscribe();
   };
+  const continueSelected = async () => {
+    if (!onContinue || !selected || !detail || busy || disabled) return;
+    const entry = selected, request = ++generation.current;
+    stopDetail(); setBusy(true); setError('');
+    const stillSelected = () => isOpen.current && request === generation.current && isCaptureCatalogContextCurrent(entry);
+    try { await onContinue(entry, stillSelected); if (stillSelected()) close(); }
+    catch (cause) {
+      // Preparation stopped the exact-version subscription. A refused handoff
+      // must not leave its now-unobserved snapshot visible or reusable.
+      if (stillSelected()) invalidate(`${cause instanceof Error ? cause.message : '暂时不能继续核对，原页和原稿仍保留'}。请重新读取目录后选择原稿。`);
+    }
+    finally { if (stillSelected()) setBusy(false); }
+  };
   const close = () => {
     isOpen.current = false; ++generation.current; stopDetail(); currentPage.current = null;
     setOpen(false); setPage(null); setSelected(null); setDetail(null); setBusy(false); setError('');
@@ -84,9 +97,9 @@ export function CaptureDraftBrowser({ disabled = false }: { disabled?: boolean }
   const selectedReadable = selected && isCaptureCatalogContextCurrent(selected);
   const invalidIdentity = (page && !readable) || (selected && !selectedReadable);
   return <>
-    <Button variant="ghost" disabled={disabled} onClick={() => { if (disabled) return; isOpen.current = true; setOpen(true); void load(); }}>查看本机未提交稿</Button>
+    <Button data-capture-catalog-open variant="ghost" disabled={disabled} onClick={() => { if (disabled) return; isOpen.current = true; setOpen(true); void load(); }}>查看本机未提交稿</Button>
     <Modal open={open} onClose={close} title="查看本机未提交稿（只读）" footer={<>{selected && !invalidIdentity && <Button variant="ghost" onClick={back}>返回目录</Button>}<Button variant="ghost" onClick={close}>关闭查看</Button></>}>
-      <p className="mb-3 text-sm text-[var(--text-2)]">这里只读查看已写入本机的确认稿，不恢复、编辑或保存。原页仍在，尚未落盘的编辑不会被替换。</p>
+      <p className="mb-3 text-sm text-[var(--text-2)]">查看动作只读，不会编辑或保存。原页仍在，尚未落盘的编辑不会被替换。若要继续处理，需在详情另行明确点击继续核对。</p>
       {invalidIdentity ? <p role="alert">{contextChanged}</p> : <>
         {busy && <p role="status">{selected ? '正在核验这一份原稿…' : '正在读取本机未提交稿…'}</p>}
         {error && <p role="alert" className="mb-3 whitespace-pre-wrap break-words text-sm text-[var(--danger)]">{error}</p>}
@@ -114,6 +127,7 @@ export function CaptureDraftBrowser({ disabled = false }: { disabled?: boolean }
             <p className="whitespace-pre-wrap break-words text-sm">日记：{detail.diary === null ? '未选择日记正文' : detail.diary} · 日期 {detail.diaryDate ?? '未知'}</p>
             <p className="text-sm">情绪：{detail.moodConfirmed ? '已选' : '未选'} · {detail.mood ?? '未知'} · 分值 {captureReadonlyFields(detail.moodScore)}</p>
           </section>
+          {onContinue && <Button disabled={busy || disabled} onClick={() => void continueSelected()}>继续核对此稿</Button>}
           <details><summary className="cursor-pointer py-2 text-sm font-semibold">查看全部原始字段（只读）</summary><p className="text-xs text-[var(--text-3)]">用于核对字段及类型，不是可导入备份格式；未出现的字段表示原稿缺席。</p><pre className="whitespace-pre-wrap break-words text-xs" aria-label="只读完整字段">{captureReadonlyFields(detail)}</pre></details>
         </article>}
       </>}

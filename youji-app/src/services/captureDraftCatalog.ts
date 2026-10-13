@@ -243,6 +243,12 @@ export function readCaptureContinuationState(grant: CaptureContinuation): { draf
   assertLocalActorNow(state.actor);
   return { draft: structuredClone(state.pending?.value ?? continuationView(state.expected, state.actor)), pending: Boolean(state.pending) };
 }
+/** UI status only, never a new authorization or operation-reset capability. */
+export function readCaptureContinuationOperation(grant: CaptureContinuation): { operationAttempted: boolean; committed: boolean } {
+  const state = continuations.get(grant); if (!state) throw failure();
+  assertLocalActorNow(state.actor);
+  return { operationAttempted: Boolean(state.operation), committed: Boolean(state.operation && commitOperations.get(state.operation)?.identity.committed) };
+}
 /** A typed comparison text, explicitly not an import/restore format. */
 export function captureContinuationText(grant: CaptureContinuation): string {
   return JSON.stringify({ format: 'youtrace-capture-review-typed-comparison-v1', value: versionValue(readCaptureContinuationState(grant).draft) }, null, 2);

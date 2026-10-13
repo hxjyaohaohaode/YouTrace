@@ -130,6 +130,7 @@ function componentDriver() {
     '../services/capturePresentation': { sameCaptureInput: () => { throw new Error('Previous-review comparison is outside this speech witness'); } },
     '../services/parser': { newCaptureContext: () => structuredClone(basis), parseQuickNote: () => ({ expenses: [], todos: [], habits: [] }) },
     '../db': { db: { ownerId: 'synthetic-owner' } },
+    '../components/capture/useCaptureContinuationHandoff': { useCaptureContinuationHandoff: () => ({ child: null, background: { current: null }, locked: false, isSuspended: () => false }) }, './QuickNoteResult': { CaptureReview: () => null },
     '../services/captureInputMemory': inputMemory,
     '../services/diagnostics': { recordDiagnostic: (...args: unknown[]) => record('diagnostic-double', args) },
   };

@@ -15,6 +15,7 @@ const capture = await import('../src/services/quickNoteIntegration.ts'), catalog
 const localActor = await import('../src/services/localActor.ts');
 const provenance = await import('../src/services/captureInputProvenance.ts');
 const inputMemory = await import('../src/services/captureInputMemory.ts');
+const handoff = await import('../src/components/capture/useCaptureContinuationHandoff.ts');
 const presentation = await import('../src/services/capturePresentation.ts'), pending = await import('../src/services/pendingEditorMemory.ts'), receiptView = await import('../src/services/captureReceiptView.ts');
 const auth = await import('../src/stores/authStore.ts'), habits = await import('../src/stores/habitStore.ts'), icons = await import('../src/utils/icons.ts');
 const require = createRequire(import.meta.url);
@@ -50,7 +51,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     '../components/ui/Checkbox': { Checkbox: ({ label, ...props }: { label?: string }) => React.createElement('input', { type: 'checkbox', 'aria-label': label, ...props }) },
     '../ui/Modal': { Modal: ({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; footer: React.ReactNode }) => open ? React.createElement('section', { role: 'dialog', 'aria-label': title }, React.createElement('button', { onClick: onClose }, '宿主Esc关闭'), children, footer) : null },
     '../services/captureDraftCatalog': catalog, '../services/quickNoteIntegration': capture, '../services/parser': parser, '../services/capturePresentation': presentation,
-    '../services/captureInputMemory': inputMemory, '../services/localActor': localActor, '../services/captureInputProvenance': provenance, '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
+    '../components/capture/useCaptureContinuationHandoff': handoff, '../services/captureInputMemory': inputMemory, '../services/localActor': localActor, '../services/captureInputProvenance': provenance, '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
     '../services/diagnostics': { recordDiagnostic() {} }, '../db': storage, '../utils/icons': icons,
     '../stores/useHabitStore': habits, '../stores/habitStore': habits, '../stores/authStore': auth,
     '../../services/captureDraftCatalog': catalog, '../../services/localActor': localActor, '../../stores/authStore': auth, '../../services/apiClient': api,
@@ -63,7 +64,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2023 } }).outputText;
     // Same JS realm as the actual services: cross-realm VM object literals
     // deliberately fail the service's plain-record check and do not model the app.
-    const bindings = { exports, require: (name: string) => name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON };
+    const bindings = { exports, require: (name: string) => name === './QuickNoteResult' ? compile('pages/QuickNoteResult.tsx') : name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON };
     runInThisContext(`(function(${Object.keys(bindings).join(',')}) {${code}\n})`)(...Object.values(bindings));
     return exports;
   }
@@ -93,7 +94,7 @@ for (const pageName of ['QuickNote', 'QuickNoteResult'] as const) test(`actual $
     assert.equal(text(tree.root.findByProps({ 'aria-label': '只读完整原文' })), corrected.input);
     assert.match(text(tree.root), /未选 · 修改后的收支/); assert.match(text(tree.root), /已选 · 已修正待办/); assert.match(text(tree.root), /取消日记仍保留原句/);
     const dialog = tree.root.findByProps({ role: 'dialog' }); assert.equal(dialog.findAllByType('input').length, 0); assert.equal(dialog.findAllByType('textarea').length, 0);
-    assert.equal(dialog.findAllByType('button').some(node => /保存|继续核对|恢复|认领/.test(text(node))), false);
+    assert.equal(dialog.findAllByType('button').some(node => /保存|恢复|认领/.test(text(node))), false);
     assert.deepEqual(editorFields(tree), fields);
     await click(tree, '返回目录'); assert.match(text(tree.root), /原编号：O/); await click(tree, '关闭查看');
     assert.equal(tree.root.findAllByProps({ role: 'dialog' }).length, 0); assert.deepEqual(editorFields(tree), fields);
@@ -280,7 +281,7 @@ test('internal isolated actual review: private original and no-edit close skip u
   await settle(() => tree.root.findAllByProps({ 'aria-label': '完整确认稿备份' }).length === 1);
   try {
     assert.ok(text(tree.root).includes(original.input)); assert.doesNotMatch(text(tree.root), /SYNTHETIC_PUBLIC_MUTATION|SYNTHETIC_WRONG_PROP/);
-    assert.equal(tree.root.findAllByType('button').some(x => /确认保存所选记录|查看本机未提交稿/.test(text(x))), false);
+    assert.equal(tree.root.findAllByType('button').filter(x => text(x) === '确认保存所选记录').length, 1); assert.equal(tree.root.findAllByType('button').some(x => /查看本机未提交稿/.test(text(x))), false);
     await act(async () => tree.root.findAllByType('button').find(x => x.props['aria-label'] === '返回')!.props.onClick());
     assert.equal(closed, 1); assert.equal(forbidden, 0); assert.deepEqual(await facts(), before); assert.deepEqual(s.navigations, []);
     assert.deepEqual([sessionStorage.getItem(capture.captureSessionKey()), sessionStorage.getItem(`youtrace:input:${owner}`)], pointers);

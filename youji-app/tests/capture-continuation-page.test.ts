@@ -15,6 +15,7 @@ const capture = await import('../src/services/quickNoteIntegration.ts'), catalog
 const localActor = await import('../src/services/localActor.ts');
 const provenance = await import('../src/services/captureInputProvenance.ts');
 const inputMemory = await import('../src/services/captureInputMemory.ts');
+const handoff = await import('../src/components/capture/useCaptureContinuationHandoff.ts');
 const presentation = await import('../src/services/capturePresentation.ts'), pending = await import('../src/services/pendingEditorMemory.ts'), receiptView = await import('../src/services/captureReceiptView.ts');
 const auth = await import('../src/stores/authStore.ts'), habits = await import('../src/stores/habitStore.ts'), icons = await import('../src/utils/icons.ts');
 const require = createRequire(import.meta.url);
@@ -50,7 +51,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     '../components/ui/Checkbox': { Checkbox: ({ label, ...props }: { label?: string }) => React.createElement('input', { type: 'checkbox', 'aria-label': label, ...props }) },
     '../ui/Modal': { Modal: ({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; footer: React.ReactNode }) => open ? React.createElement('section', { role: 'dialog', 'aria-label': title }, React.createElement('button', { onClick: onClose }, '宿主Esc关闭'), children, footer) : null },
     '../services/captureDraftCatalog': catalog, '../services/quickNoteIntegration': capture, '../services/parser': parser, '../services/capturePresentation': presentation,
-    '../services/captureInputMemory': inputMemory, '../services/localActor': localActor, '../services/captureInputProvenance': provenance, '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
+    '../components/capture/useCaptureContinuationHandoff': handoff, '../services/captureInputMemory': inputMemory, '../services/localActor': localActor, '../services/captureInputProvenance': provenance, '../services/pendingEditorMemory': pending, '../services/captureReceiptView': receiptView, '../services/apiClient': api,
     '../services/diagnostics': { recordDiagnostic() {} }, '../db': storage, '../utils/icons': icons,
     '../stores/useHabitStore': habits, '../stores/habitStore': habits, '../stores/authStore': auth,
     '../../services/captureDraftCatalog': catalog, '../../services/localActor': localActor, '../../stores/authStore': auth, '../../services/apiClient': api,
@@ -63,7 +64,7 @@ function setup(page: 'QuickNote' | 'QuickNoteResult', overrides: Record<string, 
     const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2023 } }).outputText;
     // Same JS realm as the actual services: cross-realm VM object literals
     // deliberately fail the service's plain-record check and do not model the app.
-    const bindings = { exports, require: (name: string) => name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON };
+    const bindings = { exports, require: (name: string) => name === './QuickNoteResult' ? compile('pages/QuickNoteResult.tsx') : name === '../components/capture/CaptureDraftBrowser' ? compile('components/capture/CaptureDraftBrowser.tsx') : modules[name] ?? require(name), window, document, localStorage, sessionStorage, structuredClone, setTimeout, clearTimeout, queueMicrotask, URLSearchParams, Object, Reflect, Number, JSON };
     runInThisContext(`(function(${Object.keys(bindings).join(',')}) {${code}\n})`)(...Object.values(bindings));
     return exports;
   }
