@@ -29,3 +29,12 @@ for (const scenario of ['goal-required-double-failure', 'goal-required-unpublish
   });
   assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
 });
+
+// Real App final state distinguishes cancelled/unpublished reads, a complete
+// recovery, and a genuinely published old snapshot followed by a late failure.
+for (const scenario of ['startup-required-goal-held-abort', 'startup-required-goal-held-complete', 'startup-required-trusted-late-failure']) test(`actual startup required snapshot: ${scenario}`, () => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'tests/helpers/initial-session-scenario.ts', scenario], {
+    cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 20_000,
+  });
+  assert.equal(result.status, 0, `${scenario}\n${result.stdout}\n${result.stderr}`);
+});

@@ -161,11 +161,11 @@ if (taskSet === 'initial-session') {
   metadata.untested = ['Live SMS/model delivery', 'Manual human/mobile OS/screen-reader/accessibility acceptance', 'Initial-session races beyond these four independent native scenarios', 'Production accounts/data/deployment'];
 }
 if (taskSet === 'startup-recovery') {
-  metadata.kind = 'startup-recovery-native-RED-baseline';
-  metadata.applicationBaseline = 'e723af607e3cad830395d24c50c31f0d76ab2be0';
+  metadata.kind = 'startup-recovery-required-snapshot-candidate';
+  metadata.applicationBaseline = 'c3cb006a25949aae67c57874da4971aec5b5721f';
   metadata.redEvidenceCommit = null;
   delete metadata.planningRedEvidenceCommit; delete metadata.coachRedEvidenceCommit;
-  metadata.scenarioScope = ['native registration and original Todo cloud ACK; declared full-page startup, real 12s timeout, delayed initial success followed by a later actual recovery readonly abort', 'neither read succeeds: readable error and real Retry after explicit fault release returns unchanged original', 'both branches at 1280/360 in four independent profiles; first failures, source/epoch and complete fault chronology'];
+  metadata.scenarioScope = ['native registration and original Goal/Todo cloud ACK; declared full-page startup, real 12s timeout, unpublished initial Goal stays failed, complete recovery succeeds before protected content opens', 'neither read succeeds: readable error and real Retry after explicit fault release returns unchanged original', 'both branches at 1280/360 in four independent profiles; first failures, source/epoch and complete fault chronology'];
   metadata.interactions = 'Native pointer/keyboard/wheel; declared initial Login and startup full navigation; GET-only and existing-IDB readonly corroboration. Bounded clearly SYNTHETIC business-fetch rejection and native readonly transaction keepalive/abort, never auth/state injection or application Promise interception.';
   metadata.diagnosisBoundary = 'Known overlapping-read readiness race only; does not establish the unresolved b5b8a12 failure cause';
   metadata.untested = ['Live providers, production data/deployment', 'Manual human/mobile OS/accessibility acceptance', 'Actual browser outcomes until this exact SHA runs and its original media are independently reviewed', 'Arbitrary source/epoch/account changes; this fixture asserts an unchanged original source'];

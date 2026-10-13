@@ -3,7 +3,7 @@
 // are never replaced, and no persistent/auth/business state is written.
 export function installStartupReadFault(config) {
   const { databaseName, branch } = config;
-  if (!/^youtrace:user:[^:]+:schedule-v1$/.test(databaseName) || !['late-recovery', 'both-fail'].includes(branch)) throw new Error('Invalid synthetic startup fault scope');
+  if (!/^youtrace:user:[^:]+:schedule-v1$/.test(databaseName) || !['recovery-success', 'both-fail'].includes(branch)) throw new Error('Invalid synthetic startup fault scope');
   const root = globalThis, nativeFetch = root.fetch, nativeTransaction = IDBDatabase.prototype.transaction;
   const started = performance.now(), events = [], holds = new Map();
   const state = { syntheticOnly: true, branch, databaseName, released: false, expired: false, violation: null, authenticated: false, businessRejected: 0, initialAttempt: null, recoveryAttempt: null, initialStartedAt: null, timeoutAt: null, initialTransactions: 0, recoveryTransactions: 0 };
@@ -68,7 +68,7 @@ export function installStartupReadFault(config) {
     const transaction = Reflect.apply(nativeTransaction, this, arguments);
     if (state.released || this.name !== databaseName || transaction.mode !== 'readonly') return transaction;
     const stores = [...transaction.objectStoreNames].sort();
-    const initialStores = branch === 'late-recovery' ? ['goalRecords', 'goals', 'outbox', 'settings'] : ['expenses', 'settings'];
+    const initialStores = branch === 'recovery-success' ? ['goalRecords', 'goals', 'outbox', 'settings'] : ['expenses', 'settings'];
     let target;
     if (same(stores, initialStores) && state.recoveryAttempt === null) {
       state.initialTransactions++;

@@ -84,3 +84,9 @@
 以后原生应走真实 App 的“全局加载失败屏 → 原重试 → 精确 Goal 恢复”，不得设置 ready／setState 来绕过初始化门禁。证据须包含原 ID、完整内容、统计、重载边界与源／队列保全。Goal 原“刷新核对”目前仅有独立组件合同，不能冒充真实首次启动链。本机原生权限此前被拒绝，本包没有重试或绕过；未来真实原生仍需获准的官方 GitHub CI。没有添加新 CI 接线。
 
 回退只需回退本包内存错误处理、Goal 必需快照 guard 与测试／文档，不涉及 schema、用户数据或存储迁移；不会改变已有写入语义。
+
+### c3cb 全门禁引出的相邻 startup 合同修订
+
+纯净 c3cb 全 FE 发现旧 `late-recovery` fixture 仍将未发布的旧 Goal 事务 complete 当 initial success。原红与实际 App 双臂取证已封存；追加三臂区分：未发布旧 Goal＋恢复 Expense 失败锁门、恢复 Expense 成功后的完整恢复开放、真实已发布可信旧快照的完整成功后晚失败不撤回。实际 actor／generation／epoch 和完整原 Goal 同步断言。生产 Goal guard 没有为旧测试增加等待或放宽可信快照要求。
+
+既有 startup-recovery 四个双宽 profile 的现行验收准备因此重订为 recovery-success／both-fail，并通过原控件增加一个真实 Goal 与原 Todo；完整边界见 [STARTUP_RECOVERY_TASK_BASELINE.md](STARTUP_RECOVERY_TASK_BASELINE.md#2026-10-13-必需-goal-快照后的合同重订本地候选原生待验)。该组与独立 Goal 首读 25%／50% 两次 Retry 草稿是不同验收，均未本机执行原生，不能互相转授。旧缓存晚失败保持场景目前明确为受控 actual App 模块证据。

@@ -8,11 +8,15 @@ import Dexie from 'dexie';
 import ts from 'typescript';
 
 const scenario = process.argv[2];
+const startupScenario = scenario.startsWith('startup-required-');
+const trustedStartup = scenario === 'startup-required-trusted-late-failure';
 const goalRequired = scenario.startsWith('goal-required-');
-const goalScenario = scenario.startsWith('goal-initial-') || goalRequired;
+const goalScenario = scenario.startsWith('goal-initial-') || goalRequired || startupScenario;
 const memory = () => { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key), clear: () => values.clear() }; };
 const events = Object.assign(new EventTarget(), { matchMedia: () => Object.assign(new EventTarget(), { matches: false }) });
 Object.assign(globalThis, { localStorage: memory(), sessionStorage: memory(), window: events, document: { documentElement: { setAttribute: () => undefined } } });
+const { installStartupReadFault } = await import('../../scripts/audit-startup-read-fault.mjs');
+let startupFault: ReturnType<typeof installStartupReadFault> | undefined;
 const storage = await import('../../src/db/index.ts');
 const session = await import('../../src/services/apiClient.ts');
 const auth = await import('../../src/stores/authStore.ts');
@@ -48,7 +52,8 @@ for (const name of ['Expense', 'Todo', 'Habit', 'QuickNote', 'Schedule', 'Diary'
     if (scenario.startsWith('initial-race-') && name === 'Expense' && ++raceExpenseReads === 1) await heldRecovery.promise;
     if (scenario === 'store-failure' && name === 'Habit') throw Object.assign(new Error('Synthetic retained storage failure'), { name: 'DatabaseClosedError' });
     if (goalScenario && name === 'Goal') goalReadStarted = true;
-    const firstPublished = scenario === 'goal-required-published-success-new-failure' && name === 'Goal' && ++requiredGoalCalls === 1;
+    if (trustedStartup && name === 'Expense' && ++raceExpenseReads === 2) await heldRecovery.promise;
+    const firstPublished = (scenario === 'goal-required-published-success-new-failure' || trustedStartup) && name === 'Goal' && ++requiredGoalCalls === 1;
     try {
       await original();
       if (firstPublished) { requiredEntered.resolve(); await releaseRequired.promise; }
@@ -224,8 +229,13 @@ try {
       const original = settings.useSettingsStore.getState().loadSettings;
       settings.useSettingsStore.setState({ loadSettings: async () => { await heldSettings.promise; await original(); } });
     }
+    if (startupScenario && !trustedStartup) {
+      Object.assign(globalThis, { location: { origin: 'http://127.0.0.1:4173' } });
+      startupFault = installStartupReadFault({ databaseName: `youtrace:user:${owner}:schedule-v1`, branch: 'recovery-success' });
+    }
     app = await driver(); app.render();
     await auth.useAuthStore.getState().loadUser();
+    if (startupScenario) session.announceSessionChange();
     const offlineTodo = { id: 'synthetic-retained-todo', text: 'Synthetic saved offline work', priority: 'medium' as const, done: false };
     if (scenario === 'offline-verified') {
       await storage.db.todos.put(offlineTodo);
@@ -281,8 +291,50 @@ try {
       }
     }
     if (scenario === 'initialization-closed-db') storage.db.close();
+    const startupActor = startupScenario ? await actor.readLocalActor() : undefined;
     app.render();
-    if (goalRequired) {
+    if (startupScenario) {
+      const report = (stage: string) => console.log('ACTUAL_APP_STARTUP', JSON.stringify({ stage, state: app!.state(), gate: app!.route().gate, goal: { loaded: goals.useGoalStore.getState().loaded, readError: goals.useGoalStore.getState().readError, revision: goals.useGoalStore.getState().publishedRevision }, sameOwner: session.getVerifiedSessionOwner() === startupActor!.owner, sameGeneration: session.getSessionGeneration() === startupActor!.sessionGeneration }));
+      if (trustedStartup) {
+        await requiredEntered.promise;
+        assert.deepEqual(goals.useGoalStore.getState().items, [exactGoal]);
+        assert.equal(goals.useGoalStore.getState().loaded, true); assert.ok(goals.useGoalStore.getState().publishedRevision > 0);
+        await actor.assertLocalActor(startupActor!);
+        report('actual-Goal-publication-before-held-initial-delivery');
+      } else await until(() => startupFault!.snapshot().holds.some((row: { target: string }) => row.target === 'initial'));
+      const deadline = [...app.timers.values()][0]; assert.equal(deadline.delay, 12_000);
+      // Real elapsed 12s, then the existing driver invokes the original hook
+      // callback. This is a deterministic App module contract, not browser time.
+      await new Promise(resolve => setTimeout(resolve, 12_000)); deadline.callback(); app.render();
+      if (trustedStartup) {
+        await until(() => raceExpenseReads === 2);
+        releaseRequired.resolve(); await until(() => app!.state().ready);
+        assert.deepEqual(app.state(), { ready: true, failed: true }); assert.equal(app.route().gate, 'protected');
+        report('complete-initial-attempt-ready-with-trusted-Goal');
+        heldRecovery.reject(new Error('Synthetic late Expense read delivery failure'));
+      } else {
+        await until(() => startupFault!.snapshot().holds.some((row: { target: string }) => row.target === 'recovery'));
+        startupFault!.finish('initial', 'complete');
+        await until(() => initialization.initializationSnapshot().some(row => row.phase === 'initial' && row.stage === 'initialization' && row.outcome === 'error'));
+        assert.deepEqual(app.state(), { ready: false, failed: true }); assert.equal(app.route().gate, 'loading-or-error');
+        assert.equal(goals.useGoalStore.getState().loaded, false); assert.equal(goals.useGoalStore.getState().publishedRevision, 0);
+        report('initial-transaction-complete-without-publication-stays-locked');
+        startupFault!.finish('recovery', scenario === 'startup-required-goal-held-complete' ? 'complete' : 'abort');
+      }
+      const recoverySuccess = scenario === 'startup-required-goal-held-complete';
+      await until(() => initialization.initializationSnapshot().some(row => row.phase === 'recovery' && row.stage === 'initialization' && row.outcome === (recoverySuccess ? 'success' : 'error')));
+      await until(() => goals.useGoalStore.getState().loaded);
+      assert.deepEqual(app.state(), { ready: recoverySuccess || trustedStartup, failed: true });
+      assert.equal(app.route().gate, recoverySuccess || trustedStartup ? 'protected' : 'loading-or-error');
+      assert.deepEqual(goals.useGoalStore.getState().items, [exactGoal]); assert.equal(goals.useGoalStore.getState().readError, null);
+      await actor.assertLocalActor(startupActor!);
+      assert.equal((await storage.db.settings.get(storage.LOCAL_DATA_EPOCH_KEY))?.value, startupActor!.epoch, 'Exact same clear epoch after all awaited reads');
+      assert.deepEqual(await storage.db.goalRecords.toArray(), [exactGoal]); assert.deepEqual(await storage.db.table('goals').toArray(), [sourceGoal]);
+      assert.equal(await storage.db.outbox.count(), 0);
+      assert.ok(await sameGoalSource(await Promise.all(extraDatabases.map(rawSnapshot)), retainedOthers));
+      if (startupFault) { assert.equal(startupFault.snapshot().violation, null); startupFault.release('explicit-module-test-release'); }
+      report('final-complete-attempt-result-with-exact-Goal-and-epoch');
+    } else if (goalRequired) {
       await requiredEntered.promise;
       await until(() => ['expense', 'todo', 'habit', 'quick-note', 'schedule', 'diary', 'coach'].every(stage => initialization.initializationSnapshot().some(row => row.phase === 'initial' && row.stage === stage && row.outcome === 'success')));
       const before = await rawSnapshot(storage.db);
@@ -434,5 +486,5 @@ try {
   }
   console.log(JSON.stringify({ scenario, outcome: 'passed', authChecked: auth.useAuthStore.getState().authChecked, authenticated: auth.useAuthStore.getState().isAuthenticated, loads, requestCount: requests.length }));
 } finally {
-  app?.cleanup(); settings.stopPreferenceSync(); sync.pauseSync(); session.clearSession(); storage.db.close(); for (const database of extraDatabases) database.close();
+  startupFault?.dispose(); app?.cleanup(); settings.stopPreferenceSync(); sync.pauseSync(); session.clearSession(); storage.db.close(); for (const database of extraDatabases) database.close();
 }

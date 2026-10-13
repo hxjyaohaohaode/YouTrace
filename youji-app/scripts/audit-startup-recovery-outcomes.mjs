@@ -11,9 +11,9 @@ import { installStartupReadFault } from './audit-startup-read-fault.mjs';
 import { assertStartupChronology, assertStartupViewWitness } from './audit-startup-chronology.mjs';
 export const STARTUP_RECOVERY_PATH = '/todo?view=all';
 export const STARTUP_RECOVERY_CASES = [
-  { branch: 'late-recovery', width: 1280, height: 900, phone: '13900008701', nickname: 'Synthetic 迟到1280' },
+  { branch: 'recovery-success', width: 1280, height: 900, phone: '13900008701', nickname: 'Synthetic 恢复1280' },
   { branch: 'both-fail', width: 1280, height: 900, phone: '13900008702', nickname: 'Synthetic 双败1280' },
-  { branch: 'late-recovery', width: 360, height: 800, phone: '13900008703', nickname: 'Synthetic 迟到360' },
+  { branch: 'recovery-success', width: 360, height: 800, phone: '13900008703', nickname: 'Synthetic 恢复360' },
   { branch: 'both-fail', width: 360, height: 800, phone: '13900008704', nickname: 'Synthetic 双败360' },
 ];
 const { acknowledged, retained, todoRowsFromLedger } = initialSessionChecks;
@@ -22,6 +22,27 @@ const epoch = snapshot => table(snapshot, 'settings').rows.filter(row => row.key
 const sameEpoch = (before, after) => isDeepStrictEqual(epoch(before), epoch(after));
 const editorDrafts = snapshot => table(snapshot, 'settings').rows.filter(row => row.key.startsWith('record-draft:todo:'));
 const sourceWitness = snapshot => ({ todoId: table(snapshot, 'todos').rows[0]?.id, databaseName: snapshot.databaseName, epochPresent: epoch(snapshot).length === 1, epoch: epoch(snapshot)[0]?.value ?? null });
+const goalMetadata = snapshot => table(snapshot, 'settings').rows.filter(row => /^(?:sync-(?:version|conflict):goals:|goal-)/.test(row.key));
+export function startupGoalAcknowledged(facts, title, description) {
+  const rows = table(facts.local, 'goalRecords').rows;
+  if (rows.length !== 1) return false;
+  const goal = rows[0], event = facts.events.filter(row => row.entity === 'goals' && row.entityId === goal.id).at(-1);
+  const version = table(facts.local, 'settings').rows.find(row => row.key === `sync-version:goals:${goal.id}`)?.value;
+  const fields = ['id', 'title', 'description', 'level', 'domain', 'priority', 'progress', 'targetDate', 'createdAt', 'updatedAt'];
+  if (!fields.every(key => Object.hasOwn(goal, key) && event?.data && Object.hasOwn(event.data, key))) return false;
+  const remoteTime = key => typeof event.data[key] === 'string' && Number.isFinite(Date.parse(event.data[key])) && new Date(event.data[key]).toISOString() === event.data[key] ? Date.parse(event.data[key]) : NaN;
+  // createdAt is explicitly sent by goalSyncPayload. updatedAt is independently
+  // assigned by the server; a push ACK does not rewrite the local timestamp.
+  // Validate both, retain both full raw values, and never normalize the fixture.
+  if (!['createdAt', 'updatedAt'].every(key => Number.isSafeInteger(goal[key]) && goal[key] >= 0 && Number.isFinite(remoteTime(key)))
+    || remoteTime('createdAt') !== goal.createdAt || remoteTime('updatedAt') < remoteTime('createdAt') || goal.updatedAt < goal.createdAt) return false;
+  return goal.title === title && goal.description === description && goal.progress === 0 && goal.targetDate === null && goal.syncScope === 'account'
+    && event?.operation === 'upsert' && event.data?.id === goal.id && event.data?.userId === facts.owner
+    && ['id', 'title', 'description', 'level', 'domain', 'priority', 'progress', 'targetDate'].every(key => isDeepStrictEqual(event.data[key], goal[key]))
+    && typeof version === 'string' && /^[1-9]\d*$/.test(version) && version === event.seq
+    && table(facts.local, 'outbox').rows.length === 0 && !goalMetadata(facts.local).some(row => row.key.startsWith('sync-conflict:'));
+}
+const goalsRetained = (before, after) => ['goalRecords', 'goals'].every(name => isDeepStrictEqual(table(before, name), table(after, name))) && isDeepStrictEqual(goalMetadata(before), goalMetadata(after));
 const preferencesSettled = snapshot => { const state = table(snapshot, 'settings').rows.find(row => row.key === 'accountPreferences:state:v1')?.value; return Boolean(state?.server && state.active === null && state.queued === null); };
 
 export async function runStartupRecoveryOutcomes(h) {
@@ -29,7 +50,7 @@ export async function runStartupRecoveryOutcomes(h) {
   const { isolated, capture, observe, sleep, actions, infrastructure, artifacts, writeFile, join, origin, checkpoint } = h;
   assert.match(origin, /^http:\/\/127\.0\.0\.1:\d+$/, 'Disposable synthetic origin only');
   const media = [], runs = [];
-  await writeFile(join(artifacts, 'YS-scope.json'), JSON.stringify({ kind: 'startup-recovery-native-RED-baseline', applicationBaseline: 'e723af607e3cad830395d24c50c31f0d76ab2be0', syntheticOnly: true, cases: STARTUP_RECOVERY_CASES, requestedPath: STARTUP_RECOVERY_PATH, faults: 'Bounded SYNTHETIC business API offline after actual auth/me200; real native readonly transactions kept alive then normally released/aborted. No data changes, fabricated request success or application Promise interception.', deadlineMs: { scenario: 105000, appUnchanged: 12000, faults: 45000, GET: 5000, idb: 5000 }, browserExecution: 'Native CI run started; authoritative completion/failure results are in YS-media.json and each scenario-result.json' }, null, 2));
+  await writeFile(join(artifacts, 'YS-scope.json'), JSON.stringify({ kind: 'startup-recovery-required-snapshot-candidate', applicationBaseline: 'c3cb006a25949aae67c57874da4971aec5b5721f', syntheticOnly: true, cases: STARTUP_RECOVERY_CASES, requestedPath: STARTUP_RECOVERY_PATH, faults: 'Bounded SYNTHETIC business API offline after actual auth/me200; real native readonly transactions kept alive then normally released/aborted. No data changes, fabricated request success or application Promise interception.', deadlineMs: { scenario: 105000, appUnchanged: 12000, faults: 45000, GET: 5000, idb: 5000 }, browserExecution: 'Native CI run started; authoritative completion/failure results are in YS-media.json and each scenario-result.json' }, null, 2));
 
   for (const config of STARTUP_RECOVERY_CASES) {
     const label = `YS-${config.branch}-${config.width}`, directory = join(artifacts, 'startup-recovery', label);
@@ -168,7 +189,8 @@ export async function runStartupRecoveryOutcomes(h) {
       const verifyRetained = async (name, owner, title) => {
         const after = await facts(owner); await save(name, after);
         const original = table(beforeFacts.local, 'todos').rows[0];
-        await pass(name, acknowledged(after, title) && retained(beforeFacts.local, after.local) && isDeepStrictEqual(beforeFacts.events, after.events) && original.id === table(after.local, 'todos').rows[0]?.id && sameEpoch(beforeFacts.local, after.local), 'Same original Todo/fields/ID, full ledger, receipt/version and whole outbox; same account DB/schema and local data epoch. Other tables are retained as evidence, not asserted byte-identical.');
+        assert.ok(goalsRetained(beforeFacts.local, after.local), 'Complete original Goal, old source and all Goal metadata stay exact');
+        await pass(name, acknowledged(after, title) && retained(beforeFacts.local, after.local) && isDeepStrictEqual(beforeFacts.events, after.events) && original.id === table(after.local, 'todos').rows[0]?.id && sameEpoch(beforeFacts.local, after.local), 'Same original Goal and Todo/fields/IDs, full ledger, receipt/version and whole outbox; same account DB/schema and local data epoch. Other tables are retained as evidence, not asserted byte-identical.');
       };
       const journey = async () => {
         run.status = 'running'; await trace.observeInitialization(page);
@@ -178,16 +200,25 @@ export async function runStartupRecoveryOutcomes(h) {
         await loginVisible(); await otp(false); await path('/onboarding');
         for (let index = 0; index < 4; index++) { await read('h1'); await capture(page, `${label}-onboarding-${index + 1}`); await tap('button', index < 3 ? '下一步' : '开始使用'); await sleep(650); }
         await path('/'); const owner = await verifyOwner(); verifiedOwner = owner;
+        await setStage('native-create-Goal'); await navigate('/goal', '目标');
+        const goalTitle = `Synthetic 启动目标${config.width}`, goalDescription = 'Synthetic 完整目标原文，初始手动进度为0';
+        await tap('button[aria-label="新建目标"]');
+        await fill('[role=dialog] input[placeholder="想完成什么？"]', goalTitle);
+        await fill('[role=dialog] #goal-description', goalDescription);
+        await tap('[role=dialog] button', '创建'); await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 10000 });
+        for (let attempt = 0; attempt < 30; attempt++) { beforeFacts = await facts(owner); if (startupGoalAcknowledged(beforeFacts, goalTitle, goalDescription)) break; await sleep(250); }
+        await pass('native-Goal-full-ACK', startupGoalAcknowledged(beforeFacts, goalTitle, goalDescription), 'One real Goal created by original controls, same ID and complete visible fields cloud-ACKed; 0 is its explicit default manual progress, not an unread fallback');
+        await read('[data-component="goal-card"] h2', goalTitle); await read('[data-component="goal-card"] p', goalDescription);
         await setStage('native-create-Todo'); await navigate('/todo', '待办');
         const title = `Synthetic 启动${config.width}`;
         await tap('button[aria-label="新建待办"]'); await fill('[role=dialog] #todo-text', title); await tap('[role=dialog] button', '无日期'); await tap('[role=dialog] button', '保存');
         await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 10000 });
         await setStage('original-Todo-ACK');
-        for (let attempt = 0; attempt < 30; attempt++) { beforeFacts = await facts(owner); if (acknowledged(beforeFacts, title) && preferencesSettled(beforeFacts.local)) break; await sleep(250); }
+        for (let attempt = 0; attempt < 30; attempt++) { beforeFacts = await facts(owner); if (acknowledged(beforeFacts, title) && startupGoalAcknowledged(beforeFacts, goalTitle, goalDescription) && preferencesSettled(beforeFacts.local)) break; await sleep(250); }
         const original = table(beforeFacts.local, 'todos').rows[0];
         const editor = `button[aria-label="编辑待办 ${title} 无日期"]`;
         await read(editor); await save('original-ACK', beforeFacts);
-        await pass('original-full-ACK', acknowledged(beforeFacts, title) && preferencesSettled(beforeFacts.local), 'Native-created original Todo is exactly cloud-ACKed before the synthetic startup disturbance');
+        await pass('original-full-ACK', acknowledged(beforeFacts, title) && startupGoalAcknowledged(beforeFacts, goalTitle, goalDescription) && preferencesSettled(beforeFacts.local), 'Native-created original Goal and Todo is exactly cloud-ACKed before the synthetic startup disturbance');
         // New-document instrumentation is installed before Dexie opens the DB;
         // Dexie captures the native transaction method while opening.
         faultScript = await page.evaluateOnNewDocument(`globalThis.__youtraceSyntheticStartupFault = (${installStartupReadFault.toString()})(${JSON.stringify({ databaseName: beforeFacts.local.databaseName, branch: config.branch })});`);
@@ -201,8 +232,13 @@ export async function runStartupRecoveryOutcomes(h) {
         await waitApp('initial', 'timeout');
         await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.some(row => row.target === 'recovery'));
         await save('overlapping-readonly-attempts', await faultSnapshot());
-        if (config.branch === 'late-recovery') {
-          await setStage('delayed-initial-success'); await faultCommand('finish', 'initial', 'complete'); await waitApp('initial', 'success');
+        if (config.branch === 'recovery-success') {
+          await setStage('unpublished-initial-Goal-stays-failed'); await faultCommand('finish', 'initial', 'complete'); await waitApp('initial', 'error');
+          await read('p', '加载遇到问题'); await read('button', '重试');
+          assert.equal(await page.$('main h1'), null, 'Protected business content stays closed before a complete required snapshot');
+          await save('initial-unpublished-stays-locked', await faultSnapshot());
+          await setStage('complete-required-recovery'); await faultCommand('finish', 'recovery', 'complete'); await waitApp('recovery', 'success');
+          await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.every(row => row.terminal));
           await path(STARTUP_RECOVERY_PATH); await read('main h1', '待办'); await read('button[aria-label="新建待办"]');
           const editorRead = await read(editor);
           const rowSelector = await page.evaluate(id => '#' + CSS.escape(`todo-record-${id}`), original.id);
@@ -215,23 +251,16 @@ export async function runStartupRecoveryOutcomes(h) {
           const visibleFault = await faultSnapshot();
           const visible = { ...renderedIdentity, rowVisible: rowRead.box.visible, editorVisible: editorRead.box.visible, readable: rowRead.box.visible && editorRead.box.visible, sequence: visibleFault.events.at(-1).sequence };
           assertStartupViewWitness(visible, original.id);
-          await save('initial-view-readable-before-abort', { witness: visible, fault: visibleFault });
-          await capture(page, `${label}-original-readable-before-late-abort`);
-          await setStage('late-recovery-native-abort'); await faultCommand('finish', 'recovery', 'abort'); await waitApp('recovery', 'error');
-          await faultWait(() => globalThis.__youtraceSyntheticStartupFault.snapshot().holds.every(row => row.terminal));
+          await save('complete-recovery-view-readable', { witness: visible, fault: visibleFault });
+          await capture(page, `${label}-original-readable-after-complete-recovery`);
           const fault = await faultSnapshot(); await save('complete-fault-chronology', fault); assertStartupChronology(fault, visible, sourceWitness(beforeFacts.local));
-          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-          // Immediate post-failure observation preserves the real first broken
-          // view instead of waiting for another unrelated request to repair it.
-          const visibleAfter = await page.evaluate(({ editor, id }) => ({ title: [...document.querySelectorAll('main h1')].some(el => el.textContent === '待办'), row: Boolean(document.getElementById(`todo-record-${id}`)), editor: Boolean(document.querySelector(editor)), newTodo: Boolean(document.querySelector('button[aria-label="新建待办"]')), error: [...document.querySelectorAll('p')].some(el => el.textContent === '加载遇到问题') }), { editor, id: original.id });
-          await save('view-after-late-failure', visibleAfter);
-          await pass('late-failure-retains-usable-view', visibleAfter.title && visibleAfter.row && visibleAfter.editor && visibleAfter.newTodo && !visibleAfter.error, 'A late failed overlapping recovery must not retract the earlier successful original Todo view');
+          await pass('complete-recovery-opens-usable-view', true, 'Initial transaction completion without Goal publication stayed failed; only the complete recovery attempt opened the exact original Todo');
           await read('main h1', '待办'); await read(editor); await read('button[aria-label="新建待办"]');
-          await releaseFaults('explicit-before-usability-check');
+          await releaseFaults('explicit-after-complete-recovery');
           const beforeEditor = await local(owner);
           await setStage('actual-open-and-cancel-original'); await tap(editor); await read('[role=dialog] #todo-text');
           assert.equal(await page.$eval('[role=dialog] #todo-text', el => el.value), title);
-          await capture(page, `${label}-original-opened-after-late-failure`);
+          await capture(page, `${label}-original-opened-after-complete-recovery`);
           await tap('[role=dialog] button', '取消（保留草稿）'); await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 10000 });
           await read(editor);
           const afterEditor = await local(owner);
@@ -255,6 +284,14 @@ export async function runStartupRecoveryOutcomes(h) {
           await path(STARTUP_RECOVERY_PATH); await read('main h1', '待办'); await read(editor); await read('button[aria-label="新建待办"]');
           await verifyOwner(owner); await verifyRetained('after-native-Retry-original-retained', owner, title);
         }
+        await setStage('original-Goal-visible-after-recovery'); await navigate('/goal', '目标');
+        await read('[data-component="goal-card"] h2', goalTitle); await read('[data-component="goal-card"] p', goalDescription);
+        assert.equal(await page.$$eval('[data-component="goal-card"]', rows => rows.length), 1);
+        assert.equal(await page.$eval('[data-component="goal-card"] [role=progressbar]', el => Number(el.getAttribute('aria-valuenow'))), 0);
+        await read('[data-component="goal-workspace"] h1 + p', '0/1 完成 · 平均进度 0%');
+        await capture(page, `${label}-original-Goal-visible-after-recovery`);
+        await verifyRetained('after-original-Goal-read', owner, title);
+        await navigate('/todo', '待办'); await read(editor);
         run.status = 'completed';
       };
       const timerState = {}; const deadline = new Promise((_, reject) => { timerState.id = setTimeout(() => { stopped = true; reject(new Error('Startup-recovery scenario exceeded 105-second evidence deadline')); }, 105000); });

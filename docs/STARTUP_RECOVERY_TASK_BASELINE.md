@@ -129,3 +129,31 @@ GET证据只用当前页已有同源cookie自动发起的 `/auth/me`与完整分
 page3/document2根页initial初始化172ms成功；整页进入settings产生document3，settings阶段33ms成功，auth/settings/pull均200且finished，但sync无success，initial于12023ms超时后原恢复stores开始。该document留存38笔已观察事务、28complete、0abort；最早无终态的database2/transaction29与30在documentElapsedMs88均只有首个settings.get开始，随后31–38也没有终态。网络结束不等于本机事务已应用，创建事务不证明已获锁执行。
 
 本轮chronology/storage丢弃2576/19418；缺少业务原值、完整peer来源或实际Retry结果，不能推断资料丢失、锁源、物理连接存活或与旧Todo失败同根因。这里仅被动读取原件，没有新增暂停范围的权限/代次/发布机制实验。同期键盘指定链已独立限定通过，见[KEYBOARD_TASK_BASELINE.md](KEYBOARD_TASK_BASELINE.md#eea-指定键盘连续任务独立验收)，不转授本普通启动问题或整体上线通过。
+
+## 2026-10-13 必需 Goal 快照后的合同重订（本地候选，原生待验）
+
+本节不改写上面任何历史原图、旧标签或成功结论。`23377da` 后的独审发现：较新 Goal 读取能让旧 loadFromDB 取消并 resolve，而旧快照从未发布。`c3cb006a25949aae67c57874da4971aec5b5721f` 加入 Goal 专用 required 快照验证后，完整前端门禁中的旧 `late-recovery` module fixture 报红。旧 fixture 持有 initial Goal 四表事务，再在 12 秒后持有 recovery Expense；它原来只把前一事务 complete 当 initial success，没有核实 Goal publication。
+
+先保留该原红，再在实际 App/useAppInit/ReadyRoutes/RequireAuth 与真实八 store 上取证：
+
+- Goal-held 初始事务 complete，但被较新 Goal sequence 取消，从未发布；初始 required attempt 正确 error，业务路由保持关闭。
+- recovery Expense 再 abort：之后 Goal 的真实读取仍可完成并发布原 ID／完整内容，但该次完整 recovery 由于必需 Expense 失败仍 error。两完整 attempt 均不满足，保持全局错误不是丢失已成功初始化。
+- 对照只让 recovery Expense 自然 complete：同 actor／session generation／epoch 下，Goal 真正发布、整个 recovery 成功，App ready 才为 true，开放 protected route。没有额外重试、循环等待或新时钟。
+- 另一个明确受控模块场景，在旧 Goal 已经真实读取并发布后才延迟其完成交付；完整初始 attempt 变 ready，晚到的恢复失败不撤回界面。这个 promise 交付控制仅是模块证据，不能称为新文档原生前置。
+
+上述 actual App 三臂均实际等待 12 秒，再由既有确定性 driver 调用原 12,000ms 定时回调；不是浏览器时钟／React DOM 证据。断言原 Goal 的完整字段和未知字段、actor／generation 与实际 epoch、旧来源、B／共享合成源。保留模块级合成 fixture 与 native 原控件创建的区别。仅改成 hold initial Expense 的探针也未能先取得可信 Goal：离线 Coach 的原有 settings RW 排队，使 Goal 最后 publication RO 排在后面；这是此受控注入的排队事实，不解释旧 fcec／普通初始化的根因，也未修改 Coach。
+
+### 现行 startup-recovery 脚本范围
+
+仍为两个分支 × 1280／360 的四个既有 profile，没有增加 CI task_set／总矩阵；旧当前分支名 `late-recovery` 改为 `recovery-success`，避免新产物继续宣称不成立的“初始成功”。历史工件 `YS-late-*` 不重命名，不把旧 chronology 套到新候选。
+
+- `recovery-success`：原 Goal 四表 readonly 事务 held → 原真实 12 秒超时 → recovery Expense readonly held → initial 正常 complete，但必须观察 initial error 和全局错误屏 → recovery Expense 正常 complete → 必需读取全部成功 → 原 Todo 可见可用。
+- `both-fail`：原有两次 Expense readonly abort、两完整 attempt 失败，显示全局原“重试”；明确解除故障后通过原按钮真实 reload 恢复。
+- 每个 profile 先用原页面控件创建一个实际合成 Goal（标题和完整说明明确、默认手动进度 0，非未知统计）及一个 Todo。Goal ACK 核全部必需字段存在、业务字段一致、server 规范 ISO createdAt 转毫秒与本机精确相等。updatedAt 由服务端独立赋值，push ACK 不重写本机时间；两侧合法时间分别保存，不强迫相等或改源值。两个原 ID、完整本机记录、旧 Goal 来源表、Goal/Todo 版本／冲突元数据、完整 outbox 与完整 GET 事件账须准确保留。各自 cloud ACK 与原值冻结完成后才安装故障。
+- 恢复后原控件去 Goal 页，读取同一份完整标题／说明、唯一卡片、已知 0% 和 0/1 统计，再回原 Todo。此单 Goal 前置不借用另一个 Goal 首读包的 25%／50% 双目标结果。
+- 全表原始旁证继续留存；不是全启动窗口 0 写声明，偏好、同步和真实打开／取消编辑器可能有原有合法元数据动作。没有补造缺失的其他 owner／共享源 native fixture。
+- 12,000ms App、45 秒既有故障安全期限、105 秒 profile 总预算及既有 GET/IDB 等待不变。新增原控件准备若真实 CI 无法在原界限完成，必须保留首次失败并标阻塞，不自行加时、预热 store 或伪造成功。
+
+本轮只改验收准备／chronology／模块合同，不再改 `c3cb` 生产 guard。真实原生仍 `BLOCKED_EXTERNAL`，需最终准确 SHA 的官方 CI 与原图独审。原本“已有完整可信视图后晚失败不撤回”的产品语义保留，由受控 actual App 合同继续授证；没有为了原生字样造同文档 store 缓存或改变必需初始化要求。
+
+本地定向：startup 合同 9/9、新增 actual App 三臂 3/3、全部 Goal／initialization／initial-session／startup 相邻 346/346；最终 ACK 时间／chronology 负向 3/3 再验通过。346 包含仍隔离的8个 Goal 首读 native 脚本替身合同，不是原生执行。修改脚本 syntax、定向 eslint、diff 检查通过；精确冻结后完整门禁与独审由父任务接续。
