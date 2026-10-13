@@ -153,6 +153,21 @@ test('fake IndexedDB: confirming old capture cannot erase or overwrite another t
 
 test('fake IndexedDB: raw composer recovery forks per mount and confirmation clears only its own input', async () => {
   const { forkCaptureInput, saveCaptureDraft, applyCaptureDraft } = await import('../src/services/quickNoteIntegration.ts');
+  // The previous case intentionally retained a legacy raw draft with no origin.
+  // It is unknown, not a new empty root, and this case must not silently claim it.
+  const legacy = await current.settings.get('quicknote_draft');
+  assert.equal(legacy?.value, 'tab B newer source');
+  const unknown = await forkCaptureInput();
+  const before = await current.transaction('r', current.tables, async () => Promise.all(current.tables.map(async table => ({ name: table.name, keys: await table.toCollection().primaryKeys(), rows: await table.toArray() }))));
+  const unknownPointer = sessionStorage.getItem('youtrace:input:synthetic-account-a');
+  await assert.rejects(saveCaptureDraft({ id: 'legacy-unknown-first-put', input: unknown.text, inputKey: unknown.key, expenses: [], habits: [], todos: [], diary: null, mood: null, moodScore: 5 }, true), /来源/);
+  assert.deepEqual(await current.transaction('r', current.tables, async () => Promise.all(current.tables.map(async table => ({ name: table.name, keys: await table.toCollection().primaryKeys(), rows: await table.toArray() })))), before);
+  assert.equal(sessionStorage.getItem('youtrace:input:synthetic-account-a'), unknownPointer);
+  // A separate, genuinely empty input fixture exercises the original fork/clear
+  // contract without deleting or reclassifying the retained legacy source.
+  const emptyKey = 'capture-input:synthetic-empty-root-for-fork-contract';
+  for (const key of [emptyKey, `${emptyKey}:context`, `capture-input-origin:${emptyKey}`, `capture-input-consumption:${emptyKey}`]) assert.equal(await current.settings.get(key), undefined);
+  sessionStorage.setItem('youtrace:input:synthetic-account-a', emptyKey);
   const a = await forkCaptureInput();
   await current.settings.put({ key: a.key, value: 'composer A' });
   const b = await forkCaptureInput();
@@ -164,6 +179,7 @@ test('fake IndexedDB: raw composer recovery forks per mount and confirmation cle
   await applyCaptureDraft(draft);
   assert.equal(await current.settings.get(a.key), undefined);
   assert.equal((await current.settings.get(b.key))?.value, 'composer B');
+  assert.deepEqual(await current.settings.get('quicknote_draft'), legacy);
 });
 
 test('fake IndexedDB: delayed settings hydration cannot undo a newer choice or change its queued PATCH', async () => {

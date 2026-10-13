@@ -5,6 +5,8 @@ import { normalizeExpenseCategory } from '../utils/icons';
 import { SESSION_REVISION_KEY, SIGNED_OUT_KEY, isLoggedIn } from './apiClient';
 import { recordDiagnostic } from './diagnostics';
 import { getToday } from '../utils/date';
+import { assertLocalActorNow } from './localActor';
+import { readCaptureInputActor, assertCaptureInputActor, recordCaptureInputOrigin, captureInputOriginKey, captureInputConsumptionKey, assertNewCaptureInput } from './captureInputProvenance';
 
 interface CaptureActor { ownerId: string | null; dataEpoch: string; sessionRevision: string | null; sessionActive: boolean }
 export interface CaptureDraft {
@@ -29,23 +31,33 @@ async function assertActor(target: YoujiDatabase, expected: CaptureActor): Promi
   if (target !== db || target.ownerId !== expected.ownerId || revision() !== expected.sessionRevision || isLoggedIn() !== expected.sessionActive || localStorage.getItem(SIGNED_OUT_KEY) === 'true' || ((await target.settings.get(LOCAL_DATA_EPOCH_KEY))?.value ?? 'initial') !== expected.dataEpoch) throw new Error('账号或本机资料已变化，已停止写入。输入仍保留，请重新核对');
 }
 export async function forkCaptureInput(): Promise<CaptureInput> {
-  const target = db, session = await actor(target), sessionKey = `youtrace:input:${target.ownerId ?? 'guest'}`;
-  const previousKey = sessionStorage.getItem(sessionKey);
-  const previous = previousKey ? await target.settings.get(previousKey) : await target.settings.get('quicknote_draft');
-  const text = typeof previous?.value === 'string' ? previous.value : '';
-  const savedContext = previousKey ? (await target.settings.get(`${previousKey}:context`))?.value as CaptureContext | undefined : undefined;
-  const context = text ? savedContext ?? unknownContext() : newCaptureContext();
-  const key = `capture-input:${generateLocalId()}`;
-  await target.transaction('rw', target.settings, async () => { await assertActor(target, session); await target.settings.put({ key, value: text }); await target.settings.put({ key: `${key}:context`, value: context }); await assertActor(target, session); });
-  sessionStorage.setItem(sessionKey, key);
-  return { key, text, context, ...session };
+  const target = db, authority = await readCaptureInputActor(), sessionKey = `youtrace:input:${target.ownerId ?? 'guest'}`;
+  const previousKey = sessionStorage.getItem(sessionKey), sourceKey = previousKey ?? 'quicknote_draft';
+  const value = await target.transaction('rw', target.settings, async () => {
+    await assertCaptureInputActor(authority);
+    const session = await actor(target);
+    const previous = await target.settings.get(sourceKey), savedContext = await target.settings.get(`${sourceKey}:context`);
+    const prior = await target.settings.get(captureInputOriginKey(sourceKey)), consumed = await target.settings.get(captureInputConsumptionKey(sourceKey));
+    const text = typeof previous?.value === 'string' ? previous.value : '';
+    const context = text ? savedContext?.value as CaptureContext | undefined ?? unknownContext() : newCaptureContext();
+    const key = `capture-input:${generateLocalId()}`;
+    await target.settings.add({ key, value: text }); await target.settings.add({ key: `${key}:context`, value: context });
+    await recordCaptureInputOrigin(target, key, authority, sourceKey, previous, savedContext, prior, consumed);
+    await assertCaptureInputActor(authority);
+    return { key, text, context, ...session };
+  });
+  await assertCaptureInputActor(authority); assertLocalActorNow(authority);
+  sessionStorage.setItem(sessionKey, value.key);
+  return value;
 }
 export async function saveCaptureInput(input: CaptureInput, text: string, context = input.context): Promise<void> {
   const target = db;
   await target.transaction('rw', target.settings, async () => { await assertActor(target, input); await target.settings.put({ key: input.key, value: text }); await target.settings.put({ key: `${input.key}:context`, value: context }); await assertActor(target, input); });
 }
 export async function createCaptureDraft(input: string, source: CaptureInput, context = source.context): Promise<CaptureDraft> {
-  const target = db; await assertActor(target, source);
+  const target = db, authority = await readCaptureInputActor(); await assertActor(target, source);
+  await target.transaction('r', target.settings, async () => { await assertNewCaptureInput(authority, source.key); });
+  await assertCaptureInputActor(authority); assertLocalActorNow(authority);
   return { id: generateLocalId(), input, inputKey: source.key, context, ownerId: source.ownerId, dataEpoch: source.dataEpoch, sessionRevision: source.sessionRevision, sessionActive: source.sessionActive, ...parseQuickNote(input, context), diaryDate: context.date, moodConfirmed: false };
 }
 export function captureFingerprint(draft: CaptureDraft): string {
@@ -58,21 +70,24 @@ export class CaptureChangedError extends Error {
 }
 /** expectedFingerprint is supplied by the new editor's serial autosave queue. */
 export async function saveCaptureDraft(draft: CaptureDraft, makeCurrent = false, expectedFingerprint?: string): Promise<string> {
-  const target = db, session = await actor(target);
+  const target = db, authority = await readCaptureInputActor(), session = await actor(target);
   if (draft.ownerId !== undefined && draft.ownerId !== session.ownerId) throw new Error('确认稿不属于当前账号');
   if (draft.dataEpoch !== undefined && draft.dataEpoch !== session.dataEpoch || draft.sessionRevision !== undefined && draft.sessionRevision !== session.sessionRevision || draft.sessionActive !== undefined && draft.sessionActive !== session.sessionActive) throw new Error('确认稿会话已变化，请重新核对，原文未删除');
-  return target.transaction('rw', target.settings, async () => {
+  const savedId = await target.transaction('rw', target.settings, async () => {
     await assertActor(target, session);
     const receipt = (await target.settings.get(`capture-applied:${draft.id}`))?.value as CaptureReceipt | undefined;
     if (receipt?.fingerprint === captureFingerprint(draft)) return draft.id;
     const old = (await target.settings.get(`capture-review:${draft.id}`))?.value as CaptureDraft | undefined;
     if (receipt || expectedFingerprint !== undefined && old && captureFingerprint(old) !== expectedFingerprint && captureFingerprint(old) !== captureFingerprint(draft)) draft = { ...draft, id: generateLocalId() };
+    if ((!old || old.id !== draft.id) && draft.inputKey !== undefined) await assertNewCaptureInput(authority, draft.inputKey);
     await target.settings.put({ key: `capture-review:${draft.id}`, value: draft });
     const current = (await target.settings.get('quicknote_review'))?.value as CaptureDraft | undefined;
     if (makeCurrent || current?.id === draft.id) await target.settings.put({ key: 'quicknote_review', value: draft });
-    await assertActor(target, session);
+    await assertActor(target, session); await assertCaptureInputActor(authority);
     return draft.id;
   });
+  await assertCaptureInputActor(authority); assertLocalActorNow(authority);
+  return savedId;
 }
 export async function loadCaptureDraft(id?: string | null): Promise<CaptureDraft | null> {
   const target = db, session = await actor(target);
