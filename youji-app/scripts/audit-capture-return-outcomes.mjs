@@ -228,10 +228,7 @@ export async function runCaptureReturnOutcomes(h) {
         const snapshot = await page.evaluate(readExistingAccount, owner);
         return { snapshot, databaseName: snapshot.databaseName, version: snapshot.version, schema: snapshot.schema, local: Object.fromEntries(snapshot.tables.map(table => [table.name, decodeCaptureEvidence(table.losslessRows)])) };
       };
-      const facts = async (name, { settle = true, extra = {} } = {}) => {
-        let source = await local();
-        if (settle) for (let i = 0; i < 60 && source.local.outbox.length; i++) { await sleep(250); source = await local(); }
-        if (settle) assert.equal(source.local.outbox.length, 0, 'Whole outbox must ACK before the next task segment');
+      const readLedger = async () => {
         const allEvents = [], pages = []; let cursor = '0', finished = false;
         for (let i = 0; i < 20; i++) {
           const path = `/api/sync/pull?protocol=2&features=goals-v1&cursor=${cursor}&limit=500`, body = await get(path); pages.push({ path, body });
@@ -240,6 +237,13 @@ export async function runCaptureReturnOutcomes(h) {
           assert.ok(sequence(body.nextCursor) && BigInt(body.nextCursor) > BigInt(cursor)); cursor = body.nextCursor;
         }
         assert.ok(finished && ledgerValid(allEvents), 'Complete bounded GET ledger, never a truncated prefix');
+        return { allEvents, pages };
+      };
+      const facts = async (name, { settle = true, extra = {} } = {}) => {
+        let source = await local();
+        if (settle) for (let i = 0; i < 60 && source.local.outbox.length; i++) { await sleep(250); source = await local(); }
+        if (settle) assert.equal(source.local.outbox.length, 0, 'Whole outbox must ACK before the next task segment');
+        const { allEvents, pages } = await readLedger();
         const result = { ...source, allEvents };
         await save(`${name}-full-source`, { syntheticOnly: true, observedByDriverAt: new Date().toISOString(), browserClock: await page.evaluate(() => ({ instant: new Date().toISOString(), fixture: globalThis.__youtraceAuditClock })), serverAuditClock: 'real, never aligned to browser business date', ...result, pages, ...extra });
         lastFacts = result; return result;
@@ -591,7 +595,7 @@ export async function runCaptureReturnOutcomes(h) {
         }
         const currentInputKey = await page.evaluate(key => sessionStorage.getItem(key), `youtrace:input:${owner}`); assert.equal(currentInputKey, current.inputKey);
         await save('changed-branches-outcome', { ids: reviewed.map(value => value.id), currentInputKey, expectedKey: current.inputKey, oldDraftsPhysicallyRetained: true, currentDraftUncommitted: true, note: discovery });
-        const catalog = await runCaptureCatalogReadOnly({ page, label, current, reviewed, before: end, returnComposer, facts, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions, sleep });
+        const catalog = await runCaptureCatalogReadOnly({ page, label, current, reviewed, before: end, returnComposer, facts, readLedger, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions, sleep });
         const speech = await runCaptureSpeechTail({ page, label, current, before: catalog.facts, returnComposer, facts, preserve, read, readValue, tap, input, retained, save, observe, mark, waitPath, capture });
         await runCaptureCatalogLongOriginal({ page, label, current: speech.draft, before: speech.facts, reviewed, returnComposer, input, facts, preserve, tap, retained, waitPath, save, mark, show: catalog.show });
       }

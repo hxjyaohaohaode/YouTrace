@@ -76,13 +76,15 @@ test('every original line needs raw painted unclipped geometry; a true visible f
   assert.throws(() => assertCaptureCatalogLines([page1], state.raw)); assertCaptureCatalogLines([page1,page2], state.raw);
 });
 
-test('native extension preserves first error and tries remaining evidence before cleanup, even when first artifact write fails', async () => {
-  const previous = process.env.GITHUB_ACTIONS; process.env.GITHUB_ACTIONS = 'true'; const order: string[] = [], original = new Error('original native failure');
+test('native extension preserves first error and tries remaining evidence before cleanup, even when first artifact write and local snapshot fail', async () => {
+  const previous = process.env.GITHUB_ACTIONS; process.env.GITHUB_ACTIONS = 'true'; const order: string[] = [], saved: Record<string, unknown> = {}, original = new Error('original native failure');
   const facts = readonlyFacts(), editor = { href:'synthetic',input:'D',review:'D',fields:[] };
   const page = { evaluate: async (fn: (...args: unknown[]) => unknown) => { const code = fn.toString(); if (code.includes('Prior catalog observer')) { order.push('install'); return; } if (code.includes('Original editor missing')) return editor; if (code.includes('.release()')) { order.push('release'); return { restored:true,dropped:0 }; } if (code.includes('.snapshot()')) { order.push('snapshot'); return { writes:[],dropped:0 }; } throw Error('unexpected evaluate'); } };
   try {
-    await assert.rejects(runCaptureCatalogReadOnly({ page,label:'contract',current:actor,reviewed:[],before:facts, facts:async (name:string) => { order.push(`facts:${name}`); return facts; }, tap:async () => { throw original; }, save:async (name:string) => { order.push(`save:${name}`); if(name.endsWith('FIRST-FAILURE')) throw Error('synthetic disk failure'); }, capture:async () => { order.push('screenshot'); }, mark() {}, actions:[] }), error => error === original);
-    assert.ok(order.includes('snapshot')); assert.ok(order.includes('screenshot')); assert.ok(order.includes('facts:catalog-review-failure')); assert.ok(order.indexOf('release') > order.indexOf('screenshot')); assert.ok(order.includes('save:catalog-review-collection-results'));
+    await assert.rejects(runCaptureCatalogReadOnly({ page,label:'contract',current:actor,reviewed:[],before:facts, facts:async (name:string) => { order.push(`facts:${name}`); if(name.endsWith('-failure')) throw Error('synthetic local snapshot failure'); return facts; }, readLedger:async () => { order.push('independent-ledger'); return { allEvents:facts.allEvents,pages:[] }; }, tap:async () => { throw original; }, save:async (name:string,value:unknown) => { saved[name] = structuredClone(value); order.push(`save:${name}`); if(name.endsWith('FIRST-FAILURE')) throw Error('synthetic disk failure'); }, capture:async () => { order.push('screenshot'); }, mark() {}, actions:[] }), error => error === original);
+    assert.ok(order.includes('snapshot')); assert.ok(order.includes('screenshot')); assert.ok(order.includes('facts:catalog-review-failure')); assert.ok(order.includes('independent-ledger')); assert.ok(order.includes('save:catalog-review-failure-ledger')); assert.ok(order.indexOf('release') > order.indexOf('independent-ledger')); assert.ok(order.indexOf('release') > order.indexOf('screenshot')); assert.ok(order.includes('save:catalog-review-collection-results'));
+    const report = saved['catalog-review-collection-results'] as { originalError:string;collectionFailures:Array<{part:string}> };
+    assert.equal(report.originalError, original.message); assert.deepEqual(report.collectionFailures.map(row=>row.part), ['first-error','source']);
   } finally { if(previous === undefined) delete process.env.GITHUB_ACTIONS; else process.env.GITHUB_ACTIONS = previous; }
 });
 

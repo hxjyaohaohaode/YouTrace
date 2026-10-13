@@ -135,7 +135,7 @@ export function assertCaptureCatalogLines(states, expected) {
 
 export async function runCaptureCatalogReadOnly(h) {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Hosted CI only');
-  const { page, label, current, reviewed, before, returnComposer, facts, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions } = h;
+  const { page, label, current, reviewed, before, returnComposer, facts, readLedger, preserve, read, tap, retained, save, observe, mark, waitPath, capture, actions } = h;
   let latest = before;
   const show = async (pageKind, entries, { escape = false, long = false } = {}) => {
     const name = `catalog-${pageKind}`, root = pageKind.startsWith('composer') ? COMPOSER : REVIEW;
@@ -213,6 +213,9 @@ export async function runCaptureCatalogReadOnly(h) {
       await tryCollect('audit', async () => { audit = await page.evaluate(() => globalThis.__captureCatalogAudit.snapshot()); await save(`${name}-failure-audit`, audit); });
       await tryCollect('screenshot', () => capture(page, `${label}-${name}-FIRST-FAILURE`));
       await tryCollect('source', async () => { after = await facts(`${name}-failure`, { settle: false }); });
+      // Independent GET corroboration still runs if the local snapshot above
+      // failed. Its own failure is recorded, never substituted for missing IDB.
+      await tryCollect('ledger', async () => { await save(`${name}-failure-ledger`, await readLedger()); });
     } finally {
       await tryCollect('restore-audit', async () => { const released = await page.evaluate(() => globalThis.__captureCatalogAudit.release()); await save(`${name}-audit-restored`, released); assert.equal(released.restored, true); assert.equal(released.dropped, 0); });
       await tryCollect('collection-log', () => save(`${name}-collection-results`, { originalError: firstError?.message ?? null, collectionFailures }));
