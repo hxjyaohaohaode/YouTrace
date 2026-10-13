@@ -36,6 +36,7 @@ function acted() {
   const before = delivered().after, after = clone(before), key = `capture-input:${'a'.repeat(32)}`, composer = { key, before: NOW, after: NOW + 1000, day: clock.day };
   after.local.coachPushes[0].read = true; after.local.coachPushes[0].acted = true;
   put(after, 'consecutiveIgnores', 0); put(after, key, ''); put(after, `${key}:context`, { capturedAt: NOW + 200, timeZone: 'Asia/Shanghai', date: clock.day });
+  put(after, `capture-input-origin:${key}`, { format: 'youtrace-capture-input-origin-v1', key, ownerId: before.owner, epoch: undefined, sourceKey: 'quicknote_draft', parent: 'root', sourceMetadataPresent: false, sourceConsumptionPresent: false, input: { present: false }, context: { present: false } });
   return { before, after, composer };
 }
 function preferenceChange() {
@@ -102,7 +103,7 @@ test('Reading may mark only the unique target read; missing entry cannot excuse 
   assert.equal(checks.opened(before, after), true); assert.equal(checks.preserved(before, after), false);
   after.local.coachPushes[0].acted = true; refresh(after); assert.equal(checks.opened(before, after), false);
 });
-test('Go record requires same-ID read/acted and exactly two native empty-input keys', () => {
+test('Go record requires same-ID read/acted and exact input/context and independently proven empty-root provenance', () => {
   const { before, after, composer } = acted(); assert.equal(checks.feedback(before, after, '去记录', composer), true);
   assert.equal(checks.feedback(before, after, '去记录', { ...composer, key: [composer.key] }), false);
   for (const change of [
@@ -169,4 +170,29 @@ test('Read status is monotonic across arrival and the later before-action source
   assert.equal(checks.opened(arrived, clone(arrived)), true);
   const reverted = clone(arrived); reverted.local.coachPushes[0].read = false; refresh(reverted);
   assert.equal(checks.opened(arrived, reverted), false, 'Compare the action freeze with arrival; the earlier unread state cannot excuse a later regression');
+});
+
+
+test('Fresh empty-input provenance requires exact owner/epoch, five absent source rows and no hidden field loss', () => {
+  const { before, after, composer } = acted(), originKey = `capture-input-origin:${composer.key}`;
+  const get = (f: Facts) => f.local.settings.find(row => row.key === originKey).value;
+  assert.equal(Object.hasOwn(get(after), 'epoch'), true);
+  for (const mutate of [
+    (f: Facts) => { get(f).ownerId = 'foreign'; }, (f: Facts) => { get(f).epoch = 'foreign-epoch'; },
+    (f: Facts) => { delete get(f).epoch; }, (f: Facts) => { get(f).sourceKey = 'other-source'; },
+    (f: Facts) => { get(f).parent = 'unknown'; }, (f: Facts) => { get(f).input = { present: true, row: { key: 'quicknote_draft', value: '' } }; },
+    (f: Facts) => { get(f).sourceConsumptionPresent = true; }, (f: Facts) => { get(f).sourceMetadataPresent = true; },
+    (f: Facts) => { get(f).extra = undefined; }, (f: Facts) => { f.local.settings = f.local.settings.filter(row => row.key !== originKey); },
+  ]) { const bad = clone(after); mutate(bad); refresh(bad); assert.equal(checks.feedback(before, bad, '去记录', composer), false); }
+  for (const key of ['quicknote_draft', 'quicknote_draft:context', 'capture-input-origin:quicknote_draft', 'capture-input-consumption:quicknote_draft', 'capture-input-consumption-head:quicknote_draft', originKey]) {
+    for (const value of [undefined, null, '', {}]) assert.equal(checks.feedback(put(clone(before), key, value), after, '去记录', composer), false);
+  }
+  const old = put(clone(before), 'localDataEpoch', 'known-epoch'), next = put(clone(after), 'localDataEpoch', 'known-epoch');get(next).epoch = 'known-epoch';refresh(next);assert.equal(checks.feedback(old, next, '去记录', composer), true);
+  for (const value of [undefined, null, '', 0]) assert.equal(checks.feedback(put(clone(before), 'localDataEpoch', value), after, '去记录', composer), false);
+});
+
+
+test('reminder profiles keep two distinct runtime synthetic identifiers and original action/viewport contract',()=>{
+ assert.deepEqual(checks.profiles.map(({width,height,action}:{width:number;height:number;action:string})=>({width,height,action})),[{width:1280,height:900,action:'去记录'},{width:360,height:800,action:'今天够了'}]);
+ assert.equal(new Set(checks.profiles.map(({phone}:{phone:string})=>phone)).size,2);for(const {phone} of checks.profiles)assert.match(phone,/^139\d{8}$/);
 });

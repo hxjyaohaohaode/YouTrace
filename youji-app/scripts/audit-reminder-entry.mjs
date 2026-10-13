@@ -1,5 +1,6 @@
 // Native empty-account reminder RED baseline. No app imports or injected state.
 import assert from 'node:assert/strict';
+import { randomInt } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
 import { initialSessionGeometry } from './audit-initial-session-controls.mjs';
@@ -14,7 +15,9 @@ const BUSINESS = ['todos', 'expenses', 'quickNotes', 'diary', 'habits', 'habitCh
 const DELIVERY = `pushDelivery:evening_review:${TITLE}`;
 const BELL = 'main :is(button,a[href="/insights"])[aria-label^="教练洞察"]';
 const TIME = '[data-component="time-preference"]:has(#evening-review-time)';
-const PROFILES = [{ width: 1280, height: 900, phone: '13900008971', action: '去记录' }, { width: 360, height: 800, phone: '13900008972', action: '今天够了' }];
+// Hosted runner forces development OTP and empty SMS provider configuration.
+const syntheticPhoneBase = randomInt(10000000, 99999998);
+const PROFILES = [{ width: 1280, height: 900, phone: `139${syntheticPhoneBase}`, action: '去记录' }, { width: 360, height: 800, phone: `139${syntheticPhoneBase + 1}`, action: '今天够了' }];
 const settings = facts => facts.local.settings;
 const setting = (facts, key) => settings(facts).find(row => row.key === key);
 // Existing ACK helpers only need settings rows. Keep their read-only shape,
@@ -110,7 +113,16 @@ function feedback(before, after, action, composer) {
     const key = composer?.key; if (typeof key !== 'string') return false;
     const context = setting(after, `${key}:context`)?.value;
     if (!/^capture-input:[a-f0-9]{32}$/.test(key) || setting(before, key) || setting(before, `${key}:context`) || !context || !Number.isSafeInteger(context.capturedAt) || context.capturedAt < composer.before || context.capturedAt > composer.after || !equal(context, { capturedAt: context.capturedAt, timeZone: 'Asia/Shanghai', date: businessClock(context.capturedAt).day }) || context.date !== composer.day) return false;
-    writes[key] = ''; writes[`${key}:context`] = context;
+    // This fresh account must prove the actual five legacy source rows absent;
+    // only the exact new immutable empty-root provenance is an allowed third row.
+    const sourceKey = 'quicknote_draft', originKey = `capture-input-origin:${key}`;
+    const oldKeys = [sourceKey, `${sourceKey}:context`, `capture-input-origin:${sourceKey}`, `capture-input-consumption:${sourceKey}`, `capture-input-consumption-head:${sourceKey}`];
+    if (oldKeys.some(name => setting(before, name) !== undefined) || setting(before, originKey) !== undefined) return false;
+    const epochRow = setting(before, 'localDataEpoch');
+    if (epochRow !== undefined && (!equal(Object.keys(epochRow).sort(), ['key', 'value']) || typeof epochRow.value !== 'string' || !epochRow.value)) return false;
+    const origin = { format: 'youtrace-capture-input-origin-v1', key, ownerId: before.owner, epoch: epochRow?.value, sourceKey, parent: 'root', sourceMetadataPresent: false, sourceConsumptionPresent: false, input: { present: false }, context: { present: false } };
+    if (!equal(setting(after, originKey), { key: originKey, value: origin })) return false;
+    writes[key] = ''; writes[`${key}:context`] = context; writes[originKey] = origin;
   } else if (action !== '今天够了') return false;
   return preserved(before, after, { writes, pushRows: action === '去记录' ? [{ ...target, read: true, acted: true }] : [] });
 }
@@ -281,7 +293,7 @@ export async function runReminderEntry(h) {
       do { const local = project(await page.evaluate(readExistingAccount, api.ownerId)), row = local.local.coachPushes.find(row => row.id === target.id); feedbackReady = config.action === '去记录' ? row?.read === true && row?.acted === true : !row; if (feedbackReady) break; await sleep(75); } while (Date.now() < feedbackEnd);
       assert.ok(feedbackReady, 'Actual local reminder action did not finish; no resend or replacement action');
       const afterAction = await facts('action-full-source'); actionWindow.after = Date.now(); assert.ok(feedback(frozen, afterAction, config.action, actionWindow));
-      await save('action-result', { targetId: target.id, action: config.action, actionWindow, differences: differences(frozen, afterAction), boundary: 'Ordinary empty composer adds exactly its two local input keys; no business Save, draft review, credentials or account-permission claim' });
+      await save('action-result', { targetId: target.id, action: config.action, actionWindow, differences: differences(frozen, afterAction), boundary: 'Ordinary empty composer adds exactly its input, context and proven empty-root provenance; no business Save, draft review, credentials or account-permission claim' });
       const briefOffset = briefs.length;
       if (config.action === '去记录') await tap('[data-component="capture-composer"] button[aria-label="返回"]');
       if (new URL(page.url()).pathname !== '/') await home(); else await waitPath(page, '/');

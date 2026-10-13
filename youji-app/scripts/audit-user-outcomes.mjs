@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile, access, stat, readFile, readdir, rename 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, randomInt } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { runLegacyBackupOutcomes } from './audit-legacy-backup.mjs';
 import { runSharedGoalKeyboardOutcomes } from './audit-shared-goal-keyboard.mjs';
@@ -28,9 +28,14 @@ import { runCaptureReturnOutcomes } from './audit-capture-return-outcomes.mjs';
 import { preferenceEvidenceErrorName } from './audit-preference-contract.mjs';
 import { createHabitAuditClock } from './audit-clock.mjs';
 import { revealRecordControl } from './audit-record-pointer.mjs';
+import { installCaptureStorageFault, collectCaptureStorageFailure } from './audit-capture-storage-fault.mjs';
+import { readExistingAccount } from './audit-initial-session-outcomes.mjs';
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('This diagnostic is hosted-CI only; do not retry a locally restricted browser or listener.');
 
+// Runtime synthetic identifiers are safe only with the runner's forced test-only, no-provider SMS environment.
+const runtimeRecordPhoneBase = randomInt(10000000, 99999990);
+const runtimeRecordPhone = index => `139${runtimeRecordPhoneBase + index}`;
 const taskSet = process.env.AUDIT_TASK_SET ?? 'records';
 assert.ok(['records', 'coach', 'coach-deletion', 'planning', 'habits', 'habits-frequency', 'goals', 'legacy-goals-enrollment', 'legacy-goals-source', 'initial-session', 'startup-recovery', 'legacy-backup', 'shared-goals', 'shared-goals-keyboard', 'preferences-normal', 'preferences-write', 'preferences-read', 'preferences-conflict', 'expense-records', 'expense-budget', 'diary-records', 'diary-recovery', 'todo-records', 'keyboard-records', 'capture-return'].includes(taskSet), 'Unknown bounded outcome task set');
 const root = resolve(import.meta.dirname, '..');
@@ -377,7 +382,7 @@ async function readRecordControl(page, selector) {
   return revealRecordControl(page, selector, { actions, surface: surfaceNames.get(page), sleep });
 }
 async function mobileDiscoveryAndCreation(page) {
-  await login(page, '13900008806', 'Synthetic YN'); const api = await apiFor(page);
+  await login(page, runtimeRecordPhone(6), 'Synthetic YN'); const api = await apiFor(page);
   const shortcutsVisible = await page.$$eval('main nav[aria-label="安排与记录快捷入口"] a', rows => ['待办', '习惯'].every(label => rows.some(el => { const r = el.getBoundingClientRect(); return el.getAttribute('aria-label') === label && el.getAttribute('href') === (label === '待办' ? '/todo' : '/habit') && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility === 'visible'; })));
   await observe(page, 'YN-first-use-tasks-visible', shortcutsVisible, 'The actual Home exposes dated-task and habit shortcuts directly with their exact destinations; creation and return still follow the unchanged native journey');
   await readRecordControl(page, 'main a[aria-label="待办"]');
@@ -490,7 +495,7 @@ async function retrieveOlderThanMonth(page, api, existingHistoryCount) {
   await observe(page, 'Y2-older-than-month-return-all-range-position', await page.$eval('button[aria-pressed="true"]', el => el.textContent === '全部记录') && Math.abs(returned.scroll.y - before.scroll.y) < 40 && returned.text.includes('Synthetic 已核对45天前午饭'), `All-record range retained, original ${before.scroll.y}px / return ${returned.scroll.y}px`);
 }
 async function receiptReadFailureAfterUpdate(page) {
-  await login(page, '13900008805', 'Synthetic YR');
+  await login(page, runtimeRecordPhone(5), 'Synthetic YR');
   await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
   await fill(page, 'textarea[aria-label="速记内容"]', '午饭8元'); await pointer(page, 'button', '查看确认稿'); await waitPath(page, '/quick-note/result');
   await checked(page, 'input[aria-label="将这段文字记入日记"]', false); await checked(page, 'input[aria-label="我愿意记录这次心情"]', false);
@@ -583,7 +588,7 @@ async function receiptReadFailureAfterUpdate(page) {
 
 async function firstValue(page, narrow = false) {
   if (narrow) { await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); actions.push({ kind: 'browser-prefers-reduced-motion', value: 'reduce' }); }
-  const label = narrow ? 'Y1N' : 'Y1'; await login(page, narrow ? '13900008803' : '13900008801', `Synthetic ${label}`);
+  const label = narrow ? 'Y1N' : 'Y1'; await login(page, narrow ? runtimeRecordPhone(3) : runtimeRecordPhone(1), `Synthetic ${label}`);
   const firstRecord = await page.$eval('section[aria-labelledby="home-capture-title"]', el => ({ title: el.querySelector('h2')?.textContent, text: el.innerText, links: [...el.querySelectorAll('a')].map(link => ({ text: link.textContent.trim(), href: link.getAttribute('href') })) }));
   await observe(page, `${label}-first-use-one-record-task`, firstRecord.title === '记一句' && firstRecord.text.includes('先记下来，再由你决定怎么整理') && firstRecord.links.length === 1 && firstRecord.links[0].text === '写下第一条速记' && firstRecord.links[0].href === '/quick-note' && !(await state(page)).text.includes('¥2,500'), 'New account sees one exact first-record action, explicit user-controlled organizing and no invented budget');
   if (narrow) await discoverMobileTasks(page);
@@ -704,7 +709,7 @@ async function firstValue(page, narrow = false) {
 }
 
 async function retrievePast(page) {
-  await login(page, '13900008802', 'Synthetic Y2'); const api = await apiFor(page);
+  await login(page, runtimeRecordPhone(2), 'Synthetic Y2'); const api = await apiFor(page);
   const items = Array.from({ length: 70 }, (_, index) => ({ amount: 1000 + index, category: 'food', name: 'Synthetic 同名午饭', date: businessDate(-Math.floor(index / 10)) }));
   const expenses = (await api('/expenses/batch', { items })).expenses, diaries = [];
   for (let offset = 0; offset < 7; offset++) diaries.push((await api('/diary', { date: businessDate(-offset), content: `Synthetic 同名日记 ${offset} · 需要找回与修改的具体原文`, moodScore: null })).diary);
@@ -746,20 +751,46 @@ async function retrievePast(page) {
   await segment(page, 'Y2-older-than-month-complete-task', () => retrieveOlderThanMonth(page, api, expenses.length + diaries.length + 1));
 }
 async function recoverStorage(page) {
-  await login(page, '13900008804', 'Synthetic YF');
-  // Explicit fault injection at the browser IndexedDB API boundary only. No
-  // app stores, auth state or records are seeded and no control is DOM-clicked.
-  await page.evaluate(() => { window.__originalPut = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(value, ...args) { if (this.name === 'settings' && String(value?.key).startsWith('capture-input:')) throw new DOMException('Synthetic quota', 'QuotaExceededError'); return window.__originalPut.call(this, value, ...args); }; });
-  actions.push({ kind: 'synthetic-IDB-put-quota-injection', scope: 'capture-input only' });
-  await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
-  const text = 'Synthetic 存储失败仍保留原文；明天要交资料'; await fill(page, 'textarea[aria-label="速记内容"]', text);
-  await observe(page, 'YF-text-mode-failure-visible-editable', (await state(page)).text.includes('草稿存储暂时打不开') && await page.$eval('textarea', el => !el.disabled && el.value.includes('仍保留原文')), 'Actual text-mode init failure explains cause and preserves editable original');
-  await pointer(page, 'button', '复制原文'); await capture(page, 'YF-copy-or-select-fallback');
-  await page.evaluate(() => { IDBObjectStore.prototype.put = window.__originalPut; delete window.__originalPut; }); actions.push({ kind: 'remove-synthetic-quota-fault' });
+  await login(page, runtimeRecordPhone(4), 'Synthetic YF');
+  const api = await apiFor(page), databaseName = `youtrace:user:${api.ownerId}:schedule-v1`;
+  const save = (name, value) => writeFile(join(artifacts, `YF-storage-${name}.json`), JSON.stringify(value, null, 2));
+  const text = 'Synthetic 存储失败仍保留原文；明天要交资料';
+  let primary = null, installed = false;
+  try {
+    await save('before-source', await page.evaluate(readExistingAccount, api.ownerId));
+    const installedFault = await page.evaluate(installCaptureStorageFault, databaseName); installed = true; await save('installed', installedFault);
+    actions.push({ kind: 'synthetic-IDB-add-put-quota-injection', scope: 'exact owner/settings/readwrite/capture-input key only' });
+    await pointer(page, 'main a', '写下第一条速记'); await waitPath(page, '/quick-note');
+    await page.waitForFunction(() => document.body.innerText.includes('草稿存储暂时打不开'), { timeout: 7000 });
+    const initial = await page.evaluate(() => globalThis.__captureStorageFault.snapshot());
+    await save('initialization-fault', initial);
+    assert.equal(initial.databaseName, databaseName); assert.equal(initial.dropped, 0);
+    assert.ok(initial.hits.some(row => row.method === 'add'), 'Actual initial fork add must fail before typing, not only later autosave');
+    await save('failed-initial-source', await page.evaluate(readExistingAccount, api.ownerId));
+    await fill(page, 'textarea[aria-label="速记内容"]', text);
+    await observe(page, 'YF-text-mode-failure-visible-editable', (await state(page)).text.includes('草稿存储暂时打不开') && await page.$eval('textarea', (el, expected) => !el.disabled && el.value === expected, text), 'Actual initial add failed; precise error and complete editable original retained');
+    await save('typed-original', { expected: text, actual: await page.$eval('textarea', el => el.value), fault: await page.evaluate(() => globalThis.__captureStorageFault.snapshot()) });
+    await pointer(page, 'button', '复制原文'); await capture(page, 'YF-copy-or-select-fallback');
+  } catch (error) {
+    primary = error;
+    const failures = await collectCaptureStorageFailure({
+      firstError: () => save('FIRST-FAILURE', { name: error.name, message: error.message }),
+      fault: async () => save('failure-fault', await page.evaluate(() => globalThis.__captureStorageFault?.snapshot() ?? null)),
+      source: async () => save('failure-source', await page.evaluate(readExistingAccount, api.ownerId)),
+      editor: async () => save('failure-editor', await page.$eval('textarea', el => ({ value: el.value, disabled: el.disabled }))),
+      screenshot: () => capture(page, 'YF-storage-FIRST-FAILURE'),
+    }, error);
+    try { await save('collection-failures', { original: error.message, failures }); } catch { /* original error remains primary */ }
+  } finally {
+    if (installed) try { const released = await page.evaluate(() => globalThis.__captureStorageFault.release()); await save('released', released); assert.equal(released.restored, true); assert.equal(released.dropped, 0); } catch (error) { primary ??= error; }
+  }
+  if (primary) throw primary;
+  actions.push({ kind: 'remove-synthetic-quota-fault', methods: ['add', 'put'] });
   await pointer(page, 'button', '重试草稿存储'); await pointer(page, 'button', '查看确认稿'); await waitPath(page, '/quick-note/result');
   await observe(page, 'YF-recovery-no-retyping', (await state(page)).text.includes('规则整理可能有遗漏'), 'Storage recovery reaches confirmation with same raw input');
   await checked(page, 'input[aria-label="将这段文字记入日记"]', false); await pointer(page, 'button', '确认保存所选记录'); await page.waitForFunction(() => location.search.includes('receipt='));
-  const api = await apiFor(page), local = await settledRows(page, api); await observe(page, 'YF-recovered-exact-original', local.quickNotes.some(row => row.rawInput === text), 'Original survives real browser failure, retry, confirmation and IndexedDB write');
+  const local = await settledRows(page, api); await save('recovered-source', await page.evaluate(readExistingAccount, api.ownerId));
+  await observe(page, 'YF-recovered-exact-original', local.quickNotes.some(row => row.rawInput === text), 'Original survives real browser initial failure, retry, confirmation and IndexedDB write');
 }
 
 try {

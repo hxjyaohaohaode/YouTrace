@@ -163,3 +163,9 @@ for(const late of ['resolve','reject']as const)test(`completed old child late ${
  await shared();const gate=deferred();let entered=false;const s=setup('QuickNoteResult',{'../services/quickNoteIntegration':{...capture,applyCaptureContinuation:async(...args:Parameters<typeof capture.applyCaptureContinuation>)=>{const result=await capture.applyCaptureContinuation(...args);entered=true;await gate.promise;if(late==='reject')throw new Error('old synthetic result rejected');return result;}}}),tree=await mount(s);let other:ReactTestRenderer|undefined;
  try{await continueO(tree);await act(async()=>button(tree,'确认保存所选记录').props.onClick());await settle(()=>entered);const committed=await facts();await act(async()=>tree.unmount());const next=setup('QuickNoteResult');other=await mount(next);const fieldsBefore=fields(other);gate.resolve();await act(async()=>{await tick();await tick();});assert.deepEqual(fields(other),fieldsBefore);assert.doesNotMatch(text(other.root),/这次记录已保存在本机|继续核对原稿 O|old synthetic/);assert.deepEqual(await facts(),committed);assert.deepEqual(next.navigations,[]);}finally{gate.resolve();if(other)await act(async()=>other!.unmount());}
 });
+
+test('isolated original-ID heading retains full text and requires shrink/wrap classes',async()=>{
+ const id='a'.repeat(32),old=await seed(id,'  合成长编号原文  ');await seed('D','当前原文');const s=setup('QuickNote'),tree=await mount(s);
+ try{await openOriginal(tree,id);await act(async()=>button(tree,'继续核对此稿').props.onClick());await settle(()=>text(tree.root).includes(`继续核对原稿 ${id}`));const heading=tree.root.findByProps({id:'continuation-review-title'});assert.equal(text(heading),`继续核对原稿 ${old.id}`);assert.equal(heading.props.className,'[overflow-wrap:anywhere]');assert.equal(heading.parent?.props.className,'min-w-0 flex-1');}
+ finally{await act(async()=>tree.unmount());}
+});

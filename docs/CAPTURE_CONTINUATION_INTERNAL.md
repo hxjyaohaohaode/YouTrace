@@ -109,7 +109,7 @@ SHA-256 是本地一致性/损坏检测，不是认证：整套 index/head 一�
 目前真实模块/实际 React 父页合同包括：原ID修正和共享key不同日期保全、零编辑取消、pending/failed父页拒绝、准备中取消/改文拒绝、同ID双编辑拒绝、隐藏父换代/epoch拒绝、业务在途重复动作、完成后丢结果/读回失败、金额错误可修正、原语音/返回邻接。Modal/动画/路由宿主、fake IndexedDB仍明确替身；真正两宽点击、焦点、长文与服务器ACK须后续原生。
 
 
-## 同 ID 原生准备（尚未执行）
+## 同 ID 原生准备（7992 前冻结合同）
 
 复用现有 capture-return 两宽/25矩阵及原8分钟预算，原 O/R/D、只读目录、语音替身和40行原文合同全部保留。普通 fork 新增的第三行来源按动作前实际 session 指针、typed 原行存在性、父 context/来源、owner/epoch逐项独立核验，只有精确新增 input/context/origin允许写，不放开整个 settings。
 
@@ -122,3 +122,15 @@ Node 内建 SHA-256 根据独立typed协议重算最终 CAS 行→proof/source/r
 每次失败独立尝试原错、editor/session、IDB、GET账、写观察账和截图；任一收集错误不跳过其它部分或覆盖原错。成功必须证据完整且观察器还原。原生未运行前，本节只有准备合同，不授实际点击/布局/焦点、reload或用户完整流程通过。
 
 原生两个登录标识现在由 Node 内建随机源在运行时生成，仍只供既有本地 CI console 短信适配器使用，不把固定个人样貌手机号写入新源码。历史档案继续保留原运行身份，不改标签。本候选未加入密钥或私人申请材料。
+
+## 7992 原生原件与三项最小修订（新版本仍待原生）
+
+[CI 38376637783](https://github.com/hxjyaohaohaode/YouTrace/actions/runs/38376637783) 的精确源码为 `7992b9913a62b6dc8803971ecc37b21fb84bdf34`，最终25项成功、records/coach/capture-return三项失败、独立初始化诊断按条件跳过，durability单独成功。没有重跑覆盖原件。
+
+Capture原档132453877字节、SHA-256 `8f757b10e2017b8f7db4b1718dc8ad8eb1ba47b1d57b6110849737128794d753`，1745成员逐hash核对。桌面原控件链及独立typed证明/真实两ACK、3个零写窗、技术指定ID重入、独立新空原文和新确认稿已有实际限定证据；360在第一次隔离原稿标题读取失败，H1实际右边界475.234超过360视口，原PNG确见长ID被截断。后续窄屏链未执行。修订只为isolated标题的flex子容器增加可收缩宽度、H1允许任意位置换行，完整原ID/字体/品牌/焦点机制及原几何断言保留；实际组件合同只授类名/完整文本，不能代替新原生布局。
+
+records原105PNG中的原文完整可编辑，但显示后续自动保存失败；旧故障只拦settings.put，当前fork首次创建已走add，所以未击中声明的初始化失败。当前实际模块红已证明旧注入不能拒绝fork。本次仅把测试故障限定到精确账号DB、settings、readwrite和合法capture-input键的add/put，先记录真实add命中并等原初始化错误，再输入精确原文。保存阶段/方法/键/文档账、原来源快照及失败图，逐项取证、先保全再还原原descriptor，原错优先。原Retry、同原文确认和持久保存仍需新原生；不把7992的autosave证据改名为初始化通过。
+
+coach原反馈数据证明原提醒read/acted变化正确，完整cloud和其他业务表/keys不变。唯一未列白名单项是新普通空原文合法的origin第三行。修订要求该行完整typed值、当前owner/epoch、实际五个旧source行缺席、root与两个缺席快照精确匹配，才允许input/context/origin三行；不豁免整settings，不容许缺失undefined字段、任意来源、消费痕迹或其他写入。原facts经losslessRows重建的旧oracle红与修后回放均保留。
+
+本次触及的records与reminder登录标识也改成每轮运行时互异值；其安全性来自同一runner强制test、开发OTP及空SMS provider URL/token，不声称这些号码形状是现实不可投递的保留号段。没有真实短信或真实用户输入。
